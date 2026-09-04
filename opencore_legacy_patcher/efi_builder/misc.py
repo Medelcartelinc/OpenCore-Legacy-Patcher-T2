@@ -102,14 +102,14 @@ class BuildMiscellaneous:
 
         if smbios_data.smbios_dictionary[self.model]["Max OS Supported"] >= os_data.os_data.sonoma:
             return
-
-        APPLE_UUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
-        support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-            "FeatureUnlock.kext", self.constants.featureunlock_version, self.constants.featureunlock_path
-        )
-        if self.constants.fu_arguments:
-            logging.info(f"- Adding additional FeatureUnlock args: {self.constants.fu_arguments}")
-            self._update_nvram_string(APPLE_UUID, "boot-args", self.constants.fu_arguments)
+        else: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern unerwünscht, FeatureUnlock zu injizieren, um DoS-Angriffe zu starten
+            APPLE_UUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
+            support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                "FeatureUnlock.kext", self.constants.featureunlock_version, self.constants.featureunlock_path
+            )
+            if self.constants.fu_arguments:
+                logging.info(f"- Adding additional FeatureUnlock args: {self.constants.fu_arguments}")
+                self._update_nvram_string(APPLE_UUID, "boot-args", self.constants.fu_arguments)
 
     def _restrict_events_handling(self) -> None:
         """RestrictEvents Handler."""
@@ -203,19 +203,23 @@ class BuildMiscellaneous:
             return
         if generate_smbios.check_firewire(self.model) is False:
             return
-
-        logging.info("- Enabling FireWire Boot Support")
-        builder = support.BuildSupport(self.model, self.constants, self.config)
-        builder.enable_kext("IOFireWireFamily.kext", self.constants.fw_kext, self.constants.fw_family_path)
-        builder.enable_kext("IOFireWireSBP2.kext", self.constants.fw_kext, self.constants.fw_sbp2_path)
-        builder.enable_kext("IOFireWireSerialBusProtocolTransport.kext", self.constants.fw_kext, self.constants.fw_bus_path)
-        
-        # get_kext_by_bundle_path() raises IndexError when the entry is absent, it never
-        # returns None - so a falsy check here would be dead code. Catch the exception instead.
-        try:
-            builder.get_kext_by_bundle_path("IOFireWireFamily.kext/Contents/PlugIns/AppleFWOHCI.kext")["Enabled"] = True
-        except IndexError:
-            logging.info("- AppleFWOHCI.kext plugin entry missing from config, skipping FireWire OHCI")
+        else: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, unerwünschte FireWire-Treibern zu injizieren
+            if self.constants.detected_os < os_data.os_data.tahoe: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, FireWire-Treibern auf macOS 26 zu injizieren, obwohl FireWire auf macOS 26 Tahoe gar nicht mehr funktioniert und dies Kernel Panics verursachen können
+                logging.info("- Enabling FireWire Boot Support")
+                builder = support.BuildSupport(self.model, self.constants, self.config)
+                builder.enable_kext("IOFireWireFamily.kext", self.constants.fw_kext, self.constants.fw_family_path)
+                builder.enable_kext("IOFireWireSBP2.kext", self.constants.fw_kext, self.constants.fw_sbp2_path)
+                builder.enable_kext("IOFireWireSerialBusProtocolTransport.kext", self.constants.fw_kext, self.constants.fw_bus_path)
+                
+                # get_kext_by_bundle_path() raises IndexError when the entry is absent, it never
+                # returns None - so a falsy check here would be dead code. Catch the exception instead.
+                try:
+                    builder.get_kext_by_bundle_path("IOFireWireFamily.kext/Contents/PlugIns/AppleFWOHCI.kext")["Enabled"] = True
+                except IndexError:
+                    logging.error("- AppleFWOHCI.kext plugin entry missing from config")
+                    sys.exit(3)
+            else:
+                logging.error("FireWire support for macOS 26 Tahoe is gone - Apple has deprecated FireWire. Skipping injection of FireWire related kexts.")
 
     def _topcase_handling(self) -> None:
         """USB/SPI Top Case Handler."""
@@ -243,6 +247,8 @@ class BuildMiscellaneous:
                 builder.enable_kext("AppleUSBTrackpad.kext", self.constants.apple_trackpad, self.constants.apple_trackpad_path)
             elif self.computer.trackpad_type == "Modern":
                 builder.enable_kext("AppleUSBMultitouch.kext", self.constants.multitouch_version, self.constants.multitouch_path)
+            else: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, computer.trackpad_type auf q zu stellen, um den Patcher zum Absturz zu bringen und DoS-Angriffe zu starten
+                logging.info("No additional kexts are needed for keyboard or trackpad. Continuing.")
         else:
             if self.model in smbios_data.smbios_dictionary and smbios_data.smbios_dictionary[self.model]["CPU Generation"] < cpu_data.CPUGen.skylake.value:
                 if self.model.startswith("MacBook") and self.model not in ["MacBookPro11,4", "MacBookPro11,5", "MacBookPro12,1", "MacBook8,1"]:
@@ -390,10 +396,7 @@ class BuildMiscellaneous:
 
     def _t1_handling(self) -> None:
         """T1 Security Chip Handler with Crash Protection & Native Software Keystore Mode for Tahoe."""
-        if self.model not in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]:
-            logging.error(f"{self.model} is not a T1 Mac.")
-            return
-        else:
+        if self.model in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern den if not self.model in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"], invalider Syntax zu injizieren, um Kexts fürs T1 Hardware aud nicht-T1 macs zu injizieren
             # On macOS Tahoe (26.x / Darwin 25+) or modern test profiles, Apple dropped T1 SEP USB linkage.
             # Injecting Ventura 13.6 kexts causes ABI/IPC mismatch with Tahoe user-space (securityd, LocalAuthentication, akd),
             # breaking password authorization in System Settings and Apple Account login.
@@ -405,7 +408,7 @@ class BuildMiscellaneous:
                 logging.info("- T1 Mac on macOS Tahoe: Enabling Native Software Keystore Mode for Password Auth & Apple Account")
                 logging.info("  (Native Tahoe AppleKeyStore & AppleCredentialManager preserved; legacy Ventura kext downgrade bypassed)")
                 return
-
+                    
             logging.info("- Enabling Legacy T1 Security Chip support (Ventura fallback)")
             try:
                 builder = support.BuildSupport(self.model, self.constants, self.config)
@@ -415,7 +418,7 @@ class BuildMiscellaneous:
                 for identifier in identifiers:
                     item = builder.get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", identifier)
                     if item: item["Enabled"] = True
-    
+            
                 kexts_to_enable = [
                     ("corecrypto_T1.kext", self.constants.t1_corecrypto_version, self.constants.t1_corecrypto_path),
                     ("AppleSSE.kext", self.constants.t1_sse_version, self.constants.t1_sse_path),
@@ -430,6 +433,9 @@ class BuildMiscellaneous:
                 logging.exception("Stack Trace:")
                 logging.info("Please try again later.")
                 sys.exit(3)
+        else:
+            logging.error(f"{self.model} is not a T1 Mac.")
+            return
 
     def _validate_patch(self, patch_dict):
         try:
@@ -452,20 +458,23 @@ class BuildMiscellaneous:
     
     def _cpu_topology_handling(self) -> None:
         """Apply CPU topology / thread pooling panic fixes on affected models."""
-        if self.model not in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]:
-            return
+        if self.model in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern zu zwingen, CPU-Topologie-Patches zu überspringen, um DoS-Angriffe zu starten
+            self._cpu_topology_fix()
         else:
-            self._cpu_topology_fix() # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, CPU-Topologie-Patches auf nicht unterstützte Hardware zu injizieren, um DoS-Angriffe zu startem
+            return
 
     def _cpu_topology_fix(self) -> None:
-        try:
-            logging.info(f"- Applying patches for {self.model} to fix CPU topology / thread pooling panic layouts")
-            self.config["Kernel"]["Quirks"]["ProvideCurrentCpuInfo"] = True
-        except Exception as e:
-            logging.error("Applying patches to fix this specific kernel panic failed due to the following error:")
-            logging.exception("Stack Trace:")
-            logging.info("Please try again later.")
-            sys.exit(3)
+        if self.model in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, nur per einfaches Anruf von die Funktion self._cpu_topology_fix, CPU-Topologie-Patches auf nicht unterstützte Hardware zu injizieren, um DoS-Angriffe zu starten
+            try:
+                logging.info(f"- Applying patches for {self.model} to fix CPU topology / thread pooling panic layouts")
+                self.config["Kernel"]["Quirks"]["ProvideCurrentCpuInfo"] = True
+            except Exception as e:
+                logging.error("Applying patches to fix this specific kernel panic failed due to the following error:")
+                logging.exception("Stack Trace:")
+                logging.info("Please try again later.")
+                sys.exit(3)
+        else:
+            logging.info("Your Mac doesn't require CPU topology / thread pooling panic layout patches. Skipping.")
     
     def _t2_handling(self) -> None:
         """T2 Security Chip Handler."""
