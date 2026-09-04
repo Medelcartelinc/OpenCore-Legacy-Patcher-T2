@@ -61,8 +61,8 @@ class MacosConfigFrame(wx.Frame):
         sizer.AddSpacer(10)
 
         tabs = list(self.settings.keys())
-        if not self.constants.Experimental_Features:
-            tabs.remove("Developer")
+        if not (self.constants.Experimental_Features or self.constants.True_Developer_Mode):
+            tabs.remove("Advanced")
         for tab in tabs:
             panel = wx.ScrolledWindow(notebook)
             panel.SetScrollRate(0, 20)
@@ -332,7 +332,7 @@ class MacosConfigFrame(wx.Frame):
                     "condition": gui_support.CheckProperties(self.constants).host_is_non_metal(general_check=True)
                 },
             },
-      "Developer": {
+      "Advanced": {
                 "Tahoe UI Render Optimization": {
                     "type": "checkbox",
                     "value": global_settings.GlobalEnviromentSettings().read_property("Tahoe_UI_Render") or getattr(self.constants, "tahoe_ui_render", False),
@@ -355,6 +355,7 @@ class MacosConfigFrame(wx.Frame):
                         "nobrowse -t apfs /dev/diskXsY",
                         "/System/Volumes/Update/mnt1' every time.",
                     ],
+                    "condition": self.constants.True_Developer_Mode
                 },
                 "wrap_around 2": {
                     "type": "wrap_around",
@@ -365,6 +366,7 @@ class MacosConfigFrame(wx.Frame):
                     "description": [
                         "Rebuild kernel cache and bless snapshot 🙏",
                     ],
+                    "condition": self.constants.True_Developer_Mode
                 },
             },
         }
