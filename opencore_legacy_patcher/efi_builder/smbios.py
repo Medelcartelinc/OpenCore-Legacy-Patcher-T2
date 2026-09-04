@@ -48,7 +48,7 @@ class BuildSMBIOS:
         """
 
         if self.constants.allow_oc_everywhere is False or self.constants.allow_native_spoofs is True:
-            if self.constants.serial_settings == "None":
+            if self.constants.serial_settings == "None" or self.model in model_array.T2Macs:
                 try:
                     # Credit to Parrotgeek1 for boot.efi and hv_vmm_present patch sets
                     logging.info("Enabling Board ID exemption patches.")
@@ -121,6 +121,31 @@ class BuildSMBIOS:
         """
         SMBIOS Handler
         """
+
+        if self.model in model_array.T2Macs:
+            logging.info("- Detected Apple T2 Mac: preserving authentic native SMBIOS to protect Secure Enclave and APFS Keybag")
+            self.config["PlatformInfo"]["Automatic"] = False
+            self.config["PlatformInfo"]["UpdateSMBIOS"] = False
+            self.config["PlatformInfo"]["UpdateDataHub"] = False
+            self.config["PlatformInfo"]["UpdateNVRAM"] = False
+            self.config["PlatformInfo"]["UpdateSMBIOSMode"] = "Custom"
+            self.config["PlatformInfo"]["CustomMemory"] = False
+            self.config["PlatformInfo"]["UseRawUuidEncoding"] = False
+            self.config.setdefault("PlatformInfo", {}).setdefault("Generic", {}).update({
+                "AdviseFeatures": True,
+                "MaxBIOSVersion": True,
+                "SpoofVendor": True,
+                "SystemMemoryStatus": "Auto",
+                "ProcessorType": 0,
+                "SystemProductName": "",
+                "SystemSerialNumber": "",
+                "MLB": "",
+                "SystemUUID": "",
+                "ROM": b"",
+            })
+            if "ProtocolOverrides" in self.config.get("UEFI", {}):
+                self.config["UEFI"]["ProtocolOverrides"]["DataHub"] = False
+            return
 
         spoofed_model = self.model
 
@@ -214,10 +239,9 @@ class BuildSMBIOS:
                 self.config["NVRAM"]["Add"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"]["OCLP-Spoofed-SN"] = self.constants.custom_serial_number
                 self.config["NVRAM"]["Add"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"]["OCLP-Spoofed-MLB"] = self.constants.custom_board_serial_number
 
-        # On T2 Macs, always ensure SpoofVendor is False to protect SEP hardware keys
+        # On T2 Macs, preserve authentic PlatformInfo without overriding
         if self.model in model_array.T2Macs:
-            logging.info("- Detected T2 Mac, disabling SpoofVendor to preserve Apple Inc. vendor for SEP")
-            self.config.setdefault("PlatformInfo", {}).setdefault("Generic", {})["SpoofVendor"] = False
+            self.config.setdefault("PlatformInfo", {}).setdefault("Generic", {})["SpoofVendor"] = True
 
         # USB Map and CPUFriend Patching
         if (

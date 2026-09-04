@@ -21,14 +21,8 @@ from ..datasets import (
     os_data
 )
 
-_T2_MODELS = {
-    "MacBookAir8,1", "MacBookAir8,2", "MacBookAir9,1",
-    "MacBookPro15,1", "MacBookPro15,2", "MacBookPro15,3", "MacBookPro15,4",
-    "MacBookPro16,1", "MacBookPro16,3", "MacBookPro16,4",
-    "Macmini8,1",
-    "iMac20,1", "iMac20,2",
-    "iMacPro1,1",
-}
+_T2_MODELS = set(model_array.T2Macs)
+
 
 
 class BuildMiscellaneous:
