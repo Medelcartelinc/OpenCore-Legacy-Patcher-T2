@@ -165,10 +165,10 @@ class BuildOpenCore:
                     "ROM": b"",
                 })
                 self.config.setdefault("Kernel", {}).setdefault("Quirks", {}).update({
-                    "CustomSMBIOSGuid": True,
+                    "CustomSMBIOSGuid": False,
                     "DisableLinkeditJettison": True,
                     "PanicNoKextDump": True,
-                    "DisableIoMapper": True,
+                    "DisableIoMapper": False,
                 })
                 self.config.setdefault("Misc", {}).setdefault("Security", {})["SecureBootModel"] = "Disabled"
                 self.config.setdefault("UEFI", {}).setdefault("ProtocolOverrides", {})["DataHub"] = False
