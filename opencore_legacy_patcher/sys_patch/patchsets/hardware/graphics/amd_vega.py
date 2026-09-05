@@ -84,7 +84,12 @@ class AMDVega(BaseHardware):
 
                         "AMDRadeonVADriver2.bundle":      "12.5",
                         "AMDRadeonX5000GLDriver.bundle":  "12.5",
-                        **({ "AMDRadeonX5000MTLDriver.bundle": f"12.5-{self._xnu_major}" if self._xnu_major < os_data.sequoia.value else "12.5-24" }),
+                        **({ "AMDRadeonX5000MTLDriver.bundle": (
+                            "12.5-26" if self._xnu_major >= os_data.golden_gate.value
+                            else ("12.5-25" if self._xnu_major >= os_data.tahoe.value
+                            else ("12.5-24" if self._xnu_major >= os_data.sequoia.value
+                            else f"12.5-{self._xnu_major}"))
+                        ) }),
                         "AMDRadeonX5000Shared.bundle":    "12.5",
 
                         "AMDShared.bundle":               "12.5",

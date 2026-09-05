@@ -71,7 +71,12 @@ class IntelBroadwell(BaseHardware):
                         "AppleIntelBDWGraphics.kext":            self._resolve_monterey_framebuffers(),
                         "AppleIntelBDWGraphicsFramebuffer.kext": self._resolve_monterey_framebuffers(),
                         "AppleIntelBDWGraphicsGLDriver.bundle":  "12.5",
-                        "AppleIntelBDWGraphicsMTLDriver.bundle": "12.5-22" if self._xnu_major < os_data.sequoia.value else "12.5-24",
+                        "AppleIntelBDWGraphicsMTLDriver.bundle": (
+                            "12.5-26" if self._xnu_major >= os_data.golden_gate.value
+                            else ("12.5-25" if self._xnu_major >= os_data.tahoe.value
+                            else ("12.5-24" if self._xnu_major >= os_data.sequoia.value
+                            else "12.5-22"))
+                        ),
                         "AppleIntelBDWGraphicsVADriver.bundle":  "12.5",
                         "AppleIntelBDWGraphicsVAME.bundle":      "12.5",
                         "AppleIntelGraphicsShared.bundle":       "12.5",

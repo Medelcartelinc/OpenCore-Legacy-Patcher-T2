@@ -75,7 +75,7 @@ class AMDLegacyGCN(BaseHardware):
         """
         Model specific patches
         """
-        # If 3802 GPU present, use stock Monterey bronze bundle even on Sequoia
+        # If 3802 GPU present, use stock Monterey bronze bundle even on Sequoia/Tahoe
         bronze_bundle_source = "12.5"
         if self._is_gpu_architecture_present(
             [
@@ -84,7 +84,11 @@ class AMDLegacyGCN(BaseHardware):
                 device_probe.NVIDIA.Archs.Kepler,
             ]
         ) is False:
-            if self._xnu_major >= os_data.sequoia:
+            if self._xnu_major >= os_data.golden_gate.value:
+                bronze_bundle_source = "12.5-26"
+            elif self._xnu_major >= os_data.tahoe.value:
+                bronze_bundle_source = "12.5-25"
+            elif self._xnu_major >= os_data.sequoia.value:
                 bronze_bundle_source = "12.5-24"
 
         return {

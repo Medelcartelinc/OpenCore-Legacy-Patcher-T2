@@ -113,7 +113,12 @@ class AMDPolaris(BaseHardware):
                         "AMDRadeonX4000HWServices.kext": "12.5",
                         "AMDRadeonVADriver2.bundle":     "12.5",
                         "AMDRadeonX4000GLDriver.bundle": "12.5",
-                        **({ "AMDMTLBronzeDriver.bundle": f"12.5-{self._xnu_major}" if self._xnu_major < os_data.sequoia.value else "12.5-24" }),
+                        **({ "AMDMTLBronzeDriver.bundle": (
+                            "12.5-26" if self._xnu_major >= os_data.golden_gate.value
+                            else ("12.5-25" if self._xnu_major >= os_data.tahoe.value
+                            else ("12.5-24" if self._xnu_major >= os_data.sequoia.value
+                            else f"12.5-{self._xnu_major}"))
+                        ) }),
                         "AMDShared.bundle":              "12.5",
                     },
                 },
