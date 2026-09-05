@@ -195,6 +195,9 @@ class MacosConfigFrame(wx.Frame):
                     button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                     button.Bind(wx.EVT_BUTTON, lambda event, variable=setting: self.settings[tab][variable]["function"](event))
                     height += 10
+                    if "condition" in setting_info:
+                        button.Enable(setting_info["condition"])
+
 
                 else:
                     raise Exception("Invalid setting type")
