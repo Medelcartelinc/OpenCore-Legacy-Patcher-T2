@@ -271,16 +271,18 @@ class MainFrame(wx.Frame):
         except Exception as e:
             print(f"DEBUG: Preflight error: {e}")
 
-        self.update_thread = threading.Thread(target=self._check_for_updates)
-        self.update_thread.daemon = True
-        self.update_thread.start()
-        # Also tracked on constants (not just this frame) so PatcherApp.OnExit()
-        # can join it at quit the same way it already does for unpack_thread/
-        # analytics_thread - this frame instance itself may already be gone by
-        # then (the app keeps destroying and recreating MainFrame as the user
-        # navigates), but constants persists for the whole process lifetime.
-        self.constants.update_thread = self.update_thread
-
+        # NOTE: the "--update_installed" block below MUST stay ahead of the
+        # _check_for_updates() thread, which is now started at the end of this
+        # function instead. _check_for_updates() sets
+        # constants.has_checked_updates = True as its very first statement, and
+        # this prompt only fires while that flag is still False. Starting the
+        # thread first (as this function used to) meant the worker almost always
+        # won the race - Thread.start() blocks on _started.wait(), so the worker
+        # is already running and holding the GIL when start() returns, and the
+        # main thread has to re-acquire the GIL before it gets down here - so
+        # the flag was already True and the "Update successful!" prompt never
+        # appeared after an in-app update. Upstream Dortania starts the thread
+        # on the last line of this function for exactly this reason.
         if "--update_installed" in sys.argv and self.constants.has_checked_updates is False and gui_support.CheckProperties(self.constants).host_can_build():
             self.constants.has_checked_updates = True
             pop_up = wx.MessageDialog(
@@ -289,9 +291,10 @@ class MainFrame(wx.Frame):
                 "Update successful!",
                 style=wx.YES_NO | wx.YES_DEFAULT | wx.ICON_INFORMATION
             )
-            pop_up.ShowModal()
+            response = pop_up.ShowModal()
+            pop_up.Destroy()
 
-            if pop_up.GetReturnCode() != wx.ID_YES:
+            if response != wx.ID_YES:
                 logging.info("Skipping OpenCore and root volume patch updates...")
                 return
 
@@ -307,6 +310,21 @@ class MainFrame(wx.Frame):
                 install=True
             )
             wx.CallAfter(self.Destroy)
+            # We just installed the newest build, so checking for updates again
+            # here is pointless - and this frame is already on its way out, so
+            # handing it to a worker that ends in wx.CallAfter(self.on_update, ...)
+            # would put us right back into the dead-frame callback problem.
+            return
+
+        self.update_thread = threading.Thread(target=self._check_for_updates)
+        self.update_thread.daemon = True
+        self.update_thread.start()
+        # Also tracked on constants (not just this frame) so PatcherApp.OnExit()
+        # can join it at quit the same way it already does for unpack_thread/
+        # analytics_thread - this frame instance itself may already be gone by
+        # then (the app keeps destroying and recreating MainFrame as the user
+        # navigates), but constants persists for the whole process lifetime.
+        self.constants.update_thread = self.update_thread
 
     def _check_for_updates(self):
         if self.constants.has_checked_updates is True:
