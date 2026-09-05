@@ -69,7 +69,7 @@ class VerifyBuildFrame(wx.Frame):
 
     def _verify_files(self):
         self._append_log("=========================================")
-        target_efi = os.path.join(self.constants.launcher_script_location, "Build-Folder", "OpenCore-Build", "EFI", "OC")
+        target_efi = os.path.join(self.constants.launcher_script_location, "Build-Folder", self.constants.oc_build_folder_name, "EFI", "OC")
         
         if not os.path.exists(target_efi):
             raise Exception("Generated EFI/OC folder not found! Please BUILD OPENCORE first.")

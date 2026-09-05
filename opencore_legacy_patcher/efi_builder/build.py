@@ -299,8 +299,25 @@ class BuildOpenCore:
 
         logging.info("")
         logging.info(f"- Adding OpenCore v{self.constants.opencore_version} {'DEBUG' if self.constants.opencore_debug is True else 'RELEASE'}")
+
+        # The payload zip always carries a top-level folder called "OpenCore-Build"
+        # (payloads/OpenCore/Update-OpenCore.command renames it before zipping), so
+        # extraction lands there regardless of what we want the folder to be called.
+        # Clear any leftover staging folder from an interrupted run before extracting,
+        # then rename it to the model specific name.
+        staging_folder = Path(self.constants.build_path) / Path("OpenCore-Build")
+        if staging_folder != Path(self.constants.opencore_release_folder) and staging_folder.exists():
+            logging.info("Deleting stale OpenCore staging folder")
+            try:
+                shutil.rmtree(staging_folder, onexc=rmtree_handler)
+            except TypeError:
+                shutil.rmtree(staging_folder, ignore_errors=True)
+
         shutil.copy(self.constants.opencore_zip_source, self.constants.build_path)
         zipfile.ZipFile(self.constants.opencore_zip_copied).extractall(self.constants.build_path)
+
+        if staging_folder != Path(self.constants.opencore_release_folder):
+            staging_folder.rename(self.constants.opencore_release_folder)
 
         # Setup config.plist for editing
         logging.info("- Adding config.plist for OpenCore")

@@ -1087,14 +1087,28 @@ class OCSettingsFrame(wx.Frame):
                 dialog.Destroy()
                 return
         # Throw pop up to get save location
-        with wx.FileDialog(self.parent, wildcard="All files (*.*)|*.*", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT, defaultFile=f"OpenCore-Build-{self.constants.custom_model or self.constants.computer.real_model}", name="Save OpenCore Build") as fileDialog:
-            if fileDialog.ShowModal() == wx.ID_CANCEL:
+        #
+        # wx.FileDialog(wx.FD_SAVE) is unusable here: wxWidgets' macOS backend
+        # (src/osx/cocoa/filedlg.mm, as pinned by wxPython 4.2.5) only sets
+        # m_useFileTypeFilter when the wildcard holds two or more filter pairs.
+        # With a single pair m_firstFileTypeFilter stays -1 and ShowModal() then
+        # evaluates m_filterExtensions[-1], which asserts with
+        # "wxArrayString: index out of bounds" (arrstr.h:227) before the dialog
+        # is ever shown. Fixed upstream, not in the wxPython we ship against.
+        #
+        # We only ever used the parent directory of the picked path anyway
+        # (constants.build_path == oc_build_path.parent), so pick the directory
+        # directly - a directory picker carries no wildcard and no filter array.
+        with wx.DirDialog(self.parent, "Select where to save the OpenCore build", style=wx.DD_DEFAULT_STYLE | wx.DD_NEW_DIR_BUTTON) as dirDialog:
+            if dirDialog.ShowModal() == wx.ID_CANCEL:
                 # Profile was only picked for this save, don't leak it into the next build
                 if user_had_prompt_set:
                     self.constants.build_profile = ""
                 return
 
-            self.constants.oc_build_path = Path(fileDialog.GetPath())
+            # Must match constants.opencore_release_folder (build_path/oc_build_folder_name),
+            # otherwise gui_build writes Build.log into a folder that was never created.
+            self.constants.oc_build_path = Path(dirDialog.GetPath()) / self.constants.oc_build_folder_name
             self.frame_modal.Destroy()
             self.parent.Hide()
             logging.info(f"Saving OpenCore-Build to {self.constants.build_path}")
