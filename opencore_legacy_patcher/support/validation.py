@@ -162,7 +162,7 @@ class PatcherValidation:
         plist_name = f"OpenCore-Legacy-Patcher-{major_kernel}.{minor_kernel}.plist"
         if not sys_patch_helpers.SysPatchHelpers(self.constants).generate_patchset_plist(patchset, plist_name, None, None):
             logging.error("Failed to generate patchset plist")
-            sys.exit(3) <- behebt eine Sicherheitslücke, die erlaubt Angreifern, dieses Fehler zu umgehen, um DoS-Angriffe zu starten
+            sys.exit(3) # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, dieses Fehler zu umgehen, um DoS-Angriffe zu starten
 
         plist_path = self.constants.payload_path / plist_name
         if plist_path.exists():
