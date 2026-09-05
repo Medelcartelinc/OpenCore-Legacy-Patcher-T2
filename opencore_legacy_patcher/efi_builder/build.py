@@ -132,22 +132,51 @@ class BuildOpenCore:
 
         if is_t2:
             try:
-                logging.info("- Applying in-memory T2 booter and SMBIOS alignment")
+                logging.info("- Applying in-memory T2 booter, kernel, and SMBIOS alignment")
                 self.config.setdefault("Booter", {}).setdefault("Quirks", {}).update({
+                    "AvoidRuntimeDefrag": False,
+                    "ProvideCustomSlide": False,
+                    "EnableSafeModeSlide": False,
+                    "SetupVirtualMap": False,
                     "RebuildAppleMemoryMap": False,
                     "EnableWriteUnprotector": False,
                     "SyncRuntimePermissions": False,
                     "DevirtualiseMmio": False,
+                    "ProtectSecureBoot": True,
+                    "ForceBooterSignature": True,
                 })
-                self.config.setdefault("PlatformInfo", {})["UpdateSMBIOSMode"] = "Create"
-                ## self.config.setdefault("PlatformInfo", {}).setdefault("Generic", {})["SpoofVendor"] = False - das verursacht auch auf nicht unterstützte T2 Macs, keybag-Fehlern beim Formatieren von APFS-Partitionen, also hilft das nicht. Was ist getestet und geholfen hat, ist diese Konfiguration: https://github.com/user-attachments/files/31816988/Archiv.zip
-                self.config.setdefault("Kernel", {}).setdefault("Quirks", {})["CustomSMBIOSGuid"] = False
+                self.config.setdefault("PlatformInfo", {})["Automatic"] = False
+                self.config.setdefault("PlatformInfo", {})["UpdateSMBIOS"] = False
+                self.config.setdefault("PlatformInfo", {})["UpdateDataHub"] = False
+                self.config.setdefault("PlatformInfo", {})["UpdateNVRAM"] = False
+                self.config.setdefault("PlatformInfo", {})["UpdateSMBIOSMode"] = "Custom"
+                self.config.setdefault("PlatformInfo", {})["CustomMemory"] = False
+                self.config.setdefault("PlatformInfo", {})["UseRawUuidEncoding"] = False
+                self.config.setdefault("PlatformInfo", {}).setdefault("Generic", {}).update({
+                    "AdviseFeatures": True,
+                    "MaxBIOSVersion": True,
+                    "SpoofVendor": True,
+                    "SystemMemoryStatus": "Auto",
+                    "ProcessorType": 0,
+                    "SystemProductName": "",
+                    "SystemSerialNumber": "",
+                    "MLB": "",
+                    "SystemUUID": "",
+                    "ROM": b"",
+                })
+                self.config.setdefault("Kernel", {}).setdefault("Quirks", {}).update({
+                    "CustomSMBIOSGuid": False,
+                    "DisableLinkeditJettison": True,
+                    "PanicNoKextDump": True,
+                    "DisableIoMapper": False,
+                })
                 self.config.setdefault("Misc", {}).setdefault("Security", {})["SecureBootModel"] = "Disabled"
-            except Exception as e:
-                logging.error("Whoops, applying in-memory T2 booter and SMBIOS alignments failed because of the following error:")
-                logging.exception("Stack Trace:")
-                logging.info("Please try again later.")
-                sys.exit(3)
+                self.config.setdefault("UEFI", {}).setdefault("ProtocolOverrides", {})["DataHub"] = False
+                self.config.setdefault("UEFI", {}).setdefault("APFS", {})["EnableJumpstart"] = False
+
+                # Enable booter patches for T2
+                support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Booter"]["Patch"], "Comment", "Skip Board ID check")["Enabled"] = True
+                support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Booter"]["Patch"], "Comment", "Patch SkipLogo")["Enabled"] = True
 
                 logging.info("- Adding T2-specific bypass NVRAM variables")
                 
@@ -167,6 +196,13 @@ class BuildOpenCore:
                     if target_arg not in self.config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]:
                         self.config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].append(target_arg)
 
+                # Ensure OCLP tracking deletion list
+                if "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102" not in self.config["NVRAM"]["Delete"]:
+                    self.config["NVRAM"]["Delete"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"] = []
+                for del_key in ["OCLP-Version", "OCLP-Model", "OCLP-Settings", "OCLP-Spoofed-SN", "OCLP-Spoofed-MLB", "revcpu", "revcpuname", "revblock", "revpatch"]:
+                    if del_key not in self.config["NVRAM"]["Delete"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"]:
+                        self.config["NVRAM"]["Delete"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"].append(del_key)
+
                 # Fetch template boot-args, scrub any accidental Lilu flags inherited from template plists
                 raw_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].get("boot-args", "")
                 scrubbed_args = " ".join([arg for arg in raw_args.split() if not arg.startswith("-lilu")])
@@ -177,12 +213,9 @@ class BuildOpenCore:
                 
                 # Ensure WriteFlash is enabled to commit changes to SPI ROM
                 self.config["NVRAM"]["WriteFlash"] = True
-                
-                # Force DisableIoMapper for stability
-                self.config["Kernel"]["Quirks"]["DisableIoMapper"] = True
 
             except Exception as e:
-                logging.error("Whoops, the app failed to inject the required OpenCore configuration because of the following error:")
+                logging.error("Whoops, applying in-memory T2 booter and SMBIOS alignments failed because of the following error:")
                 logging.exception("Stack Trace:")
                 logging.info("Please try again later.")
                 sys.exit(3)
@@ -387,7 +420,7 @@ class BuildOpenCore:
         # Generate OpenCore Configuration
         try:
             logging.info(f"Generating OpenCore configuration for {self.model} ...")
-            if self.model == "MacBookPro14,3" or (hasattr(self.constants, "computer") and self.constants.computer.real_model == "MacBookPro14,3"):
+            if self.model == "MacBookPro14,3" or (self.constants.computer is not None and getattr(self.constants.computer, "real_model", None) == "MacBookPro14,3"):
                 if self.constants.build_profile == "test_b":
                     profile_name = "TEST-B GPU"
                 elif self.constants.build_profile == "test_c":
@@ -555,7 +588,7 @@ class BuildOpenCore:
             support.BuildSupport(self.model, self.constants, self.config).sign_files()
             support.BuildSupport(self.model, self.constants, self.config).validate_pathing()
             
-            if self.model == "MacBookPro14,3" or (hasattr(self.constants, "computer") and self.constants.computer.real_model == "MacBookPro14,3"):
+            if self.model == "MacBookPro14,3" or (self.constants.computer is not None and getattr(self.constants.computer, "real_model", None) == "MacBookPro14,3"):
                 if self.constants.build_profile == "test_b":
                     profile_name = "TEST-B GPU"
                 elif self.constants.build_profile == "test_c":
@@ -609,7 +642,7 @@ class BuildOpenCore:
                 logging.info("=========================================")
 
             # Create profile-specific output directory
-            if self.model == "MacBookPro14,3" or (hasattr(self.constants, "computer") and self.constants.computer.real_model == "MacBookPro14,3"):
+            if self.model == "MacBookPro14,3" or (self.constants.computer is not None and getattr(self.constants.computer, "real_model", None) == "MacBookPro14,3"):
                 if self.constants.build_profile == "test_b":
                     profile_dir_name = "TEST-B-Build"
                 elif self.constants.build_profile == "test_c":
