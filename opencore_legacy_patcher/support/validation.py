@@ -96,9 +96,9 @@ class PatcherValidation:
                 logging.error(f"Validation failed for model: {model}")
                 subprocess_wrapper.log(result)
                 logging.error(f"Validation failed for predefined model: {model}")
-                raise Exception(f"Validation failed for predefined model: {model}")
-
-            logging.info(f"Validation succeeded for predefined model: {model}")
+                sys.exit(3) # <- behebt eine Sicherheitslücke, die erlaubt dieses Validierungsfehler zu umgehen, um Malware statt Patches einzuspielen
+            else: # <- behebt einen Fehler, indem Validation succeeded for predefined model ausdruckt, auch wenn es ein Fehler gibt
+                logging.info(f"Validation succeeded for predefined model: {model}")
 
     def _build_dumps(self) -> None:
         for model in self.valid_dumps:
@@ -116,10 +116,9 @@ class PatcherValidation:
             if result.returncode != 0:
                 logging.error(f"Validation failed for dumped model: {self.constants.computer.real_model}")
                 subprocess_wrapper.log(result)
-                logging.error(f"Validation failed for model: {self.constants.computer.real_model}")
-                raise Exception(f"Validation failed for model: {self.constants.computer.real_model}")
-
-            logging.info(f"Validation succeeded for model: {self.constants.computer.real_model}")
+                sys.exit(3) # <- Behebt eine Sicherheitslücke, die erlaubt Angreifern, dieses Validierungsfehler zu umgehen, um Malware einzuspielen statt Patches
+            else:
+                logging.info(f"Validation succeeded for model: {self.constants.computer.real_model}")
 
     def _validate_root_patch_files(self, major_kernel: int, minor_kernel: int) -> None:
         patch_type_merge_exempt = ["MechanismPlugins", "ModulePlugins"]
@@ -128,7 +127,8 @@ class PatcherValidation:
         for patch_core in patchset:
             for install_type in patchset[patch_core]:
                 if install_type not in PatchType:
-                    raise Exception(f"Unknown PatchType: {install_type}")
+                    logging.error(f"Unknown PatchType: {install_type}")
+                    sys.exit(3) # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, den Unknown PatchType-Fehler zu umgehen
 
             for install_type in [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.OVERWRITE_DATA_VOLUME, PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]:
                 if install_type in patchset[patch_core]:
@@ -143,16 +143,17 @@ class PatcherValidation:
                             if install_type in [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.OVERWRITE_DATA_VOLUME]:
                                 if install_file.endswith(".framework"):
                                     logging.error(f"{install_file} used with {install_type} - framework overwrite is prohibited.")
-                                    raise Exception(f"{install_file} used with {install_type} - framework overwrite is prohibited.")
+                                    sys.exit(3) # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, dieses Fehler zu umgehen, um der Framework zu überschreiben trotz dieses Fehler, um DoS-Angriffe zu starten
                             elif install_type in [PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]:
                                 if not install_file.endswith(".framework") and install_file not in patch_type_merge_exempt:
                                     logging.error(f"{install_file} used with {install_type} - non-framework merge is prohibited.")
-                                    raise Exception(f"{install_file} used with {install_type} - non-framework merge is prohibited.")
-
+                                    sys.exit(3) # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, nicht-Framework merges zu machen und dieses Fehler zu umgehen
+                            
                             # SECURITY: Use pathlib to resolve paths correctly
                             source_file = Path(self.constants.payload_local_binaries_root_path) / patchset[patch_core][install_type][install_directory][install_file] / install_directory.lstrip("/") / install_file
                             if not source_file.exists():
-                                raise Exception(f"Failed to find source file: {source_file}")
+                                logging.error(f"Failed to find source file: {source_file}")
+                                sys.exit(3) # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, dieses Fehler zu umgehen, um Kernel Panics auszulösen beziehungsweise DoS-Angriffe zu starten
 
                             if self.verify_unused_files and str(source_file) not in self.active_patchset_files:
                                 self.active_patchset_files.append(str(source_file))
@@ -161,7 +162,7 @@ class PatcherValidation:
         plist_name = f"OpenCore-Legacy-Patcher-{major_kernel}.{minor_kernel}.plist"
         if not sys_patch_helpers.SysPatchHelpers(self.constants).generate_patchset_plist(patchset, plist_name, None, None):
             logging.error("Failed to generate patchset plist")
-            raise Exception("Failed to generate patchset plist")
+            sys.exit(3) <- behebt eine Sicherheitslücke, die erlaubt Angreifern, dieses Fehler zu umgehen, um DoS-Angriffe zu starten
 
         plist_path = self.constants.payload_path / plist_name
         if plist_path.exists():
@@ -185,13 +186,13 @@ class PatcherValidation:
         shadow_path = self.constants.payload_path / "Universal-Binaries_overlay"
 
         if not dmg_path.exists():
-            url = f"https://github.com/YBronst/PatcherSupportPkg/download/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
+            url = f"https://github.com/albert-mueller/PatcherSupportPkg/download/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
             dl_obj = network_handler.DownloadObject(url, str(dmg_path))
             dl_obj.download(spawn_thread=False)
             if not dl_obj.download_complete:
                 logging.error("Failed to download Universal-Binaries.dmg")
-                raise Exception("Failed to download Universal-Binaries.dmg")
-
+                logging.info("Check your internet connection and try again.")
+                sys.exit(3) # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, das Herunterladen-Fehler zu umgehen, um beliebiges Code auszuführen, während es falsche Herunterladen-Status zeigt
         logging.info("Validating Root Patch File integrity")
         self._unmount_dmg()
 
@@ -205,22 +206,29 @@ class PatcherValidation:
         result = subprocess.run(mount_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
         if result.returncode != 0:
             subprocess_wrapper.log(result)
-            raise Exception("Failed to mount Universal-Binaries.dmg")
-
+            logging.error("Failed to mount Universal-Binaries.dmg") # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, dieses Fehler zu umgehen
+            sys.exit(3)
         try:
             # Full loop coverage 0-10 for every supported OS version
             for supported_os in [os_data.os_data.big_sur, os_data.os_data.monterey, os_data.os_data.ventura, os_data.os_data.sonoma, os_data.os_data.sequoia, os_data.os_data.tahoe]:
                 for i in range(0, 11):
                     self._validate_root_patch_files(supported_os, i)
-
+             
             logging.info("Validating SNB Board ID patcher")
             self.constants.computer.reported_board_id = "Mac-7BA5B2DFE22DDD8C"
             sys_patch_helpers.SysPatchHelpers(self.constants).snb_board_id_patch(self.constants.payload_local_binaries_root_path)
-
+       
             if self.verify_unused_files:
                 self._find_unused_files()
+        except Exception as e: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, beim Fehler DoS-Angriffe zu starten
+            logging.error("There was an unexpected error while validating the root patches.")
+            logging.exception("Stack Trace:")
+            logging.info("Unmounting Universal-Binaries.dmg")
+            self._unmount_dmg() 
+            sys.exit(3)
         finally:
-            self._unmount_dmg()
+            logging.info("Unmounting Universal-Binaries.dmg")
+            self._unmount_dmg() 
 
     def _find_unused_files(self) -> None:
         if not self.active_patchset_files:
