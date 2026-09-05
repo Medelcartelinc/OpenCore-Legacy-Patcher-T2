@@ -343,7 +343,7 @@ class MainFrame(wx.Frame):
         changelog = """## Unable to fetch changelog\n\nPlease check the Github page for more information."""
         # User-Agent auf Edge gesetzt statt einfach OpenCore-Legacy-Patcher-T2, um die API sicher zu laden und MitM-Angriffe zu vermeiden
         try:
-            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/152.0.4191.53/OpenCoreLegacyPatcherT2"}, timeout=10).json()
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0/OpenCoreLegacyPatcherT2"}, timeout=10).json()
             if "body" in response:
                 changelog = response["body"].split("## Asset Information")[0]
         except Exception as e:
