@@ -225,7 +225,7 @@ class VerifyUSBFrame(wx.Frame):
         target_sha = hashlib.sha256(open(config_path, 'rb').read()).hexdigest()
         self._append_log(f"Installed: {target_sha}")
         
-        source_config = os.path.join(self.constants.launcher_script_location, "Build-Folder", "OpenCore-Build", "EFI", "OC", "config.plist")
+        source_config = os.path.join(self.constants.launcher_script_location, "Build-Folder", self.constants.oc_build_folder_name, "EFI", "OC", "config.plist")
         if os.path.exists(source_config):
             source_sha = hashlib.sha256(open(source_config, 'rb').read()).hexdigest()
             self._append_log(f"Source:    {source_sha}")

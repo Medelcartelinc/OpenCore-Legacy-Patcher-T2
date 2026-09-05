@@ -678,8 +678,24 @@ class Constants:
             return self.oc_build_path.parent
 
     @property
+    def oc_build_folder_name(self) -> str:
+        """
+        Name of the folder the built EFI ends up in.
+
+        Carries the target model so builds for different machines can sit next
+        to each other in the same parent folder instead of overwriting one
+        another. Falls back to the plain name when no model is known yet (the
+        payload zip's own top-level folder is always the plain name, see
+        payloads/OpenCore/Update-OpenCore.command).
+        """
+        model = self.custom_model or (self.computer.real_model if self.computer else None)
+        if not model:
+            return "OpenCore-Build"
+        return f"OpenCore-Build-{str(model).replace('/', '-')}"
+
+    @property
     def opencore_release_folder(self):
-        return self.build_path / Path(f"OpenCore-Build")
+        return self.build_path / Path(self.oc_build_folder_name)
 
     @property
     def opencore_zip_copied(self):

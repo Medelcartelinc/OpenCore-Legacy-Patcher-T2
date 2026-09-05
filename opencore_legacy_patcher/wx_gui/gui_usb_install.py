@@ -185,7 +185,7 @@ class InstallUSBFrame(wx.Frame):
             self._append_log("No existing EFI folder found on target partition.")
 
     def _replace_efi(self):
-        source_efi = os.path.join(str(self.constants.current_path), "Build-Folder", "OpenCore-Build", "EFI")
+        source_efi = os.path.join(str(self.constants.current_path), "Build-Folder", self.constants.oc_build_folder_name, "EFI")
         target_efi = os.path.join(self.mount_point, "EFI")
         
         if not os.path.exists(source_efi):

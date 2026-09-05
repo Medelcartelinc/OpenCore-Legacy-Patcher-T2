@@ -701,7 +701,7 @@ Hardware Information:
 
     def on_export_constants(self, event: wx.Event) -> None:
         # Throw pop up to get save location
-        with wx.FileDialog(self.parent, "Save Constants File", wildcard="JSON files (*.txt)|*.txt", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT, defaultFile=f"constants-{self.constants.patcher_version}.txt") as fileDialog:
+        with wx.FileDialog(self.parent, "Save Constants File", wildcard="JSON files (*.txt)|*.txt|All files (*.*)|*.*", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT, defaultFile=f"constants-{self.constants.patcher_version}.txt") as fileDialog:
             if fileDialog.ShowModal() == wx.ID_CANCEL:
                 return
 
