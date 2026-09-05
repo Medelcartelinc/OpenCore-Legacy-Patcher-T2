@@ -58,6 +58,11 @@ class OpenCoreLegacyPatcher:
             _test_dir = Path.home()
             os.chdir(_test_dir)
             logging.warning(f"Current working directory was invalid, reset safety fallback to: {_test_dir}")
+        except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, in der try-Loop mit invalider Syntax zu füttern, um Fehler außerhalb von FileNotFoundError zu erzeugen. Denn die Angreifern könnten beliebiges Code auszuführen, indem sie aus das fehlende except Exception as e ausnutzen.
+            logging.error("There is an issue finding and working with the directory.")
+            logging.exception("Stack Trace:")
+            logging.info("Your patcher has been tampered. Please, redownload OpenCore Legacy Patcher T2 from GitHub.")
+            sys.exit(3)
 
 
     def _build_simulated_gpu(self, identifier: str):
