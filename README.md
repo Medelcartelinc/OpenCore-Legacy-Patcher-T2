@@ -23,11 +23,6 @@ Sicherheitsforscher können Schwachstellen in der App im Bereich „Security and
 are unable to boot into macOS 26 Tahoe at all at this moment due to a known limitation of AAAMouSSE and telemetrap causing kernel panics. You can try macOS 26 Tahoe on these models only at your own risk and if you're ready to troubleshoot, reverse engineer and fix this panic. https://forums.macrumors.com/threads/mp3-1-others-sse-4-2-emulation-to-enable-amd-metal-driver.2206682/page-9
 At the end, for a functional versions of AAAMouSSE and telemetrap on macOS 26 Tahoe requires reverse engineering and writing similar but completely new kext from scratch. They haven't received updates since 2021, and these 2 kexts are closed source, so getting them to boot will be very difficult.
 
-**⚠️ Attention! Graphics patches are currently missing on the following models and are causing kernel panics at the moment on macOS 26:**
-- Metal 8302 - all Mac models between 2012 and 2014
-- non-Metal - all 2011 Mac models
-We’re working on it. In the meanwhile, I’ll put safety guards to prevent those patches from getting injected if running macOS 26, so users can continue to use macOS 26 with no graphics acceleration on these instead of getting kernel panics.
-
 > **⚠️ On T2 Macs only, this patcher disables SIP completely to be able to boot macOS properly** What is SIP? SIP, in short for System Integrity Protection, protects against attackers from tampering with core system files. However, on T2 Macs, SIP also causes thermal throttling and other issues when booting via OpenCorePkg, so it needs to be disabled, so setting SIP to 0xFFF is hardcoded into misc.py. As such, the SIP settings inside OpenCore Legacy Patcher T2 > Settings (or very soon, instead in the patcher > OpenCore) are mostly rendered useless on T2 Macs. This doesn’t apply to non-T2 Macs, such as T1 or non-T Macs
 
 
