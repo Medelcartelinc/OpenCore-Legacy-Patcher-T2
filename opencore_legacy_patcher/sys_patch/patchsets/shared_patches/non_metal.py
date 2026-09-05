@@ -93,20 +93,36 @@ class NonMetal(BaseSharedPatchSet):
                     },
                 },
                 PatchType.MERGE_SYSTEM_VOLUME: {
-                    # Note: PatcherSupportPkg only ships payloads up to xnu_major 24 (Sequoia)
-                    # for these four folders; there is no "-25" (Tahoe) variant yet, so
-                    # anything on Tahoe or newer is capped to the last known-good "-24"
-                    # payload instead of looking up a folder that doesn't exist. Mirrors the
-                    # existing "12.5-24" capping in intel_broadwell.py/intel_skylake.py.
+                    # PatcherSupportPkg ships payloads for Darwin 20-26 (Big Sur through Tahoe / Golden Gate).
                     "/System/Library/Frameworks": {
                         "OpenGL.framework":       "10.14.3",
-                        "CoreDisplay.framework": "10.14.4-24" if self._xnu_major >= os_data.tahoe.value else f"10.14.4-{self._xnu_major}",
-                        "IOSurface.framework":   "10.15.7-24" if self._xnu_major >= os_data.tahoe.value else f"10.15.7-{self._xnu_major}",
-                        "QuartzCore.framework":  "10.15.7-24" if self._xnu_major >= os_data.tahoe.value else f"10.15.7-{self._xnu_major}",
+                        "CoreDisplay.framework": (
+                            "10.14.4-26" if self._xnu_major >= os_data.golden_gate.value
+                            else ("10.14.4-25" if self._xnu_major >= os_data.tahoe.value
+                            else ("10.14.4-24" if self._xnu_major >= os_data.sequoia.value
+                            else f"10.14.4-{self._xnu_major}"))
+                        ),
+                        "IOSurface.framework": (
+                            "10.15.7-26" if self._xnu_major >= os_data.golden_gate.value
+                            else ("10.15.7-25" if self._xnu_major >= os_data.tahoe.value
+                            else ("10.15.7-24" if self._xnu_major >= os_data.sequoia.value
+                            else f"10.15.7-{self._xnu_major}"))
+                        ),
+                        "QuartzCore.framework": (
+                            "10.15.7-26" if self._xnu_major >= os_data.golden_gate.value
+                            else ("10.15.7-25" if self._xnu_major >= os_data.tahoe.value
+                            else ("10.15.7-24" if self._xnu_major >= os_data.sequoia.value
+                            else f"10.15.7-{self._xnu_major}"))
+                        ),
                     },
                     "/System/Library/PrivateFrameworks": {
                         "GPUSupport.framework": "10.14.3",
-                        "SkyLight.framework":  "10.14.6-24" if self._xnu_major >= os_data.tahoe.value else f"10.14.6-{self._xnu_major}",
+                        "SkyLight.framework": (
+                            "10.14.6-26" if self._xnu_major >= os_data.golden_gate.value
+                            else ("10.14.6-25" if self._xnu_major >= os_data.tahoe.value
+                            else ("10.14.6-24" if self._xnu_major >= os_data.sequoia.value
+                            else f"10.14.6-{self._xnu_major}"))
+                        ),
                         **({"FaceCore.framework":  f"13.5"} if self._xnu_major >= os_data.sonoma else {}),
                     },
                 },
