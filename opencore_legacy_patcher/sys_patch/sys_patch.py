@@ -268,6 +268,20 @@ class PatchSysVolume:
         self._clean_skylight_plugins()
         self._delete_nonmetal_enforcement()
 
+        # Clean up any lingering OCLP manifests across root mount and Data volume
+        for manifest_path in [
+            Path("/Library/Application Support/Dortania/OpenCore-Legacy-Patcher.plist"),
+            Path("/Library/Application Support/Dortania/OpenCore-Legacy-Patcher-Lifecycle.plist"),
+            Path(f"{self.mount_location}{CORE_SERVICES_PATH}/{PATCHSET_FILENAME}"),
+            Path(f"{CORE_SERVICES_PATH}/{PATCHSET_FILENAME}"),
+        ]:
+            if manifest_path.exists():
+                logging.info(f"- Removing manifest: {manifest_path}")
+                try:
+                    subprocess_wrapper.run_as_root(["/bin/rm", "-f", str(manifest_path)])
+                except Exception as e:
+                    logging.warning(f"- Failed to remove {manifest_path}: {e}")
+
         try:
             kernelcache.KernelCacheSupport(
                 mount_location_data=self.mount_location_data,
