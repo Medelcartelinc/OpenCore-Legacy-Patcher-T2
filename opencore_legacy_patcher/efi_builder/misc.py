@@ -439,8 +439,13 @@ class BuildMiscellaneous:
 
     def _validate_patch(self, patch_dict):
         try:
-            find_bytes = patch_dict.get("Find")
-            replace_bytes = patch_dict.get("Replace")
+            find_bytes = patch_dict.get("Find", b"")
+            replace_bytes = patch_dict.get("Replace", b"")
+            base_sym = patch_dict.get("Base", "")
+            
+            # When Base symbol is specified with empty Find, OpenCore writes Replace at Base entry
+            if base_sym and len(find_bytes) == 0 and len(replace_bytes) > 0:
+                return True
             
             # Längenvergleich
             if len(find_bytes) != len(replace_bytes):
@@ -449,7 +454,6 @@ class BuildMiscellaneous:
                 logging.error(f"LENGTH ISSUE in '{patch_dict.get('Comment')}': "
                               f"Find={len(find_bytes)} Bytes, Replace={len(replace_bytes)} Bytes.")
                 return False
-                sys.exit(3)
             return True
         except Exception as e:
             logging.error("Wir haben einen Problem, die Bytes-Länge zu vergleichen")
@@ -534,7 +538,7 @@ class BuildMiscellaneous:
     
             try:
                 logging.info("- Adding T2-specific boot arguments for macOS 15/26")
-                self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-v rddelay=5 igfxfw=2 igfxonln=1 -disable_ext_panics -no_compat_check")
+                self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-v rddelay=10 igfxfw=2 igfxonln=1 -disable_ext_panics -no_compat_check -revbeta")
             except Exception as e:
                 logging.error("Injecting T2 specific boot arguments failed due to the following error:")
                 logging.exception("Stack Trace:")
@@ -580,6 +584,28 @@ class BuildMiscellaneous:
                 }
                 if self._validate_patch(new_patch):
                     logging.info("- Injecting AppleKeyStore SEP retry-limit patch")
+                    kernel_patches.append(new_patch)
+
+            # --- Patch: Bypass APFS container keybag authentication panic on T2 ---
+            if not any(p.get("Comment") == "Bypass APFS container keybag authentication panic on T2" for p in kernel_patches):
+                new_patch = {
+                    "Arch": "x86_64",
+                    "Identifier": "com.apple.filesystems.apfs",
+                    "Base": "_container_keybag_operation",
+                    "Comment": "Bypass APFS container keybag authentication panic on T2",
+                    "Count": 1,
+                    "Enabled": True,
+                    "MinKernel": "25.0.0",
+                    "MaxKernel": "25.99.99",
+                    "Find": b"",
+                    "Replace": binascii.unhexlify("31C0C3"),
+                    "Mask": b"",
+                    "ReplaceMask": b"",
+                    "Limit": 0,
+                    "Skip": 0
+                }
+                if self._validate_patch(new_patch):
+                    logging.info("- Injecting Bypass APFS container keybag authentication panic on T2 patch")
                     kernel_patches.append(new_patch)
              
             # --- Patch 2: Force FileVault on Broken Seal ---
