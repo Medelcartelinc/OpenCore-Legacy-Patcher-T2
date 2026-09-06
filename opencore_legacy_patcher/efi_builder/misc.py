@@ -559,10 +559,10 @@ class BuildMiscellaneous:
                 self.config["NVRAM"]["Delete"][APPLE_NVRAM_UUID].append("boot-args")
     
             try:
-                logging.info("- Set SIP to 0xfff - crucial to be able to boot properly on T2 Macs")
-                self._set_nvram_value(APPLE_NVRAM_UUID, "csr-active-config", binascii.unhexlify("FF0F0000"), overwrite=True)
+                logging.info("- Set SIP to allow Root Volume patching on T2 Macs (03080000)")
+                self._set_nvram_value(APPLE_NVRAM_UUID, "csr-active-config", binascii.unhexlify("03080000"), overwrite=True)
             except Exception as e:
-                logging.error("Setting SIP to 0xfff failed due to the following error:")
+                logging.error("Setting SIP to 03080000 failed due to the following error:")
                 logging.exception("Stack Trace:")
                 logging.info("Please try again later.")
                 sys.exit(3)
@@ -590,28 +590,6 @@ class BuildMiscellaneous:
                 }
                 if self._validate_patch(new_patch):
                     logging.info("- Injecting AppleKeyStore SEP retry-limit patch")
-                    kernel_patches.append(new_patch)
-
-            # --- Patch: Bypass APFS container keybag authentication panic on T2 ---
-            if not any(p.get("Comment") == "Bypass APFS container keybag authentication panic on T2" for p in kernel_patches):
-                new_patch = {
-                    "Arch": "x86_64",
-                    "Identifier": "com.apple.filesystems.apfs",
-                    "Base": "_container_keybag_operation",
-                    "Comment": "Bypass APFS container keybag authentication panic on T2",
-                    "Count": 1,
-                    "Enabled": True,
-                    "MinKernel": "25.0.0",
-                    "MaxKernel": "25.99.99",
-                    "Find": b"",
-                    "Replace": binascii.unhexlify("31C0C3"),
-                    "Mask": b"",
-                    "ReplaceMask": b"",
-                    "Limit": 0,
-                    "Skip": 0
-                }
-                if self._validate_patch(new_patch):
-                    logging.info("- Injecting Bypass APFS container keybag authentication panic on T2 patch")
                     kernel_patches.append(new_patch)
              
             # --- Patch 2: Force FileVault on Broken Seal ---
