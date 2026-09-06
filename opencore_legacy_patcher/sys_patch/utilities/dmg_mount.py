@@ -58,6 +58,7 @@ class PatcherSupportPkgMount:
             dmg_path,
             Path(self.constants.payload_path / "Universal-Binaries"),
             shadow_path=Path(self.constants.payload_path / "Universal-Binaries_overlay"),
+            password="password",
             retry_on_auth_error=True
         )
 
