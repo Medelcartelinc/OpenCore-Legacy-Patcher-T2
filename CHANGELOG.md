@@ -1,5 +1,10 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
-## 4.0.0.18002 - 4.0.0 alpha 18.2
+## 4.0.0.18003.7 - 4.0.0 alpha 18.3.7
+This release:
+- fixes a critical bug where `Universal-Binaries.dmg` failed to mount with "Permission denied" / "Permesso negato" (introduced in 4.0.0.18003.4): the AES-256 passphrase was accidentally removed from the `hdiutil attach` call in `sys_patch/utilities/dmg_mount.py`. Without it, hdiutil rejects the mount regardless of user privileges. The passphrase is now correctly restored.
+- all users on 4.0.0.18003.4 or 4.0.0.18003.5 affected by the root patch installation error (Issue #5) are advised to update to this release.
+
+## 4.0.0.18003.2 - 4.0.0 alpha 18.3.2
 This release:
 - fixes a bug where upon clicking Save OpenCore and the EFI configuration has been saved successfully, it will show a crash log
 - fixes an issue where WiFi doesn't work on MacBook Air Mid 2013 and MacBook Air Early 2014 on macOS 26 Tahoe by adding dart=0 in the boot arguments
