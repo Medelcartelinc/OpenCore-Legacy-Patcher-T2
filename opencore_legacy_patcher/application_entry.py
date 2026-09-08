@@ -35,7 +35,7 @@ class OpenCoreLegacyPatcher:
 
     def __init__(self) -> None:
         self.constants: constants.Constants = constants.Constants()
-
+        os.chdir(Path(__file__).resolve().parent.parent)
         logging_handler.InitializeLoggingSupport(self.constants)
 
         self._generate_base_data()

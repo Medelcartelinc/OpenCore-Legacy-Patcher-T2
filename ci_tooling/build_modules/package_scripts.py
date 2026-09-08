@@ -370,7 +370,11 @@ class GenerateScripts:
         _script += self._generate_label_bar()
         _script += "\n"
 
-        _files = self.files
+        # list() copy, not an alias: "_files = self.files" followed by "+=" mutates
+        # self.files in place, so generating the AutoPkg preinstall script left the
+        # LaunchAgent entry stuck on the instance and every later script - including
+        # the uninstaller - acted on a file list it never asked for.
+        _files = list(self.files)
         if is_autopkg:
             _files += self.additional_auto_pkg_files
 

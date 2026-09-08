@@ -39,6 +39,7 @@ import logging
 import plistlib
 import subprocess
 import sys
+import threading
 
 from pathlib   import Path
 from functools import cache
@@ -229,6 +230,76 @@ class PatchSysVolume:
 
         logging.debug("Sanity checks passed")
         return True
+
+
+    def _prompt_open_software_update(self) -> bool:
+        """
+        Ask the user whether Software Update should be opened after failed sanity checks.
+
+        input() cannot be used here: the patcher normally runs from the app bundle,
+        where no stdin is attached, so the prompt would raise instead of asking.
+        start_patch() additionally runs on a worker thread (see wx_gui/gui_sys_patch_start.py),
+        so the dialog has to be marshalled onto the main thread and waited on.
+
+        Returns:
+            bool: True if the user asked for Software Update to be opened.
+                  False if declined, or when running without a GUI (ex. '--patch' from the CLI).
+        """
+        try:
+            import wx
+        except ImportError:
+            logging.info("- No GUI available, skipping Software Update prompt")
+            return False
+
+        if wx.GetApp() is None:
+            logging.info("- No GUI available, skipping Software Update prompt")
+            return False
+
+        result   = {}
+        finished = threading.Event()
+
+        def _show_dialog() -> None:
+            try:
+                dialog = wx.MessageDialog(
+                    parent=wx.GetApp().GetTopWindow(),
+                    message=(
+                        "Pending macOS updates or upgrades were detected on this system.\n\n"
+                        "It is recommended to install that update/upgrade first, and only then "
+                        "run the patcher once again.\n\n"
+                        "Would you like to open Software Update now?"
+                    ),
+                    caption="Cannot Patch: Pending Updates",
+                    style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING
+                )
+                result["open_software_update"] = dialog.ShowModal() == wx.ID_YES
+                dialog.Destroy()
+            except Exception as e:
+                logging.error(f"Failed to display pending update dialog: {e}")
+                logging.exception("Stack Trace:")
+            finally:
+                finished.set()
+
+        if wx.IsMainThread():
+            _show_dialog()
+        else:
+            wx.CallAfter(_show_dialog)
+            finished.wait()
+
+        return result.get("open_software_update", False)
+
+
+    def _open_software_update(self) -> None:
+        """
+        Open the Software Update pane in System Settings/System Preferences.
+
+        The pane identifier changed with Ventura's System Settings rewrite.
+        """
+        pane = "x-apple.systempreferences:com.apple.preferences.softwareupdate"
+        if self.constants.detected_os >= os_data.os_data.ventura:
+            pane = "x-apple.systempreferences:com.apple.Software-Update-Settings.extension"
+
+        logging.info("- Launching Software Update...")
+        subprocess.run(["open", pane])
 
 
     def _merge_kdk_with_root(self, save_hid_cs: bool = False) -> None:
@@ -1029,6 +1100,7 @@ class PatchSysVolume:
             return
 
         logging.info("- Patcher is capable of patching")
+        logging.info("If you see a prompt that says Enter password to access Universal-Binaries.dmg, don't enter your user password! Enter the password for Universal-Binaries.dmg instead, which is password. If this fails, report this issue.")
         if not PatcherSupportPkgMount(self.constants).mount():
             logging.error("- Critical resources missing, cannot continue with patching!!!")
             logging.exception("Stack Trace:")
@@ -1043,20 +1115,17 @@ class PatchSysVolume:
             self._unmount_root_vol()
             logging.error("- Failed sanity checks: Pending updates/upgrades detected.")
             logging.info("It is recommended to install that update/upgrade and only then run the patcher once again.")
-            
-            # Offer the user a choice
-            choice = input("Do you want to open Software Update now? (y/n): ").lower()
-            
-            if choice == 'y':
-                logging.info("Launching Software Update...")
-                # Open the specific Software Update pane
-                subprocess.run(["open", "x-apple.systempreferences:com.apple.preferences.softwareupdate"])
-                # Exit cleanly as the system is now out of your hands
-                logging.info("Exiting the Install drivers and patches menu.")
-                sys.exit(0)
+
+            # Offer the user a choice. Never sys.exit() here: start_patch() runs on a worker
+            # thread, so exiting would surface as an unrelated "internal error" in the GUI
+            # instead of returning control to the menu.
+            if self._prompt_open_software_update():
+                self._open_software_update()
             else:
-                logging.info("User declined update. Exiting the Install drivers and patches menu.")
-                sys.exit(1)
+                logging.info("- User declined to open Software Update.")
+
+            logging.info("- Exiting the Install drivers and patches menu.")
+            return
         try:
             logging.info("Patchen des Root-Volumes")
             logging.info("Patching the root volume")

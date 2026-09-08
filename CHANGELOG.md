@@ -1,10 +1,553 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
-## 4.0.0.18003.7 - 4.0.0 alpha 18.3.7
+## 4.0.0.18003.9 - 4.0.0 alpha 18.3.9
 This release:
-- fixes a critical bug where `Universal-Binaries.dmg` failed to mount with "Permission denied" / "Permesso negato" (introduced in 4.0.0.18003.4): the AES-256 passphrase was accidentally removed from the `hdiutil attach` call in `sys_patch/utilities/dmg_mount.py`. Without it, hdiutil rejects the mount regardless of user privileges. The passphrase is now correctly restored.
-- all users on 4.0.0.18003.4 or 4.0.0.18003.5 affected by the root patch installation error (Issue #5) are advised to update to this release.
+- fixes CI/CD bugs that may cause unexpected issues after the app is built that may not exist when running from source
+- fixes a bug where the patcher may not include jpeg and other images inside the patcher itself, which was again related to CI/CD pipeline bugs
+<img width="1224" height="1424" alt="image" src="https://github.com/user-attachments/assets/ce0d52be-e75b-4d86-8c9b-1b702cb7be4e" />
+Now with the bug fixed, now it looks like this:
+<img width="1224" height="1424" alt="image" src="https://github.com/user-attachments/assets/992d0c4c-9bd4-4552-867a-3ee7fd76ac54" />
+
+Diese Version:
+
+- Behebt CI/CD-Fehler, die nach dem Build der Anwendung unerwartete Probleme verursachen konnten, die beim Ausführen aus dem Quellcode möglicherweise nicht auftraten.
+
+- Behebt einen Fehler, der dazu führte, dass der Patcher JPEG- und andere Bilder nicht in den Patcher selbst einbinden konnte. Dieser Fehler stand ebenfalls im Zusammenhang mit Fehlern in der CI/CD-Pipeline.
+<img width="1224" height="1424" alt="image" src="https://github.com/user-attachments/assets/ce0d52be-e75b-4d86-8c9b-1b702cb7be4e" />
+
+Jetzt mit den Fehler behoben, es sieht so aus:
+<img width="1224" height="1424" alt="image" src="https://github.com/user-attachments/assets/eb0ea3e4-dac8-40aa-ad9a-d387e6732620" />
+
+
+## 4.0.0.18003.8 - 4.0.0 alpha 18.3.8
+This release:
+- fixes this CI/CD bug when building the app that throws the following error: 'PosixPath' object is not iterable
+- removes unused imports in OpenCore-GUI.command, this mostly affects developers
+- the About section now opens a local README file stored inside the app
+
+Diese Version:
+
+- Behebt einen CI/CD-Fehler beim Erstellen der App, der folgenden Fehler auslöst: 'PosixPath' object is not iterable
+
+- Entfernt ungenutzte Importe in OpenCore-GUI.command; dies betrifft hauptsächlich Entwickler.
+
+- Der Abschnitt „Über“ öffnet nun eine lokale README-Datei innerhalb der App.
+
+## 4.0.0.18003.7 - 4.0.0 alpha 18.3.7
+This release hardens how the Privileged Helper Tool is handled in subprocess_wrapper.py:
+- fixes a local privilege escalation in the helper permission repair. repair_privileged_helper_permissions() runs chmod 4755 on the helper as root, and chmod, Path.exists() and Path.stat() all follow symlinks, so nothing checked what that path actually pointed at. A symlink planted at /Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper would have made the patcher mark an arbitrary root-owned binary setuid-root, behind an authorization prompt the user has every reason to approve. To be clear about the severity: that directory is root-owned on a healthy system, so this was not exploitable by an unprivileged local user out of the box. It mattered where the helper had been installed sloppily, where a botched uninstall left loose permissions, or after a malicious installer had already obtained one elevation. The repair now refuses unless the path is a regular file and not a symlink (checked with lstat, so the link itself is inspected), is owned by root, and sits in a directory that is root-owned and not group- or world-writable. A helper that has lost its setuid bit can itself be a sign of tampering, so this case is no longer treated as harmless drift.
+- no longer falls back to osascript when that repair fails. Anyone who breaks the helper (deleting it, destroying its permissions) could previously force the patcher into asking for an administrator password on demand. That is a phishing surface rather than code execution, but there is no reason to keep offering it.
+- fixes the administrator password potentially being handed to hdiutil as the disk image passphrase in mount_dmg(). The elevated retry writes the admin password and the image password to sudo -S as two lines, assuming sudo consumes exactly one. With cached sudo credentials or a NOPASSWD rule, sudo reads nothing, and the admin password goes straight through to hdiutil -stdinpass. The mount then fails with an authentication error that looks nothing like its actual cause. sudo -S -k now forces a prompt every time.
+- fixes run_as_root() returning nothing when the helper repair failed. Every caller expects a result object, so run_as_root_and_verify() crashed with AttributeError: 'NoneType' object has no attribute 'returncode' instead of reporting the failure.
+- fixes sys.exit(3) being called from inside repair_privileged_helper_permissions(). This is a library function called from the GUI, so a failed chmod terminated the entire patcher, possibly in the middle of writing an EFI.
+- gives repair_privileged_helper_permissions() a single return contract (True on success, False on any failure). It previously had four exit paths - True, False, raise RuntimeError and sys.exit - of which the caller handled one, so an Authorization Services error propagated uncaught into whatever build step had invoked it.
+- fixes run_as_root() raising TypeError for callers that pass a tuple rather than a list.
+- fixes osascript() producing syntactically broken AppleScript for any command containing a newline. Such commands are now rejected outright.
+- no longer passes -stdinpass to hdiutil when there is no password to pass.
+
+Note: machines whose helper sits in an unusual but legitimate state will now see the repair refuse rather than proceed.
+
+Diese Version haertet den Umgang mit dem Privileged Helper Tool in subprocess_wrapper.py:
+- Behebt eine lokale Rechteausweitung bei der Reparatur der Helper-Berechtigungen. repair_privileged_helper_permissions() fuehrt chmod 4755 als Root auf dem Helper aus, und chmod, Path.exists() und Path.stat() folgen alle Symlinks - es wurde also nie geprueft, worauf dieser Pfad tatsaechlich zeigt. Ein unter /Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper platzierter Symlink haette dazu gefuehrt, dass der Patcher eine beliebige root-eigene Binaerdatei setuid-root macht - hinter einem Autorisierungsdialog, den der Benutzer aus gutem Grund bestaetigt. Zur Einordnung: das Verzeichnis gehoert auf einem intakten System Root, ein unprivilegierter lokaler Benutzer konnte das also nicht ohne Weiteres ausnutzen. Relevant war es bei nachlaessig installiertem Helper, bei einer Deinstallation, die zu offene Rechte hinterlassen hat, oder nachdem ein boesartiger Installer bereits einmal Rechte erhalten hatte. Die Reparatur verweigert jetzt, sofern der Pfad nicht eine regulaere Datei und kein Symlink ist (geprueft mit lstat, also am Link selbst), Root gehoert und in einem Verzeichnis liegt, das Root gehoert und nicht gruppen- oder weltschreibbar ist. Ein Helper, der sein setuid-Bit verloren hat, kann selbst ein Anzeichen fuer Manipulation sein und gilt deshalb nicht mehr als harmlose Abweichung.
+- Faellt bei fehlgeschlagener Reparatur nicht mehr auf osascript zurueck. Wer den Helper unbrauchbar macht (loeschen, Rechte zerstoeren), konnte den Patcher bisher gezielt dazu bringen, nach einem Admin-Passwort zu fragen. Das ist eine Phishing-Oberflaeche und keine Codeausfuehrung, es gibt aber keinen Grund, sie weiter anzubieten.
+- Behebt, dass das Administrator-Passwort in mount_dmg() als Passphrase des Disk-Images an hdiutil gehen kann. Der eskalierte Versuch schreibt Admin- und Image-Passwort als zwei Zeilen an sudo -S und nimmt an, dass sudo genau eine davon liest. Bei zwischengespeicherten sudo-Anmeldedaten oder einer NOPASSWD-Regel liest sudo gar nichts, und das Admin-Passwort landet direkt bei hdiutil -stdinpass. Der Mount scheitert dann mit einem Authentifizierungsfehler, der nichts mit der eigentlichen Ursache zu tun hat. sudo -S -k erzwingt jetzt immer eine Abfrage.
+- Behebt, dass run_as_root() nichts zurueckgab, wenn die Helper-Reparatur fehlschlug. Alle Aufrufer erwarten ein Ergebnisobjekt, weshalb run_as_root_and_verify() mit AttributeError: 'NoneType' object has no attribute 'returncode' abstuerzte, statt den Fehlschlag zu melden.
+- Behebt den Aufruf von sys.exit(3) innerhalb von repair_privileged_helper_permissions(). Das ist eine Bibliotheksfunktion, die aus der GUI aufgerufen wird - ein fehlgeschlagenes chmod beendete damit den kompletten Patcher, moeglicherweise mitten beim Schreiben eines EFI.
+- Gibt repair_privileged_helper_permissions() ein einheitliches Rueckgabeverhalten (True bei Erfolg, False bei jedem Fehler). Zuvor gab es vier Ausgaenge - True, False, raise RuntimeError und sys.exit -, von denen der Aufrufer einen behandelte; ein Fehler der Authorization Services wurde deshalb ungefangen bis in den aufrufenden Build-Schritt durchgereicht.
+- Behebt einen TypeError in run_as_root() fuer Aufrufer, die ein Tupel statt einer Liste uebergeben.
+- Behebt, dass osascript() bei Kommandos mit Zeilenumbruch syntaktisch kaputtes AppleScript erzeugte. Solche Kommandos werden jetzt abgelehnt.
+- Uebergibt -stdinpass nicht mehr an hdiutil, wenn es gar kein Passwort zu uebergeben gibt.
+
+Hinweis: Auf Rechnern, deren Helper in einem ungewoehnlichen, aber legitimen Zustand ist, verweigert die Reparatur jetzt, statt fortzufahren.
+
+## 4.0.0.18003.3 - 4.0.0 alpha 18.3.3
+This release:
+- fixes an issue where upon trying to install root patches in Developer Mode, a popup appears in Italian instead of English. The thing is that most people don't understand or speak Italian, and if they are lucky to understand what it says, it may be because they speak French or Spanish (I speak a little bit of French), both of which have similarities with Italian. I speak Bulgarian, German, English and a little bit of French. I can understand also Luxembourgish and a little bit of Dutch, which both are similar to German. A popup like this was appearing when in Developer Mode:
+<img width="1170" height="1547" alt="IMG_0933" src="https://github.com/user-attachments/assets/190bc4d8-7fba-447e-8b09-a0a9cad6ce37" />
+
+Conferma applicazione root patch? I think means Confirm applying root patch - in French would be Confirmer d'appliquer de Root Patch?
+
+Under ATTENZIONE (ATTENTION), the text that was saying I couldn't understand very much, but was something about the APFS snapshot and modifying the root volume.
+
+Annula in French is Annuler, in English is Cancel
+Applica root patch (Appliquer de root patch) means Apply root patches
+- Fixes hdiutil: attach failed - Permission denied when trying to mount the Universal-Binaries.dmg image, thx @Medelcartelinc 
+- Enhanced HardwarePatchsetDetection to allow repatching when uninstalled detected hardware patches remain, avoiding the infinite revert loop, thx @Medelcartelinc 
+- On Apple T2 machines (e.g. MacBookPro15,1), the native SMBIOS cannot be spoofed to protect the Secure Enclave and APFS keybag, thx @Medelcartelinc 
+- Enforced revpatch=sbvmm argument generation for RestrictEvents regardless of whether serial settings are set to None or Advanced, thx @Medelcartelinc 
+- Now injects critical T2 Tahoe boot arguments (revpatch=sbvmm, AMFIPass=0x1, ipc_control_port_options=0, agdpmod) into NVRAM, thx @Medelcartelinc 
+- now, injects critical T2 Tahoe boot arguments (revpatch=sbvmm, AMFIPass=0x1, ipc_control_port_options=0, agdpmod) into NVRAM, thx @Medelcartelinc 
+- Removed connector-less headless iGPU framebuffer overrides from single-GPU models (Macmini8,1, MacBookPro16,3, MacBookAir8,x/9,1). Headless 0x3E9B0006 is now strictly scoped to dual-GPU models with discrete graphics (MacBookPro15,1/15,3/16,1/16,4), thx @Medelcartelinc 
+- Adds dynamic agdpmod=pikera (dGPU) vs agdpmod=vit9696 (iGPU) injection prevents WindowServer deadlock, thx @Medelcartelinc 
+- renames Developer Mode: ON to Experimental Mode: ON when you enable Experimental Features as since [4.0.0.18001](https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/tag/4.0.0.18001), Developer Mode is only for developers, thx @gandolf243 
+- fixes a bug where upon crashing, the file name of the crash report still says the old name instead of the new one, thx @gandolf243 
+- In the patcher, inside Settings, now there is an option to manually check for updates
 
 ## 4.0.0.18003.2 - 4.0.0 alpha 18.3.2
+This release:
+- fixes an issue where after installing WiFi patches on non-T2 systems, it cannot continue root patching anything further and says Root volume modified. A typical OpenCore Legacy Patcher behavior is first to install the root patches for WiFi and then the rest. However, here's the bug that prevents from further patching the system, which causes to heavily corrupt the operating system to the point where a repair upgrade is necessary to boot again.
+- fixes a bug where when downloading macOS through the patcher, if a user quits the patcher while downloading macOS, the patcher crashes instead of closing
+- improves download speeds for macOS inside the patcher by 5-10%
+
+Diese Version:
+- Behebt ein Problem, bei dem nach der Installation von WLAN-Patches auf Nicht-T2-Systemen keine weiteren Root-Patches installiert werden können und die Meldung „Root-Volume geändert“ erscheint. Normalerweise installiert der OpenCore Legacy Patcher zuerst die Root-Patches für WLAN und anschließend die restlichen Patches. Der Fehler verhindert jedoch weitere System-Patches und führt zu schwerwiegenden Beschädigungen des Betriebssystems, sodass ein Reparatur-Upgrade zum erneutes Starten des Betriebssystems erforderlich ist.
+
+- Behebt einen Fehler, der dazu führt, dass der Patcher abstürzt, anstatt sich zu schließen, wenn der Benutzer ihn während des Downloads beendet.
+
+- Verbessert die Download-Geschwindigkeit für macOS im Patcher um 5–10 %.
+
+## 4.0.0.18003.1 - 4.0.0 alpha 18.3.1
+Diese Version behebt einen Fehler, bei dem beim Builden von OpenCore einen Fehler plötzlich auftaucht, der heißt NameError: name 'is_mbp143' is not defined. Did you mean: 'is_mbp14x'?
+
+This version fixes a bug where an error suddenly appears during the OpenCore build process: NameError: name 'is_mbp143' is not defined. Did you mean: 'is_mbp14x'?
+
+## 4.0.0.18003 - 4.0.0 alpha 18.3
+This release includes important security and bug fixes:
+This release:
+- fixes an incomplete _find_parents_for_key implementation inside the Settings for root patching, thx @Medelcartelinc 
+- add missing disable logic for buttons in gu_settings.py, thx @gandolf243 
+- fixes yellow screen on legacy AMD GCN graphics cards, thx @Medelcartelinc 
+- now temporarily, all Metal 3802 GPU patches are available only inside Developer Mode as they're still experimental, thx @Medelcartelinc 
+- restores IOSkywalkFamily on macOS 15+ with safe boot-args and auto-inject Haswell GPU flags, thx @Medelcartelinc 
+- fixes missing AMDOpenCL import, thx @Medelcartelinc 
+- adds Wireless Preflight Fallbacks on Tahoe (legacy_wireless.py, modern_wireless.py), thx @Medelcartelinc 
+- fixes the following vulnerabilities:
+- when requesting for download for Metallibs and Kernel Debug Kit, the user agent looked similar to this: OCLP/4.0.0.18003. However, most websites, including GitHub, they don't recognize this user agent properly and deliver legacy payloads. An attacker could exploit this to launch man in the middle attacks. This is fixed by changing the user agent with one that connects to the API securely.
+
+metallib_handler.py:
+
+      if remote_metallib_version is None:
+                  logging.warning("Failed to fetch metallib list, falling back to local metallib matching")
+      
+                  # First check if a metallib matching the current macOS version is installed
+                  # ex. 13.0.1 vs 13.0
+                  loose_version = f"{parsed_version.major}.{parsed_version.minor}"
+                  logging.info(f"Checking for metallibs loosely matching {loose_version}")
+                  self.metallib_installed_path = self._local_metallib_installed(match=loose_version, check_version=True)
+                  if self.metallib_installed_path:
+                      logging.info(f"Found matching metallib: {Path(self.metallib_installed_path).name}")
+                      self.metallib_already_installed = True
+                      self.success = True
+                      return
+      
+                  older_version = f"{parsed_version.major}.{parsed_version.minor - 1 if parsed_version.minor > 0 else 0}"
+                  logging.info(f"Checking for metallibs matching {older_version}")
+                  self.metallib_installed_path = self._local_metallib_installed(match=older_version, check_version=True)
+                  if self.metallib_installed_path:
+                      logging.info(f"Found matching metallib: {Path(self.metallib_installed_path).name}")
+                      self.metallib_already_installed = True
+                      self.success = True
+                      return
+      
+                  logging.warning(f"Couldn't find metallib matching {self.host_version} or {older_version}, please install one manually") # <- an attacker could force to display this error 
+      
+                  self.error_msg = f"Could not contact MetallibSupportPkg API, and no metallib matching {self.host_version} ({self.host_build}) or {older_version} was installed.\nPlease ensure you have a network connection or manually install a metallib."
+      
+                  return
+
+Impact: an attacker could force to display the Couldn't find metallib matching error by deleting the if self.metallib_installed_path condition to launch ClickFix attacks. This is fixed by ensuring the error appears only if it really can't find the Metallibs using an else condition instead of throwing an unconditional error.
+
+kdk_handler.py:
+
+        if KDK_ASSET_LIST:
+                    return KDK_ASSET_LIST
+        
+                try:
+                    results = network_handler.NetworkUtilities().get(
+                        KDK_API_LINK,
+                        headers={
+                            "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0/OpenCoreLegacyPatcherT2/{self.constants.patcher_version}"
+                        },
+                        timeout=5
+                    )
+                except (requests.exceptions.Timeout, requests.exceptions.TooManyRedirects, requests.exceptions.ConnectionError):
+                    logging.info("Could not contact KDK API") # <- there's a bug where the error is logged as logging.info instead of logging.error.
+                    return None
+             # <- there's a vulnerability where an attacker may supply the try loop with invalid syntax to trigger an error outside requests.exceptions.Timeout, requests.exceptions.TooManyRedirects, requests.exceptions.ConnectionError .
+
+Impact: an attacker could intentionally trigger an error outside requests.exceptions.Timeout, requests.exceptions.TooManyRedirects, requests.exceptions.ConnectionError by supplying the try loop with invalid syntax and then abuse the abscence of error handling if an unexpected error happens to execute arbitary code. This is fixed by adding proper error handling when an unexpected error occurs. 
+
+          if remote_kdk_version is None:
+                      logging.warning("Failed to fetch KDK list, falling back to local KDK matching")
+          
+                      # First check if a KDK matching the current macOS version is installed
+                      # ex. 13.0.1 vs 13.0
+                      loose_version = f"{parsed_version.major}.{parsed_version.minor}"
+                      logging.info(f"Checking for KDKs loosely matching {loose_version}")
+                      self.kdk_installed_path = self._local_kdk_installed(match=loose_version, check_version=True)
+                      if self.kdk_installed_path:
+                          logging.info(f"Found matching KDK: {Path(self.kdk_installed_path).name}")
+                          self.kdk_already_installed = True
+                          self.success = True
+                          return
+          
+                      older_version = f"{parsed_version.major}.{parsed_version.minor - 1 if parsed_version.minor > 0 else 0}"
+                      logging.info(f"Checking for KDKs matching {older_version}")
+                      self.kdk_installed_path = self._local_kdk_installed(match=older_version, check_version=True)
+                      if self.kdk_installed_path:
+                          logging.info(f"Found matching KDK: {Path(self.kdk_installed_path).name}")
+                          self.kdk_already_installed = True
+                          self.success = True
+                          return
+          
+                      logging.warning(f"Couldn't find KDK matching {host_version} or {older_version}, please install one manually") # <- an attacker may force to display this error to launch ClickFix attacks
+          
+                      self.error_msg = f"Could not contact KdkSupportPkg API, and no KDK matching {host_version} ({host_build}) or {older_version} was installed.\nPlease ensure you have a network connection or manually install a KDK."
+          
+                      return
+
+Impact: an attacker could delete the if self.kdk_installed_path condition to force to show an error Couldn't find KDK matching even if there is a matching KDK to launch ClickFix attacks.
+
+## 4.0.0.18002.6 - 4.0.0 alpha 18.2.6
+This release:
+- fixes a bug where after updating OpenCore Legacy Patcher T2, it may not offer updating updating OpenCore or the root patches
+- fixes APFS keybag issues on unsupported T2 Macs when the SMBIOS is not spoofed; however, to get to the desktop requires still a bit more work, especially on desktops, thx @Medelcartelinc and @albert-mueller 
+- adds graphics frameworks for Intel Broadwell, Skylake, Haswell and AMD GCN 1-3, Polaris, Vega, Navi and non-Metal graphics cards, thx @Medelcartelinc 
+- changes the PatcherSupportPkg repository to my own repository
+- fixes the following vulnerabilities:
+
+      def _build_prebuilt(self) -> None:
+              for model in model_array.SupportedSMBIOS:
+                  logging.info(f"Validating predefined model: {model}")
+                  self.constants.custom_model = model
+                  build.BuildOpenCore(self.constants.custom_model, self.constants)
+      
+                  config_path = Path(self.constants.opencore_release_folder) / "EFI" / "OC" / "config.plist"
+                  # SECURITY: Use list-based subprocess to prevent shell injection
+                  result = subprocess.run(
+                      [str(self.constants.ocvalidate_path), str(config_path)],
+                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
+                  )
+      
+                  if result.returncode != 0:
+                      logging.error(f"Validation failed for model: {model}")
+                      subprocess_wrapper.log(result)
+                      logging.error(f"Validation failed for predefined model: {model}")
+                      raise Exception(f"Validation failed for predefined model: {model}") # <- an attacker could bypass this error to execute malware instead of root patches
+      
+                  logging.info(f"Validation succeeded for predefined model: {model}") # <- an unconditional Validation succeeded message in this case is a bug rather than an exploitable vulnerability, but this bug is now fixed as well.
+
+Impact: an attacker may bypass the validation error by placing the raise Exception inside a try loop to bypass this validation error and inject malware instead of root patches anyways. This is fixed by replacing the raise Exception with sys.exit(3) to ensure the process has properly quit in the event a validation has failed.
+
+      def _build_dumps(self) -> None:
+              for model in self.valid_dumps:
+                  self.constants.computer = model
+                  self.constants.custom_model = ""
+                  logging.info(f"Validating dumped model: {self.constants.computer.real_model}")
+                  build.BuildOpenCore(self.constants.computer.real_model, self.constants)
+      
+                  config_path = Path(self.constants.opencore_release_folder) / "EFI" / "OC" / "config.plist"
+                  result = subprocess.run(
+                      [str(self.constants.ocvalidate_path), str(config_path)],
+                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
+                  )
+      
+                  if result.returncode != 0:
+                      logging.error(f"Validation failed for dumped model: {self.constants.computer.real_model}")
+                      subprocess_wrapper.log(result)
+                      logging.error(f"Validation failed for model: {self.constants.computer.real_model}")
+                      raise Exception(f"Validation failed for model: {self.constants.computer.real_model}") # <- the same vulnerability as above - an attacker could bypass the validation error to install malware instead of root patches
+      
+                  logging.info(f"Validation succeeded for model: {self.constants.computer.real_model}") # <- the same bug as above
+
+Impact: an attacker may bypass the validation error by placing the raise Exception inside a try loop to bypass this validation error and inject malware instead of root patches anyways. This is fixed by replacing the raise Exception with sys.exit(3) to ensure the process has properly quit in the event a validation has failed.
+
+          def _validate_root_patch_files(self, major_kernel: int, minor_kernel: int) -> None:
+                  patch_type_merge_exempt = ["MechanismPlugins", "ModulePlugins"]
+                  patchset = HardwarePatchsetDetection(self.constants, xnu_major=major_kernel, xnu_minor=minor_kernel, validation=True).patches
+          
+                  for patch_core in patchset:
+                      for install_type in patchset[patch_core]:
+                          if install_type not in PatchType:
+                              raise Exception(f"Unknown PatchType: {install_type}") # <- this vulnerability lets attackers bypass the Unknown PatchType error
+
+Impact: an attacker may bypass the Unknown PatchType error to force inject arbitary patches or malicious plugins into the operating system. This is fixed by replacing raise Exception with logging.error and ensure that the process exits if the patch type is unknown due to an error.
+
+            for install_type in [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.OVERWRITE_DATA_VOLUME, PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]:
+                            if install_type in patchset[patch_core]:
+                                for install_directory in patchset[patch_core][install_type]:
+                                    for install_file in patchset[patch_core][install_type][install_directory]:
+                                        try:
+                                            if patchset[patch_core][install_type][install_directory][install_file] in DynamicPatchset:
+                                                continue
+                                        except TypeError:
+                                            pass
+            
+                                        if install_type in [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.OVERWRITE_DATA_VOLUME]:
+                                            if install_file.endswith(".framework"):
+                                                logging.error(f"{install_file} used with {install_type} - framework overwrite is prohibited.")
+                                                raise Exception(f"{install_file} used with {install_type} - framework overwrite is prohibited.") # <- an attacker may abuse this vulnerability to bypass the framework overwrite is prohibited error
+
+Impact: an attacker may bypass the framework overwrite is prohibited error to launch DoS attacks or execute arbitary code at Ring 0. This is fixed by replacing the raise Exception with sys.exit(3) to ensure if it tries to overwrite the framework, it exits properly.
+
+        elif install_type in [PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]:
+                                        if not install_file.endswith(".framework") and install_file not in patch_type_merge_exempt:
+                                            logging.error(f"{install_file} used with {install_type} - non-framework merge is prohibited.")
+                                            raise Exception(f"{install_file} used with {install_type} - non-framework merge is prohibited.") # <- an attacker may abuse this vulnerability to bypass the non-framework merge is prohibited error
+
+Impact: an attacker may bypass the non-framework merge is prohibited error to launch DoS attacks or execute arbitary code as Ring 0. This is fixed by replacing the raise Exception with sys.exit to ensure it exits properly if this error occurs.
+
+        # SECURITY: Use pathlib to resolve paths correctly
+                                    source_file = Path(self.constants.payload_local_binaries_root_path) / patchset[patch_core][install_type][install_directory][install_file] / install_directory.lstrip("/") / install_file
+                                    if not source_file.exists():
+                                        raise Exception(f"Failed to find source file: {source_file}") # <- an attacker could bypass this error to cause path traversal attacks and escalate into DoS attacks and cause kernel panics
+
+Impact: an attacker could bypass the Failed to find source file error to launch path traversal attacks and later on escalate into DoS attacks and cause kernel panics. This is fixed by replacing the raise Exception with logging.error and ensure upon this error happens it exits properly.
+
+        logging.info(f"Validating against Darwin {major_kernel}.{minor_kernel}")
+                plist_name = f"OpenCore-Legacy-Patcher-{major_kernel}.{minor_kernel}.plist"
+                if not sys_patch_helpers.SysPatchHelpers(self.constants).generate_patchset_plist(patchset, plist_name, None, None):
+                    logging.error("Failed to generate patchset plist")
+                    raise Exception("Failed to generate patchset plist") # <- an attacker could bypass the Failed to generate patchset plist error to create a malicious one
+
+Impact: an attacker could bypass the Failed to generate patchset plist error to generate a malicious plist that contains intentionally the wrong patchset to launch a DoS attack. This is fixed by replacing the raise Exception with sys.exit to ensure if this error occurs, it always exits properly.
+
+        if not dmg_path.exists():
+                    url = f"https://github.com/YBronst/PatcherSupportPkg/download/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
+                    dl_obj = network_handler.DownloadObject(url, str(dmg_path))
+                    dl_obj.download(spawn_thread=False)
+                    if not dl_obj.download_complete:
+                        logging.error("Failed to download Universal-Binaries.dmg")
+                        raise Exception("Failed to download Universal-Binaries.dmg") # <- an attacker could bypass this error to show fake percentages left to launch ClickFix attacks
+
+Impact: if the Universal-Binaries.dmg fails to download, an attacker could show a fake percentages left to launch ClickFix attacks or execute malicious code in the background by bypassing this error. This is fixed by replacing the raise Exception with sys.exit to ensure the process exits properly.
+
+      if result.returncode != 0:
+            subprocess_wrapper.log(result)
+            raise Exception("Failed to mount Universal-Binaries.dmg") # <- an attacker could bypass this error to launch DoS attacks
+
+Impact: an attacker could bypass the Failed to mount Universal-Binaries.dmg error to launch DoS attacks to crash the process. This is fixed by replacing raise Exception with logging.error and ensure if this error occurs that the process exits properly.
+
+
+## Emergency update / Notfallsupdate: 4.0.0.18002.5 - 4.0.0 alpha 18.2.5
+This release is an emergency update that fixes a critical and extremely dangerous vulnerability:
+application_entry.py:
+
+           def _fix_cwd(self) -> None:
+                  """
+                  In some extreme scenarios, our current working directory may disappear.
+                  Uses a reliable system fallback path if the directory is missing.
+                  """
+                  try:
+                      _test_dir = Path.cwd()
+                      logging.info(f"Current working directory: {_test_dir}")
+                  except FileNotFoundError:
+                      # Fallback safely to the user's home directory or application bundle root
+                      # rather than purely relying on vulnerable __file__ resolution
+                      _test_dir = Path.home()
+                      os.chdir(_test_dir)
+                      logging.warning(f"Current working directory was invalid, reset safety fallback to: {_test_dir}")
+        # <- an attacker could write an invalid syntax inside try to trigger an error outside FileNotFoundError
+
+Impact: an attacker could write an invalid syntax inside the try loop, so that while trying to find the directory to cause an unexpected error and then to execute arbitary code via exploiting the missing except Exception as e. This vulnerability is fixed by implementing except Exception as e and ensure the app quits as soon as it hits this unexpected error.
+
+If you are running 4.0.0.18002.4 or earlier, you should update immediately.
+
+## 4.0.0.18002.4 - 4.0.0 alpha 18.2.4
+This release:
+- fixes a bug where when running from source, the Save OpenCore button, when clicking it and after hitting save, it does nothing but throwing this error:
+Uncaught exception in main thread
+Traceback (most recent call last):
+  File "/Users/boyan1/Downloads/OpenCore-Legacy-Patcher-T2-main 10/opencore_legacy_patcher/wx_gui/gui_oc_settings.py", line 1091, in on_save
+    if fileDialog.ShowModal() == wx.ID_CANCEL:
+       ~~~~~~~~~~~~~~~~~~~~^^
+wx._core.wxAssertionError: C++ assertion "nIndex < m_nCount" failed at /private/var/folders/dw/ystz5y093yx3lnxm0n2_lrgr0000gn/T/cibw-sdist-5x5h2cly/wxpython-4.2.5/ext/wxWidgets/include/wx/arrstr.h(227) in Item(): wxArrayString: index out of bounds
+
+- fixes a bug where FireWire kexts may be injected wehn the host is running macOS 26 Tahoe - these will cause immediately a kernel panic
+- fixes the following vulnerabilities:
+- there was a vulnerability where upon enabling Enable Experimental Features, all features, including ones that should be accessible only in Developer Mode, including installing root patches in virtual machines which is intended only for developers. An attacker could exploit this to launch social engineering and DoS attacks. This is fixed by ensuring when enabling experimental features, these types of features which should be accessible only to developers, are disabled, thx @gandolf243 
+
+misc.py:
+
+      def _cpu_topology_handling(self) -> None:
+              """Apply CPU topology / thread pooling panic fixes on affected models."""
+              if self.model not in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]: # <- an attacker could supply the if condition with invalid syntax by putting it in try loop so unsupported models get the patch while the supported ones don't to launch DoS attacks
+                  return
+      
+              self._cpu_topology_fix() # <- an attacker could delete the if self.model not in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"] condition to inject the CPU Topology fix
+
+Impact: an attacker could intentionally write an invalid syntax in the  if self.model not in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"] condition by wrapping it in try to inject CPU Topology patches on models that do not need it to cause DoS attacks. Also, an attacker could remove the if self.model not in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"] condition to cause the same type of attack. This is fixed by ensuring the CPU Topology patches run only after checking if the models are MacBookAir8,1, MacBookAir8,2, MacBookPro11,1, MacBookPro11,2 or MacBookPro11,3 like this:
+
+    def _cpu_topology_handling(self) -> None:
+                  """Apply CPU topology / thread pooling panic fixes on affected models."""
+                  if self.model in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]:
+                       self._cpu_topology_fix() 
+                else:
+                        return
+
+
+Another vulnerability:
+
+      def _feature_unlock_handling(self) -> None:
+              """FeatureUnlock Handler."""
+              if self.constants.fu_status is False:
+                  return
+      
+              if self.model not in smbios_data.smbios_dictionary:
+                  return
+      
+              if smbios_data.smbios_dictionary[self.model]["Max OS Supported"] >= os_data.os_data.sonoma:
+                  return
+      
+              APPLE_UUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82" # <- an attacker could delete the if conditions to disable the checks to inject the FeatureUnlock kext unexpectedly
+              support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                  "FeatureUnlock.kext", self.constants.featureunlock_version, self.constants.featureunlock_path
+              )
+              if self.constants.fu_arguments:
+                  logging.info(f"- Adding additional FeatureUnlock args: {self.constants.fu_arguments}")
+                  self._update_nvram_string(APPLE_UUID, "boot-args", self.constants.fu_arguments)
+
+Impact: FeatureUnlock.kext is known by everyone that causes a kernel panic if injected on macOS 14 Sonoma+, including me and Dortania. An attacker could exploit this vulnerability to remove the if conditions to launch DoS attacks. This is fixed by placing the injection logic under else.
+
+Another vulnerability:
+
+    def _firewire_handling(self) -> None:
+            """FireWire Handler."""
+            if self.constants.firewire_boot is False:
+                return
+            if generate_smbios.check_firewire(self.model) is False:
+                return
+    
+            logging.info("- Enabling FireWire Boot Support") # <- an attacker could inject FireWire kexts unexpectedly
+            builder = support.BuildSupport(self.model, self.constants, self.config)
+            builder.enable_kext("IOFireWireFamily.kext", self.constants.fw_kext, self.constants.fw_family_path)
+            builder.enable_kext("IOFireWireSBP2.kext", self.constants.fw_kext, self.constants.fw_sbp2_path)
+            builder.enable_kext("IOFireWireSerialBusProtocolTransport.kext", self.constants.fw_kext, self.constants.fw_bus_path)
+            
+            # get_kext_by_bundle_path() raises IndexError when the entry is absent, it never
+            # returns None - so a falsy check here would be dead code. Catch the exception instead.
+            try:
+                builder.get_kext_by_bundle_path("IOFireWireFamily.kext/Contents/PlugIns/AppleFWOHCI.kext")["Enabled"] = True
+            except IndexError:
+                logging.info("- AppleFWOHCI.kext plugin entry missing from config, skipping FireWire OHCI")
+
+Impact: because of the unconditional injection of FireWire kexts, an attacker could delete all if conditions to inject FireWire drivers anyways. Furthermore, FireWire is not supported by Apple since macOS 26 Tahoe, which attackers could abuse to launch a DoS attack. This is fixed by placing the injection logic under else.
+
+Another vulnerability:
+
+    def _topcase_handling(self) -> None:
+            """USB/SPI Top Case Handler."""
+            if self.model.startswith("MacBook") and self.model in smbios_data.smbios_dictionary:
+                cpu_gen = smbios_data.smbios_dictionary[self.model]["CPU Generation"]
+                if self.model.startswith("MacBookAir6") or (cpu_data.CPUGen.broadwell <= cpu_gen <= cpu_data.CPUGen.kaby_lake):
+                    logging.info("- Enabling SPI-based top case support")
+                    builder = support.BuildSupport(self.model, self.constants, self.config)
+                    builder.enable_kext("AppleHSSPISupport.kext", self.constants.apple_spi_version, self.constants.apple_spi_path)
+                    builder.enable_kext("AppleHSSPIHIDDriver.kext", self.constants.apple_spi_hid_version, self.constants.apple_spi_hid_path)
+                    builder.enable_kext("AppleTopCaseInjector.kext", self.constants.topcase_inj_version, self.constants.top_case_inj_path)
+    
+            if not self.constants.custom_model and self.computer.internal_keyboard_type and self.computer.trackpad_type:
+                builder = support.BuildSupport(self.model, self.constants, self.config)
+                builder.enable_kext("AppleUSBTopCase.kext", self.constants.topcase_version, self.constants.top_case_path)
+    
+                for part in ["AppleUSBTCButtons.kext", "AppleUSBTCKeyboard.kext", "AppleUSBTCKeyEventDriver.kext"]:
+                    obj = builder.get_kext_by_bundle_path(f"AppleUSBTopCase.kext/Contents/PlugIns/{part}")
+                    if obj:
+                        obj["Enabled"] = True
+    
+                if self.computer.internal_keyboard_type == "Legacy":
+                    builder.enable_kext("LegacyKeyboardInjector.kext", self.constants.legacy_keyboard, self.constants.legacy_keyboard_path)
+                if self.computer.trackpad_type == "Legacy":
+                    builder.enable_kext("AppleUSBTrackpad.kext", self.constants.apple_trackpad, self.constants.apple_trackpad_path)
+                elif self.computer.trackpad_type == "Modern":
+                    builder.enable_kext("AppleUSBMultitouch.kext", self.constants.multitouch_version, self.constants.multitouch_path)
+              # <- else condition is missing, an attacker could set the computer.trackpad_type or computer.trackpad_type to an unexpected value, such as ß. щ, ю. ь, ü or anything they want to
+
+Impact: an attacker could set the computer.trackpad_type or computer.trackpad_type to any value they want to to launch confusion attacks, which then could lead to DoS attacks. This is fixed by adding else and then log via logging.info No additional kexts are needed for keyboard or trackpad. Continuing.
+
+Another vulnerability:
+
+    def _t1_handling(self) -> None:
+            """T1 Security Chip Handler with Crash Protection & Native Software Keystore Mode for Tahoe."""
+            if self.model not in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"]: # <- an attacker could wrap the logic into try to force non-T1 systems to inject T1 patches to launch DoS attacks
+                logging.error(f"{self.model} is not a T1 Mac.")
+                return
+            else:
+                # On macOS Tahoe (26.x / Darwin 25+) or modern test profiles, Apple dropped T1 SEP USB linkage.
+                # Injecting Ventura 13.6 kexts causes ABI/IPC mismatch with Tahoe user-space (securityd, LocalAuthentication, akd),
+                # breaking password authorization in System Settings and Apple Account login.
+                    logging.info("- T1 Mac on macOS Tahoe: Enabling Native Software Keystore Mode for Password Auth & Apple Account")
+                    logging.info("  (Native Tahoe AppleKeyStore & AppleCredentialManager preserved; legacy Ventura kext downgrade bypassed)")
+                    return
+    
+                        
+                logging.info("- Enabling Legacy T1 Security Chip support (Ventura fallback)")
+                try:
+                    builder = support.BuildSupport(self.model, self.constants, self.config)
+    @@ -421,7 +424,7 @@
+                    for identifier in identifiers:
+                        item = builder.get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", identifier)
+                        if item: item["Enabled"] = True
+        
+                
+                    kexts_to_enable = [
+                        ("corecrypto_T1.kext", self.constants.t1_corecrypto_version, self.constants.t1_corecrypto_path),
+                        ("AppleSSE.kext", self.constants.t1_sse_version, self.constants.t1_sse_path),
+    @@ -436,6 +439,9 @@
+                    logging.exception("Stack Trace:")
+                    logging.info("Please try again later.")
+                    sys.exit(3)
+
+Impact: an attacker could inject T1 patches on non-T1 systems by bypassing the if self.model not in ["MacBookPro13,2", "MacBookPro13,3", "MacBookPro14,2", "MacBookPro14,3"] to launch DoS attacks. This is fixed by ensuring the T1 patches are injected only on T1 Macs, else it returns and exits the function.
+
+Another vulnerability:
+
+    def _cpu_topology_fix(self) -> None: # <- an attacker could simply call the self._cpu_topology_fix function to inject CPU Topology patches on unsupported models to launch DoS attacks
+            try:
+                logging.info(f"- Applying patches for {self.model} to fix CPU topology / thread pooling panic layouts")
+                self.config["Kernel"]["Quirks"]["ProvideCurrentCpuInfo"] = True
+            except Exception as e:
+                logging.error("Applying patches to fix this specific kernel panic failed due to the following error:")
+                logging.exception("Stack Trace:")
+                logging.info("Please try again later.")
+                sys.exit(3)
+
+Impact: due to the extremely fragile and sloppy logic where it doesn't check on which model this is injected, an attacker could call the self._cpu_topology_fix function to inject the fix for CPU topology issues to launch DoS attacks. This is fixed by checking on which model this patch is injected to ensure that this patch is not injected on unsupported models.
+
+## 4.0.0.18002.3 - 4.0.0 alpha 18.2.3
+<img width="1144" height="624" alt="6B71BF45-C415-43ED-91FC-6C4FC3B3E777" src="https://github.com/user-attachments/assets/9561d7c2-9bf5-4f4c-bebb-f4079db1ee61" />
+
+This release fixes a bug where the Ask Gemini function when an error occurs it fails to check on which macOS version it is currently running and shows this error instead of Gemini:
+<img width="818" height="730" alt="B42CE4AB-24D2-4354-9EEA-31C009C586DD" src="https://github.com/user-attachments/assets/413836eb-8026-4d61-9dab-cdadf6022574" />
+With this bug fixed, now it looks like this on Big Sur and newer versions:
+<img width="2224" height="1624" alt="77B0F746-95C1-474A-BB3C-13CA4834AC22" src="https://github.com/user-attachments/assets/5256c0a2-980f-4d89-ad19-7dcb3f283807" />
+
+<img width="1144" height="624" alt="6B71BF45-C415-43ED-91FC-6C4FC3B3E777" src="https://github.com/user-attachments/assets/9561d7c2-9bf5-4f4c-bebb-f4079db1ee61" />
+
+Diese Version behebt einen Fehler, durch den die Funktion „Ask Gemini“ bei einem Fehler nicht die aktuelle macOS-Version ermittelt und stattdessen die folgende Fehlermeldung anzeigt:
+
+<img width="818" height="730" alt="B42CE4AB-24D2-4354-9EEA-31C009C586DD" src="https://github.com/user-attachments/assets/413836eb-8026-4d61-9dab-cdadf6022574" />
+Nachdem dieser Fehler behoben wurde, sieht es unter Big Sur und neueren Versionen nun so aus:
+<img width="2224" height="1624" alt="77B0F746-95C1-474A-BB3C-13CA4834AC22" src="https://github.com/user-attachments/assets/5256c0a2-980f-4d89-ad19-7dcb3f283807" />
+
+## 4.0.0.18002.2 - 4.0.0 alpha 18.2.2
+This release:
+- fixes a bug where after installing OpenCore to disk, when closing the app via command + Q, the first time it is stuck and at the second time it crashes
+- on T2 Macs, no longer SMBIOS spoofing is needed to build the EFI
+- fixes a bug where MacBookPro11,x (MacBook Pro 2013-2014) when trying to boot into Sequoia or Tahoe, it immediately returns an early kernel panic, thx @Medelcartelinc 
+- on T2 Macs, it changes UpdateSMBIOSMode to Create and disables CustomSMBIOSGuid
+
+Diese Version:
+- Behebt einen Fehler, der dazu führt, dass die Anwendung nach der Installation von OpenCore auf die Festplatte beim Schließen mit Befehl + Q beim ersten Mal hängen bleibt und beim zweiten Mal abstürzt.
+- Bei T2-Macs ist kein SMBIOS-Spoofing mehr erforderlich, um das EFI zu erstellen.
+- Behebt einen Fehler, der dazu führt, dass MacBookPro11,x (MacBook Pro 2013–2014) beim Versuch, in Sequoia oder Tahoe zu booten, sofort einen Kernel-Panic auslöst. Danke an @Medelcartelinc.
+- Auf T2-Macs wird UpdateSMBIOSMode auf Create geändert und CustomSMBIOSGuid für T2 deaktiviert.
+
+## 4.0.0.18002.1 - 4.0.0 alpha 18.2.1
+This release:
+- fixes an issue where the NVRAM boot args on T2 Macs looked like a salad of unnecessary boot arguments, thx @Medelcartelinc 
+- Force hdiutil to output in English to solve permission localization bug, thx @Medelcartelinc . Also, it will allow us easier to understand any hdiutil issues, like if the error is shown in let's say, korean, it will be very difficult to get what's going on.
+- Fix OSError [Errno 5] Input/output error on app restart when running from source by detaching standard I/O, thx @Medelcartelinc 
+
+Diese Version:
+
+- Behebt ein Problem, bei dem die NVRAM-Bootargumente auf T2-Macs wie ein unübersichtliches Durcheinander unnötiger Bootargumente aussahen (Danke an @Medelcartelinc).
+
+- Erzwingt die englische Ausgabe von hdiutil, um einen Fehler bei der Berechtigungslokalisierung zu beheben (Danke an @Medelcartelinc). Dadurch lassen sich hdiutil-Probleme leichter verstehen. Wird der Fehler beispielsweise auf Koreanisch angezeigt, ist es sehr schwierig, die Ursache zu ermitteln.
+
+- Behebt den Fehler OSError [Errno 5] (Ein-/Ausgabefehler beim Neustart der Anwendung beim Ausführen aus dem Quellcode) durch Deaktivierung der Standard-E/A (Danke an @Medelcartelinc).
+
+## 4.0.0.18002 - 4.0.0 alpha 18.2
+>>>>>>> upstream/main
 This release:
 - fixes a bug where upon clicking Save OpenCore and the EFI configuration has been saved successfully, it will show a crash log
 - fixes an issue where WiFi doesn't work on MacBook Air Mid 2013 and MacBook Air Early 2014 on macOS 26 Tahoe by adding dart=0 in the boot arguments

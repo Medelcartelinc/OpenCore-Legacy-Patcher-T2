@@ -9,7 +9,12 @@ import re
 import sys
 import time
 import argparse
+import traceback
 import subprocess
+import threading
+import rich
+from rich.live import Live
+from rich.spinner import Spinner
 from pathlib import Path
 
 # Fix: Force the execution directory immediately before importing local modules. 
@@ -27,13 +32,12 @@ from ci_tooling.build_modules import (
 
 def check_file_exists(path: Path) -> None:
     if not path.exists():
-        print(f"Fehler: Erwartete Datei/Verzeichnis nicht gefunden: {path}")
-        print(f"Error: Expected file/directory not found: {path}")
+        rich.print(f"[red]Error: Expected file/directory not found: {path}[/red]")
         sys.exit(3)
 
 def available_codesigning_identities() -> list:
     """
-    Return (SHA-1 hash, name) for every valid code signing identity in the keychain
+    Return (SHA-1 hash, name, status) for every valid code signing identity in the keychain
 
     'security find-identity -v' already filters out expired or otherwise unusable
     certificates. A self signed "Code Signing" certificate made in Keychain Access shows
@@ -48,13 +52,12 @@ def available_codesigning_identities() -> list:
             capture_output=True, text=True, timeout=30,
         )
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"Warnung: Signatur-Identitaeten konnten nicht abgefragt werden: {e}")
-        print(f"Warning: could not query signing identities: {e}")
+        rich.print(f"[yellow]Warning: could not query signing identities: {e}[/yellow]")
         return []
 
     identities = []
     for line in result.stdout.splitlines():
-        # "security find-identity" haengt bei nicht vertrauenswuerdigen Zertifikaten
+        # "security find-identity" hängt bei nicht vertrauenswuerdigen Zertifikaten
         # eine Statusmeldung an, z.B. (CSSMERR_TP_NOT_TRUSTED). Ein selbst signiertes
         # Zertifikat ist damit trotzdem brauchbar: das Helper Tool vergleicht nur die
         # Zertifikatsketten und fuehrt keine Trust-Pruefung durch.
@@ -68,7 +71,7 @@ def available_codesigning_identities() -> list:
     return identities
 
 
-def resolve_application_identity(requested: str, auto_detect: bool) -> str:
+def resolve_application_identity(requested: str, auto_detect: bool) -> "str | None":
     """
     Decide which identity the app and the privileged helper tool get signed with
 
@@ -85,9 +88,9 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> str:
         # Only reject when the lookup actually returned something; an empty list means the
         # query failed or we are not on macOS, which is not evidence the identity is missing.
         if identities and not any(requested in (identity_hash, name) for identity_hash, name, _ in identities):
-            print(f"Fehler: Keine gueltige Signatur-Identitaet gefunden fuer: {requested}")
-            print(f"Error: no valid signing identity found matching: {requested}")
-            print("       Available: " + (", ".join(f'"{name}"' for _, name, _ in identities) or "none"))
+            rich.print(f"[red]Error: no valid signing identity found matching: {requested}[/red]")
+            available = ", ".join(f'"{name}"' for _, name, _ in identities) or "none"
+            rich.print(f"[yellow]Available: {available}[/yellow]")
             sys.exit(3)
         return requested
 
@@ -95,35 +98,31 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> str:
         return None
 
     if not identities:
-        print("Hinweis: Kein Code-Signing-Zertifikat gefunden - App und Helper Tool bleiben unsigniert.")
-        print("Note: no code signing certificate found, the app and helper tool stay unsigned.")
-        print("      The privileged helper tool will refuse to run commands as root unless it was")
-        print("      compiled with 'make debug' (ci_tooling/privileged_helper_tool/README.md).")
-        print("      To sign locally, create a self signed certificate in Keychain Access:")
-        print("      Certificate Assistant > Create a Certificate > Self Signed Root, type Code Signing.")
+        rich.print(f"[yellow]Note: no code signing certificate found, the app and helper tool stay unsigned.[/yellow]")
+        rich.print(f"[yellow]      The privileged helper tool will refuse to run commands as root unless it was[/yellow]")
+        rich.print(f"[yellow]      compiled with 'make debug' (ci_tooling/privileged_helper_tool/README.md).[/yellow]")
+        rich.print(f"[yellow]      To sign locally, create a self signed certificate in Keychain Access:[/yellow]")
+        rich.print(f"[yellow]      Certificate Assistant > Create a Certificate > Self Signed Root, type Code Signing.[/yellow]")
         return None
 
     if len(identities) > 1:
-        print("Hinweis: Mehrere Code-Signing-Zertifikate gefunden - keines automatisch gewaehlt.")
-        print("Note: multiple code signing certificates found, none picked automatically:")
+        rich.print(f"[yellow]Note: multiple code signing certificates found, none picked automatically:[/yellow]")
         for _, name, _ in identities:
-            print(f"      - {name}")
-        print('      Pass --application-signing-identity "<name>" to choose one.')
+            rich.print(f"[yellow]      - {name}[/yellow]")
+        rich.print(f"[yellow]      Pass --application-signing-identity \"<name>\" to choose one.[/yellow]")
         return None
 
     _, name, status = identities[0]
-    print(f"Zertifikat automatisch gewaehlt: {name}")
-    print(f"Automatically selected signing identity: {name}")
+    rich.print(f"[yellow]Automatically selected signing identity: {name}[/yellow]")
     if status:
-        print(f"      Hinweis: Zertifikat ist nicht vertrauenswuerdig {status} - zum Signieren")
-        print( "      genuegt das, das Helper Tool prueft nur die Zertifikatskette.")
-        print(f"      Note: certificate is not trusted {status} - that is enough for signing,")
-        print( "      the helper tool only compares certificate chains.")
+        rich.print(f"[yellow]      Note: certificate is not trusted {status} - that is enough for signing,[/yellow]")
+        rich.print(f"[yellow]      the helper tool only compares certificate chains.[/yellow]")
     return name
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build OpenCore Legacy Patcher Suite", add_help=False)
+    global status, done
+    parser = argparse.ArgumentParser(description="Build OpenCore Legacy Patcher Suite")
 
     # Signing & Notarization
     parser.add_argument("--application-signing-identity", type=str, help="Application Signing Identity")
@@ -161,14 +160,12 @@ def main() -> None:
     try:
         # 1. Assets
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_assets):
-            print("--- Generiere Disk Images ---")
-            print("--- generate disk images ---")
+            status = "[1/8] Generating disk images"
             disk_images.GenerateDiskImages(args.reset_dmg_cache).generate()
 
         # 2. Application
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_application):
-            print("--- Signiere Helper Tool ---")
-            print("--- Sign Helper Tool ---")
+            status = "[2/8] Signing Helper Tool"
             sign_notarize.SignAndNotarize(
                 path=Path("./ci_tooling/privileged_helper_tool/com.dortania.opencore-legacy-patcher.privileged-helper"),
                 signing_identity=application_signing_identity,
@@ -177,8 +174,7 @@ def main() -> None:
                 notarization_team_id=args.notarization_team_id,
             ).sign_and_notarize()
 
-            print("--- Baue App ---")
-            print("--- Building the app ---")
+            status = "[3/8] Building the app"
             application.GenerateApplication(
                 reset_pyinstaller_cache=args.reset_pyinstaller_cache,
                 git_branch=args.git_branch,
@@ -187,8 +183,7 @@ def main() -> None:
             ).generate()
 
             check_file_exists(Path("dist/OpenCore-Patcher-T2.app"))
-            print("--- Signiere App ---")
-            print("--- Sign the app ---")
+            status = "[4/8] Signing the app"
             sign_notarize.SignAndNotarize(
                 path=Path("dist/OpenCore-Patcher-T2.app"),
                 signing_identity=application_signing_identity,
@@ -200,15 +195,16 @@ def main() -> None:
 
         # 3. Packages
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_package):
-            print("--- Baue Packages ---")
-            print("--- Build packages ---")
+            status = "[5/8] Building packages"
             package.GeneratePackage().generate()
             
-            for pkg in ["OpenCore-Patcher-T2.pkg", "OpenCore-Patcher-Uninstaller.pkg"]:
+            # AutoPkg-Assets-T2.pkg is installed by the app itself during auto patching,
+            # so it needs a signature just as much as the two user facing packages.
+            step = 6
+            for pkg in ["OpenCore-Patcher-T2.pkg", "OpenCore-Patcher-Uninstaller.pkg", "AutoPkg-Assets-T2.pkg"]:
                 pkg_path = Path(f"dist/{pkg}")
                 check_file_exists(pkg_path)
-                print(f"--- Signiere {pkg} ---")
-                print(f"--- Sign {pkg} ---")
+                status = f"[{step}/8] Signing {pkg}"
                 sign_notarize.SignAndNotarize(
                     path=pkg_path,
                     signing_identity=args.installer_signing_identity,
@@ -216,14 +212,33 @@ def main() -> None:
                     notarization_password=notarization_password,
                     notarization_team_id=args.notarization_team_id,
                 ).sign_and_notarize()
-
+                step += 1
+            done = True
     except Exception as e:
-        print(f"\n[!] Das Aufbauen des Apps hat abgebrochen aufgrund eines Fehlers: {e}")
-        print(f"\n[!] Building the app stopped because of some error: {e}")
+        rich.print(f"\n[yellow] Building the app stopped because of some error: {e}[/yellow]")
+        # Print the traceback too. Without it the message alone gives no file or line,
+        # which turns any error raised deep in a build module into a repo-wide hunt.
+        traceback.print_exc()
+        done = True
         sys.exit(3)
 
 if __name__ == '__main__':
     _start = time.time()
-    main()
-    print(f"\nBuild script erfolgreich in {str(round(time.time() - _start, 2))} Sekunden abgeschlossen.")
-    print(f"\nBuild script completed in {str(round(time.time() - _start, 2))} seconds.")
+    global status
+    global done
+    status = "[0/8] Starting"
+    done = False
+    thread = threading.Thread(target=main)
+    thread.start()
+    spinner = Spinner(
+        "dots",
+        text=status
+    )
+
+    with Live(spinner, refresh_per_second=10):
+        while not done:
+            spinner.update(text=status)
+            time.sleep(0.1)
+    thread.join()
+    done = True
+    rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")

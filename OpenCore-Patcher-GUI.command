@@ -4,11 +4,6 @@ PyInstaller Entry Point - Hardened with Full Extraction Fix
 """
 import sys
 import logging
-import os
-import zipfile
-import shutil
-import subprocess
-from pathlib import Path
 
 # SECURITY FIX: Remove the current directory from the search path.
 if "" in sys.path:
