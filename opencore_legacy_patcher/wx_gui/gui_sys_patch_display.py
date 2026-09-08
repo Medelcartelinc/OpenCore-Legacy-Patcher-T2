@@ -11,12 +11,7 @@ from pathlib import Path
 
 from .. import constants
 
-from ..sys_patch.patchsets import (
-    HardwarePatchsetDetection,
-    HardwarePatchsetValidation,
-    get_disabled_patchsets,
-    set_disabled_patchsets,
-)
+from ..sys_patch.patchsets import HardwarePatchsetDetection, HardwarePatchsetValidation
 
 from ..wx_gui import (
     gui_main_menu,
@@ -54,12 +49,6 @@ class SysPatchDisplayFrame(wx.Frame):
         self.return_button: wx.Button = None
         self.available_patches: bool = False
         self.init_with_parent = True if parent else False
-
-        # Patchsets applicable to this Mac, and the subset the user opted out of.
-        # Populated by the detection run in '_generate_elements_display_patches()'.
-        self.available_patchsets: list = []
-        self.disabled_patchsets:  list = []
-        self.required_patchsets:  list = []
 
         self.frame_modal = wx.Dialog(self.frame, title=title, size=(360, 200))
 
@@ -106,14 +95,7 @@ class SysPatchDisplayFrame(wx.Frame):
         patches: dict = {}
         def _fetch_patches(self) -> None:
             nonlocal patches
-            detection = HardwarePatchsetDetection(constants=self.constants)
-            patches = detection.device_properties
-            # Keep the full picture around: 'device_properties' only lists the patchsets
-            # that will actually be installed, so without this a deselected patchset could
-            # never be re-enabled from the menu again.
-            self.available_patchsets = detection.available_patchsets
-            self.disabled_patchsets  = detection.disabled_patchsets
-            self.required_patchsets  = detection.required_patchsets
+            patches = HardwarePatchsetDetection(constants=self.constants).device_properties
 
         thread = threading.Thread(target=_fetch_patches, args=(self,))
         thread.start()
@@ -230,33 +212,14 @@ class SysPatchDisplayFrame(wx.Frame):
                     patch_label.Centre(wx.HORIZONTAL)
 
 
-        # Label: patches the user opted out of
-        # Without this the deselected patches simply vanish from the menu, which reads
-        # like a detection failure rather than a choice the user made earlier.
-        if self.disabled_patchsets:
-            disabled_text = ", ".join(patch.split(": ")[1] if ": " in patch else patch for patch in self.disabled_patchsets)
-            if len(disabled_text) > 45:
-                disabled_text = f"{len(self.disabled_patchsets)} patches"
-            patch_label = wx.StaticText(frame, label=f"Disabled by you: {disabled_text}", pos=(-1, patch_label.GetPosition().y + 25))
-            patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
-            patch_label.Centre(wx.HORIZONTAL)
-
         # Button: Start Root Patching
         start_button = wx.Button(frame, label="Start Root Patching", pos=(10, patch_label.GetPosition().y + 25), size=(170, 30))
         start_button.Bind(wx.EVT_BUTTON, lambda event: self.on_start_root_patching(patches))
         start_button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         start_button.Centre(wx.HORIZONTAL)
 
-        # Button: Configure Patches
-        configure_button = wx.Button(frame, label="Configure Patches", pos=(10, start_button.GetPosition().y + start_button.GetSize().height - 5), size=(170, 30))
-        configure_button.Bind(wx.EVT_BUTTON, self.on_configure_patches)
-        configure_button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
-        configure_button.Centre(wx.HORIZONTAL)
-        if not self.available_patchsets:
-            configure_button.Disable()
-
         # Button: Revert Root Patches
-        revert_button = wx.Button(frame, label="Revert Root Patches", pos=(10, configure_button.GetPosition().y + configure_button.GetSize().height - 5), size=(170, 30))
+        revert_button = wx.Button(frame, label="Revert Root Patches", pos=(10, start_button.GetPosition().y + start_button.GetSize().height - 5), size=(170, 30))
         revert_button.Bind(wx.EVT_BUTTON, lambda event: self.on_revert_root_patching(patches))
         revert_button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         revert_button.Centre(wx.HORIZONTAL)
@@ -363,129 +326,6 @@ by creating a new APFS snapshot.
             self.frame.Hide()
             self.frame.Destroy()
         frame.start_root_patching()
-
-
-    def on_configure_patches(self, event: wx.Event = None):
-        """
-        Let the user choose which of the detected root patches are installed
-
-        Every applicable patch is selected by default, matching the behaviour of the
-        patcher without this menu. Deselecting one is meant for patches that are known
-        to misbehave on a given machine (ie. a graphics patch causing a kernel panic):
-        skipping it lets the remaining patches install and the Mac reach the desktop,
-        with only that piece of hardware left unaccelerated.
-        """
-        # Required patchsets are never offered: skipping them would leave the machine
-        # without a working input device, ie. no way back into this menu to undo it.
-        required  = list(self.required_patchsets)
-        available = [name for name in self.available_patchsets if name not in required]
-        if not available:
-            pop_up = wx.MessageDialog(
-                self.frame,
-                "No configurable root patches were detected for this Mac.",
-                "Configure Root Patches",
-                style=wx.OK | wx.ICON_INFORMATION
-            )
-            pop_up.ShowModal()
-            pop_up.Destroy()
-            return
-
-        currently_disabled = set(self.disabled_patchsets)
-
-        description = (
-            "All patches detected for your Mac are installed by default.\n\n"
-            "Uncheck any patch you do not want to install, for example one that is known to\n"
-            "break booting on your machine. Your selection is remembered for future runs.\n\n"
-            "Note: unchecked patches leave the matching hardware unpatched, so features such\n"
-            "as graphics acceleration, Wi-Fi or audio may not work."
-        )
-        if required:
-            description += (
-                "\n\nAlways installed: " + ", ".join(required) + "\n"
-                "These cannot be turned off. Without them your Mac loses its keyboard and\n"
-                "mouse, leaving no way to return to this menu and undo the change."
-            )
-
-        dialog = wx.MultiChoiceDialog(
-            self.frame,
-            description,
-            "Configure Root Patches",
-            available
-        )
-        dialog.SetSelections([index for index, name in enumerate(available) if name not in currently_disabled])
-
-        if dialog.ShowModal() != wx.ID_OK:
-            dialog.Destroy()
-            return
-
-        selected = {available[index] for index in dialog.GetSelections()}
-        dialog.Destroy()
-
-        newly_disabled = set(available) - selected
-        if newly_disabled == currently_disabled:
-            logging.info("Patch selection unchanged")
-            return
-
-        # Deselecting is a deliberate, remembered choice with visible consequences, so
-        # spell them out once before storing it.
-        if newly_disabled:
-            confirmation = wx.MessageDialog(
-                self.frame,
-                "These patches will not be installed:\n\n"
-                + "\n".join(f"  \u2022 {name}" for name in sorted(newly_disabled))
-                + "\n\nThe matching hardware stays unpatched, so graphics acceleration, Wi-Fi, "
-                  "audio or the built-in camera may stop working until you re-enable them here "
-                  "and patch again.\n\nContinue?",
-                "Skip these patches?",
-                style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING
-            )
-            answer = confirmation.ShowModal()
-            confirmation.Destroy()
-            if answer != wx.ID_YES:
-                logging.info("Patch selection discarded by user")
-                return
-
-        # Preserve stored entries that don't apply to this host (ie. a patchset for
-        # hardware that isn't currently detected) - only the visible ones are being
-        # decided here.
-        stored = set(get_disabled_patchsets()) - set(available) - set(required)
-        set_disabled_patchsets(sorted(stored | newly_disabled))
-
-        logging.info(f"Patch selection updated, disabled patchsets: {sorted(newly_disabled) if newly_disabled else 'None'}")
-
-        self._reload_frame()
-
-
-    def _reload_frame(self):
-        """
-        Rebuild the Post-Install menu so the patch list reflects the new selection
-
-        Mirrors how the main menu hands off to this frame: build the replacement first,
-        then tear the old one down deferred - the button invoking this is itself a child
-        of the dialog being destroyed.
-        """
-        old_modal = self.frame_modal
-        old_frame = self.frame
-        screen_location = old_frame.GetPosition()
-
-        self.frame_modal = None
-
-        if old_modal:
-            # End the sheet session before hiding it (see gui_support.end_window_modal)
-            gui_support.end_window_modal(old_modal)
-            old_modal.Hide()
-        old_frame.Hide()
-
-        SysPatchDisplayFrame(
-            parent=None,
-            title=self.title,
-            global_constants=self.constants,
-            screen_location=screen_location,
-        )
-
-        if old_modal:
-            wx.CallAfter(old_modal.Destroy)
-        wx.CallAfter(old_frame.Destroy)
 
 
     def on_revert_root_patching(self, patches: dict):

@@ -71,18 +71,6 @@ class USB11Controller(BaseHardware):
         return HardwareVariant.MISCELLANEOUS
 
 
-    def required(self) -> bool:
-        """
-        Cannot be deselected by the user
-
-        UHCI/OHCI are the companion controllers every low and full speed device is
-        routed to on the Macs this patch set targets - keyboards and mice included,
-        internal and external alike. Skipping it leaves no input device to undo the
-        choice with, so the machine cannot be recovered through the GUI.
-        """
-        return True
-
-
     def requires_kernel_debug_kit(self) -> bool:
         """
         Requires replacing IOUSBHostFamily and its plugins in the Boot/System Kernel Collections

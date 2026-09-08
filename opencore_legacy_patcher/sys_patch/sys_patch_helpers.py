@@ -19,8 +19,6 @@ from .. import constants
 from ..datasets import os_data
 from ..volume   import generate_copy_arguments
 
-from .patchsets import get_disabled_patchsets
-
 from ..support import (
     generate_smbios,
     subprocess_wrapper
@@ -141,14 +139,6 @@ class SysPatchHelpers:
             "OS Version": f"{self.constants.detected_os}.{self.constants.detected_os_minor} ({self.constants.detected_os_build})",
             "Custom Signature": bool(Path(self.constants.payload_local_binaries_root_path / ".signed").exists()),
         }
-
-        # Record patches the user deliberately skipped, so a support request showing this
-        # manifest doesn't look like a detection failure.
-        # Note: keep the key listed in 'MANIFEST_METADATA_KEYS' (sys_patch/patchsets/detect.py),
-        # otherwise it is mistaken for an installed patchset when deciding on reverts.
-        disabled_patchsets = get_disabled_patchsets()
-        if disabled_patchsets:
-            data["Disabled Patchsets"] = ", ".join(disabled_patchsets)
 
         data.update(patchset)
 
