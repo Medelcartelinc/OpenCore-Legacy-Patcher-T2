@@ -31,7 +31,7 @@ class T1LoginExperimental(BaseHardware):
         """
         Display name for end users
         """
-        return f"{self.hardware_variant()}: T1 Login & Touch ID (Tahoe Biometric Shim)"
+        return f"{self.hardware_variant()}: T1 Login (Experimental – Password Only)"
 
 
     def present(self) -> bool:
@@ -64,38 +64,11 @@ class T1LoginExperimental(BaseHardware):
 
     def patches(self) -> dict:
         """
-        Experimental patches for T1 Login and Touch ID on macOS Tahoe.
+        Experimental patches for T1 Login on macOS Tahoe.
 
-        On macOS Tahoe (Darwin 25), DYLD_INSERT_LIBRARIES is silently ignored
-        by dyld for processes carrying Apple private entitlements. The
-        LaunchDaemon EnvironmentVariables approach therefore does not work.
-
-        Solution: install a pre-patched biometrickitd with a LC_LOAD_WEAK_DYLIB
-        load command pointing to libT1BiometricShim.dylib injected directly into
-        its Mach-O header. dyld honours LC_LOAD_*_DYLIB unconditionally.
-
-        The shim swizzles 9 methods to bypass the T1 bridge transport failures
-        (err 0xe00002c2) that arise on Darwin 25.
+        On macOS Tahoe, password-based authentication and iCloud login are handled
+        natively by macOS. Legacy biometrics daemons and mismatched SharedUtils
+        frameworks are intentionally NOT injected to prevent SecurityAgent / WindowServer
+        crashes (black screen at login) and Touch Bar reboot loops.
         """
-        shim_dir    = str(self._constants.payload_path / "Shim" / "T1BiometricShim")
-        launchd_dir = str(self._constants.payload_path / "LaunchDaemons")
-        return {
-            "T1 Touch ID Compatibility": {
-                PatchType.OVERWRITE_SYSTEM_VOLUME: {
-                    # The shim dylib itself — loaded via LC_LOAD_WEAK_DYLIB
-                    "/usr/local/lib": {
-                        "libT1BiometricShim.dylib": shim_dir,
-                    },
-                    # Pre-patched biometrickitd binary with LC_LOAD_WEAK_DYLIB
-                    # injected into its Mach-O header (bypasses DYLD_INSERT_LIBRARIES
-                    # being silently ignored on macOS Tahoe for this process)
-                    "/usr/libexec": {
-                        "biometrickitd": shim_dir,
-                    },
-                    # LaunchDaemon plist kept as belt-and-suspenders fallback
-                    "/System/Library/LaunchDaemons": {
-                        "com.apple.biometrickitd.plist": launchd_dir,
-                    },
-                },
-            },
-        }
+        return {}
