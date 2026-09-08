@@ -58,6 +58,7 @@ from ... import constants
 from ...datasets import sip_data
 from ...datasets.os_data import os_data
 from ...support import (
+    global_settings,
     network_handler,
     utilities,
     kdk_handler,
@@ -129,7 +130,55 @@ MANIFEST_METADATA_KEYS: set = {
     "Metal Library Used",
     "OS Version",
     "Custom Signature",
+    "Disabled Patchsets",
 }
+
+
+# Global settings key holding the patchsets the user opted out of.
+#
+# Every patchset detected for the host is applied by default. Users can however
+# deselect individual ones (see 'wx_gui/gui_sys_patch_display.py'), so a patchset
+# that is known to break their machine - a graphics patch causing a kernel panic,
+# say - no longer blocks them from installing all the others and reaching the
+# desktop. Values are the full hardware patchset names ('Graphics: AMD Polaris').
+DISABLED_PATCHSETS_KEY: str = "Root Patch: Disabled Patchsets"
+
+
+def get_disabled_patchsets() -> list[str]:
+    """
+    Read the patchsets the user opted out of
+
+    Returns an empty list when nothing was ever deselected, or when the stored
+    value is unreadable/malformed - patching everything is the safe default, as
+    that is exactly what happens without this feature.
+    """
+    stored = global_settings.GlobalEnviromentSettings().read_property(DISABLED_PATCHSETS_KEY)
+    if not stored:
+        return []
+
+    # Tolerate a comma separated string, ie. a hand-edited settings file
+    if isinstance(stored, str):
+        stored = stored.split(",")
+
+    if not isinstance(stored, list):
+        logging.error(f"Malformed '{DISABLED_PATCHSETS_KEY}' entry in global settings, ignoring")
+        return []
+
+    return [str(entry).strip() for entry in stored if str(entry).strip()]
+
+
+def set_disabled_patchsets(patchsets: list[str]) -> None:
+    """
+    Store the patchsets the user opted out of
+
+    Parameters:
+        patchsets (list): Full hardware patchset names to skip during patching
+    """
+    cleaned = sorted({str(entry).strip() for entry in patchsets if str(entry).strip()})
+    if not cleaned:
+        global_settings.GlobalEnviromentSettings().delete_property(DISABLED_PATCHSETS_KEY)
+        return
+    global_settings.GlobalEnviromentSettings().write_property(DISABLED_PATCHSETS_KEY, cleaned)
 
 
 class HardwarePatchsetDetection:
@@ -137,7 +186,8 @@ class HardwarePatchsetDetection:
     def __init__(self, constants: constants.Constants,
                  xnu_major: int = None, xnu_minor:  int = None,
                  os_build:  str = None, os_version: str = None,
-                 validation: bool = False # Whether to run validation checks
+                 validation: bool = False, # Whether to run validation checks
+                 disabled_patchsets: list[str] = None # Patchsets to skip, None reads the user's selection
                  ) -> None:
         self._constants = constants
 
@@ -146,6 +196,21 @@ class HardwarePatchsetDetection:
         self._os_build   = os_build   or self._constants.detected_os_build
         self._os_version = os_version or self._constants.detected_os_version
         self._validation = validation
+
+        # Validation walks every patchset on purpose (file integrity checks), so a
+        # user's selection must never narrow it down.
+        if validation is True:
+            self._disabled_patchsets = []
+        elif disabled_patchsets is not None:
+            self._disabled_patchsets = list(disabled_patchsets)
+        else:
+            self._disabled_patchsets = get_disabled_patchsets()
+
+        # Every hardware patchset applicable to this host, including the ones the
+        # user deselected. Consumed by the GUI so deselected patchsets can be shown
+        # (and re-enabled) rather than silently disappearing from the menu.
+        self.available_patchsets: list[str] = []
+        self.disabled_patchsets:  list[str] = []
 
         self._hardware_variants = []
 
@@ -393,7 +458,7 @@ class HardwarePatchsetDetection:
                 )
                 for hw in self._hardware_variants
             ])
-            if (item.present() and not item.native_os())
+            if (item.present() and not item.native_os() and item.name() not in self._disabled_patchsets)
         }
         uninstalled_hardware_patches = present_hardware_names - set(manifest)
         if uninstalled_hardware_patches:
@@ -543,6 +608,31 @@ class HardwarePatchsetDetection:
         return present_hardware
 
 
+    def _strip_disabled_hardware(self, present_hardware: list[BaseHardware]) -> list[BaseHardware]:
+        """
+        Strip out patchsets the user deselected
+
+        Runs after '_strip_incompatible_hardware()' so the recorded list of available
+        patchsets matches what the patcher would install on its own, and so a deselected
+        patchset can never revive hardware that was stripped for being incompatible.
+        """
+        self.available_patchsets = [hardware.name() for hardware in present_hardware]
+
+        if not self._disabled_patchsets:
+            return present_hardware
+
+        remaining_hardware = []
+        for hardware in present_hardware:
+            hardware: BaseHardware
+            if hardware.name() in self._disabled_patchsets:
+                logging.info(f"Skipping patchset disabled by user: {hardware.name()}")
+                self.disabled_patchsets.append(hardware.name())
+                continue
+            remaining_hardware.append(hardware)
+
+        return remaining_hardware
+
+
     def _handle_missing_network_connection(self, requirements: dict, device_properties: dict) -> tuple[dict, dict]:
         """
         Sync network connection requirements
@@ -620,6 +710,7 @@ class HardwarePatchsetDetection:
 
         if self._validation is False:
             present_hardware = self._strip_incompatible_hardware(present_hardware)
+            present_hardware = self._strip_disabled_hardware(present_hardware)
 
         # Second pass to determine requirements
         for item in present_hardware:

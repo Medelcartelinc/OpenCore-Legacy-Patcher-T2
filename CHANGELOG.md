@@ -1,4 +1,24 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## Unreleased
+This release:
+- adds a "Configure Patches" option to the Post-Install menu, letting you choose which root patches are installed (resolves #308)
+  - all detected patches stay enabled by default, so nothing changes unless you deselect something
+  - deselecting a patch that misbehaves on your Mac (for example a graphics patch causing a kernel panic) now lets the remaining patches install, so you can reach the desktop with only that piece of hardware left unpatched
+  - the selection is stored in the global settings file and is applied to every later patch run, including automatic ones
+  - skipped patches are recorded in the root volume manifest, so they can be told apart from a failed detection
+
+Diese Version:
+
+- Fügt dem Post-Install-Menü die Option „Configure Patches“ hinzu, mit der ausgewählt werden kann, welche Root-Patches installiert werden (behebt #308).
+
+- Standardmäßig bleiben alle erkannten Patches aktiviert, es ändert sich also nichts, solange nichts abgewählt wird.
+
+- Wird ein Patch abgewählt, der auf dem jeweiligen Mac Probleme verursacht (zum Beispiel ein Grafik-Patch, der eine Kernel-Panic auslöst), lassen sich die übrigen Patches trotzdem installieren. So wird der Schreibtisch erreicht, und nur die betroffene Hardware bleibt ungepatcht.
+
+- Die Auswahl wird in der globalen Einstellungsdatei gespeichert und bei jedem weiteren Patch-Vorgang angewendet, auch bei automatischen.
+
+- Übersprungene Patches werden im Manifest des Systemvolumes vermerkt, damit sie von einer fehlgeschlagenen Erkennung unterschieden werden können.
+
 ## 4.0.0.18003.9 - 4.0.0 alpha 18.3.9
 This release:
 - fixes CI/CD bugs that may cause unexpected issues after the app is built that may not exist when running from source
