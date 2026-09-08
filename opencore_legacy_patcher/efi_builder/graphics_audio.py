@@ -83,6 +83,21 @@ class BuildGraphicsAudio:
                 if "agdpmod=pikera" not in self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]:
                     self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " agdpmod=pikera"
 
+        # MacBookPro13,x (Skylake 2016) Display & WhateverGreen Optimization
+        if self.model in ["MacBookPro13,1", "MacBookPro13,2", "MacBookPro13,3"] or (
+            self.computer and self.computer.real_model in ["MacBookPro13,1", "MacBookPro13,2", "MacBookPro13,3"]
+        ):
+            if not support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("WhateverGreen.kext")["Enabled"] is True:
+                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                    "WhateverGreen.kext", self.constants.whatevergreen_version, self.constants.whatevergreen_path
+                )
+            # Ensure AppleGraphicsDevicePolicy doesn't black out internal display
+            if "agdpmod=vit9696" not in self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]:
+                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " agdpmod=vit9696"
+            # Force online status for internal panel
+            if "igfxonln=1" not in self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]:
+                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] += " igfxonln=1"
+
 
         # Mac Pro handling
         if self.model in model_array.MacPro:
