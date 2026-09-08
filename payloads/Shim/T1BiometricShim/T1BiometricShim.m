@@ -114,10 +114,19 @@ static void InitT1BiometricShim(void) {
                 NSLog(@"[T1Shim] Hooking performCommand:version:...");
                 method_setImplementation(m, imp_implementationWithBlock(
                     ^int(id s, uint32_t cmd, uint32_t ver, uint32_t inVal,
-                         void *inData, size_t inSz, void *outData, size_t outSz){
-                        NSLog(@"[T1Shim] performCommand:0x%x ver:%u inVal:%u inSz:%zu outSz:%zu -> 0",
-                              cmd, ver, inVal, inSz, outSz);
-                        if (outData && outSz) memset(outData, 0, outSz);
+                         const void *inData, size_t inSz, void *outData, uint64_t *outSz){
+                        NSLog(@"[T1Shim] performCommand:0x%x ver:%u inVal:%u inSz:%zu outData:%p outSzPtr:%p",
+                              cmd, ver, inVal, inSz, outData, outSz);
+                        if (outSz) {
+                            uint64_t cap = *outSz;
+                            if (outData && cap > 0) {
+                                memset(outData, 0, (size_t)cap);
+                            }
+                            if (cmd == 0x30 && outData && cap >= 1) {
+                                *(uint8_t *)outData = 1;
+                                *outSz = 1;
+                            }
+                        }
                         return 0;
                     }));
             }
@@ -131,10 +140,19 @@ static void InitT1BiometricShim(void) {
                 NSLog(@"[T1Shim] Hooking performCommand:inValue:...");
                 method_setImplementation(m, imp_implementationWithBlock(
                     ^int(id s, uint32_t cmd, uint32_t inVal,
-                         void *inData, size_t inSz, void *outData, size_t outSz){
-                        NSLog(@"[T1Shim] performCommand:0x%x inVal:%u inSz:%zu outSz:%zu -> 0",
-                              cmd, inVal, inSz, outSz);
-                        if (outData && outSz) memset(outData, 0, outSz);
+                         const void *inData, size_t inSz, void *outData, uint64_t *outSz){
+                        NSLog(@"[T1Shim] performCommand:0x%x inVal:%u inSz:%zu outData:%p outSzPtr:%p",
+                              cmd, inVal, inSz, outData, outSz);
+                        if (outSz) {
+                            uint64_t cap = *outSz;
+                            if (outData && cap > 0) {
+                                memset(outData, 0, (size_t)cap);
+                            }
+                            if (cmd == 0x30 && outData && cap >= 1) {
+                                *(uint8_t *)outData = 1;
+                                *outSz = 1;
+                            }
+                        }
                         return 0;
                     }));
             }
@@ -213,10 +231,9 @@ static void InitT1BiometricShim(void) {
                 if (m) {
                     NSLog(@"[T1Shim] Hooking performCommand:input:output:capacity:");
                     method_setImplementation(m, imp_implementationWithBlock(
-                        ^int(id s, uint32_t cmd, id input, id *output, size_t *cap){
-                            NSLog(@"[T1Shim] performCommand:input: cmd=0x%x -> 0", cmd);
+                        ^int(id s, uint32_t cmd, id input, id *output, size_t cap){
+                            NSLog(@"[T1Shim] performCommand:input: cmd=0x%x cap=%zu -> 0", cmd, cap);
                             if (output) *output = nil;
-                            if (cap) *cap = 0;
                             return 0;
                         }));
                 }
