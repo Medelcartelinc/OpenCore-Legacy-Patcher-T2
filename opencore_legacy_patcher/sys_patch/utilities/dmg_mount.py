@@ -193,7 +193,8 @@ class PatcherSupportPkgMount:
             return True
 
         try:
-            if any(path.iterdir()):
+            non_hidden_items = [item for item in path.iterdir() if not item.name.startswith(".")]
+            if non_hidden_items:
                 return True
         except OSError as error:
             # Unreadable (e.g. root-owned) - treat as unusable rather than assuming
