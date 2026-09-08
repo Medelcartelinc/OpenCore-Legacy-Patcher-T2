@@ -180,6 +180,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 
 * [Matteo](https://github.com/Medelcartelinc)
     * Adding support for T1 Macs on Tahoe
+    * developing patches for T1 and non-T1 Macs for macOS 26 Tahoe
     * fixing some bugs, testing and documenting issues
 * [gandolf243](https://github.com/gandolf243)
     * UI redesign
