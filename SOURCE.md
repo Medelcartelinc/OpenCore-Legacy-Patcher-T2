@@ -41,7 +41,7 @@ To run the project from source, simply invoke via python3:
 
 ```sh
 # Launch GUI
-python3 OpenCore-Patcher-GUI.command
+OpenCore-Patcher-GUI.command
 ```
 
 Note that the OpenCore-Patcher-GUI.command file can be run as both a GUI and a CLI utility for other programs to call. If no core arguments are passed, the GUI is initialized. Otherwise the CLI will start:
