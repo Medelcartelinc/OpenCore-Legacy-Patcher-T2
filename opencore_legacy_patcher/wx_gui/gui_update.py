@@ -83,7 +83,7 @@ class UpdateFrame(wx.Frame):
             style=wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER ^ wx.MAXIMIZE_BOX
         )
 
-        # Title: Preparing update
+        # The shared download dialog owns download progress and cancellation.
         try:
             self.title_label = wx.StaticText(self.frame, label="Preparing download...", pos=(-1, 1))
             self.title_label.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
@@ -94,25 +94,35 @@ class UpdateFrame(wx.Frame):
             wx.MessageBox("Failed to download the update", "Critical Error")
             sys.exit(3)
 
-        # Progress bar
-        progress_bar = wx.Gauge(self.frame, range=100, pos=(10, 50), size=(300, 20))
-        progress_bar.Centre(wx.HORIZONTAL)
-
-        progress_bar_animation = gui_support.GaugePulseCallback(self.constants, progress_bar)
-        progress_bar_animation.start_pulse()
-
-        self.progress_bar = progress_bar
-        self.progress_bar_animation = progress_bar_animation
-
-        self.frame.Centre()
-        self.frame.Show()
+        self.progress_bar = wx.Gauge(self.frame, range=100, pos=(10, 50), size=(300, 20))
+        self.progress_bar.Centre(wx.HORIZONTAL)
+        self.progress_bar_animation = gui_support.GaugePulseCallback(self.constants, self.progress_bar)
 
         # Instantiating timer variables for the exit countdown
         self.timer_countdown = 5
         self.exit_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_exit_timer_tick, self.exit_timer)
 
-        # Start the master orchestration workflow on a background thread
+        file_name = "OpenCore-Patcher.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg"
+        download_obj = network_handler.DownloadObject(self.url, self.constants.payload_path / file_name)
+        gui_download.DownloadFrame(
+            self.frame,
+            title=self.title,
+            global_constants=self.constants,
+            download_obj=download_obj,
+            item_name=self.version_label,
+            download_icon=str(self.constants.app_icon_path)
+        )
+
+        if download_obj.download_complete is not True:
+            logging.error("It failed to download the update")
+            sys.exit(3)
+
+        self.frame.Centre()
+        self.frame.Show()
+        self.progress_bar_animation.start_pulse()
+
+        # Start the remaining update workflow on a background thread.
         threading.Thread(target=self._workflow_thread, daemon=True).start()
 
     def _workflow_thread(self) -> None:
@@ -120,31 +130,7 @@ class UpdateFrame(wx.Frame):
         Background orchestrator thread. Keeps tasks entirely off the main loop,
         preventing GUI lockups and avoiding hazardous wx.Yield use.
         """
-        download_obj = None
-        file_name = "OpenCore-Patcher.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg"
-        download_obj = network_handler.DownloadObject(self.url, self.constants.payload_path / file_name)
-
-        # --- Phase 1: Download ---
-        try:
-            logging.info("Downloading update")
-            download_obj.download(display_progress=True, spawn_thread=False)
-        except Exception as e:
-            logging.error("It failed to download the update")
-            logging.exception("Stack Trace:")
-            fallback_text = "Failed to download update. If you continue to have this issue, please manually download the update."
-            wx.CallAfter(self._handle_fatal_failure, fallback_text, "Critical Error!")
-            return
-
-        # RELIABILITY FIX: Check if the file exists AND status is explicitly True
-        # Beheben von einen Bug, indem die Aktualisierungsmechanismus denkt, da wäre ein Fehler während es erfolgreich herunterlädt
-        # Relying on getattr() is dangerous if the object state isn't perfectly managed
-        if not (hasattr(download_obj, 'download_complete') and download_obj.download_complete):
-            logging.error("It failed to download the update")
-            fallback_text = "Failed to download update. If you continue to have this issue, please manually download the update."
-            wx.CallAfter(self._handle_fatal_failure, fallback_text, "Critical Error!")
-            return
-
-        # --- Phase 2: Extraction ---
+        # --- Phase 1: Extraction ---
         try:
             logging.info("Extract update")
             wx.CallAfter(self._update_status_label, "Extracting update...")
@@ -158,7 +144,7 @@ class UpdateFrame(wx.Frame):
             wx.CallAfter(self._handle_fatal_failure, fallback_text, "Critical Error!")
             return
 
-        # --- Phase 3: Installation ---
+        # --- Phase 2: Installation ---
         try:
             logging.info("Updating")
             wx.CallAfter(self._update_status_label, "Installing update...")
@@ -188,13 +174,13 @@ class UpdateFrame(wx.Frame):
         Executes atomically on the main thread to completely clean up UI elements 
         and handle script termination instantly, preventing thread race conditions.
         """
-        self.progress_bar_animation.stop_pulse()
-        self.progress_bar.SetValue(0)
-        
         if is_cancelled:
             wx.MessageBox(error_msg, title, wx.OK | wx.ICON_INFORMATION)
         else:
             wx.MessageBox(error_msg, title, wx.OK | wx.ICON_ERROR)
+
+        self.progress_bar_animation.stop_pulse()
+        self.progress_bar.Hide()
             
         logging.info("Die App wird geschlossen")
         logging.info("Closing the app")
@@ -205,10 +191,10 @@ class UpdateFrame(wx.Frame):
         self.title_label.SetLabel("Update complete!")
         self.title_label.Centre(wx.HORIZONTAL)
 
-        self.progress_bar.Hide()
         self.progress_bar_animation.stop_pulse()
+        self.progress_bar.Hide()
 
-        installed_label = wx.StaticText(self.frame, label=f"{self.version_label} has been installed:", pos=(-1, self.progress_bar.GetPosition().y - 15))
+        installed_label = wx.StaticText(self.frame, label=f"{self.version_label} has been installed:", pos=(-1, 35))
         installed_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
         installed_label.Centre(wx.HORIZONTAL)
 

@@ -28,7 +28,7 @@ class DownloadFrame(wx.Frame):
         self.download_obj: network_handler.DownloadObject = download_obj
         self.item_name: str = item_name
         if download_icon:
-            self.download_icon: str = download_icon
+            self.download_icon: str = str(download_icon)
         else:
             self.download_icon: str = "/System/Library/CoreServices/Installer.app/Contents/Resources/package.icns"
 
@@ -67,6 +67,7 @@ class DownloadFrame(wx.Frame):
 
         # Set size of frame
         frame.SetSize((-1, return_button.GetPosition()[1] + return_button.GetSize()[1] + 40))
+        frame.SetPosition(self.parent.GetScreenPosition())
         frame.ShowWindowModal()
 
         self.download_obj.download()
