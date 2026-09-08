@@ -31,7 +31,7 @@ class T1LoginExperimental(BaseHardware):
         """
         Display name for end users
         """
-        return f"{self.hardware_variant()}: T1 Login (Experimental – Password Only)"
+        return f"{self.hardware_variant()}: T1 Login & Touch ID (Tahoe Biometric Shim)"
 
 
     def present(self) -> bool:
@@ -64,11 +64,19 @@ class T1LoginExperimental(BaseHardware):
 
     def patches(self) -> dict:
         """
-        Experimental patches for T1 Login on macOS Tahoe.
+        Experimental patches for T1 Login and Touch ID on macOS Tahoe.
 
         On macOS Tahoe, password-based authentication and iCloud login are handled
-        natively by macOS. Legacy biometrics daemons and mismatched SharedUtils
-        frameworks are intentionally NOT injected to prevent SecurityAgent / WindowServer
-        crashes (black screen at login) and Touch Bar reboot loops.
+        natively by macOS. To enable Touch ID without reverting to legacy biometrickitd
+        (which causes WindowServer/SecurityAgent login crashes), we deploy
+        libT1BiometricShim.dylib to bridge RemoteServiceDiscovery and Mesa calibration.
         """
-        return {}
+        return {
+            "T1 Touch ID Compatibility": {
+                PatchType.OVERWRITE_SYSTEM_VOLUME: {
+                    "/usr/local/lib": {
+                        "libT1BiometricShim.dylib": "26.0",
+                    },
+                },
+            },
+        }
