@@ -72,11 +72,15 @@ class T1LoginExperimental(BaseHardware):
         libT1BiometricShim.dylib to bridge RemoteServiceDiscovery and Mesa calibration.
         """
         shim_dir = str(self._constants.payload_path / "Shim" / "T1BiometricShim")
+        launchd_dir = str(self._constants.payload_path / "LaunchDaemons")
         return {
             "T1 Touch ID Compatibility": {
                 PatchType.OVERWRITE_SYSTEM_VOLUME: {
                     "/usr/local/lib": {
                         "libT1BiometricShim.dylib": shim_dir,
+                    },
+                    "/System/Library/LaunchDaemons": {
+                        "com.apple.biometrickitd.plist": launchd_dir,
                     },
                 },
             },
