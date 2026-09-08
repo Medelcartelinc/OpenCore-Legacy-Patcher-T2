@@ -10,13 +10,15 @@ import sys
 import time
 import subprocess
 import Security
+import threading
 from pathlib import Path
 from .. import constants
 
 
 from ..wx_gui import (
     gui_support,
-    gui_update
+    gui_update,
+    gui_main_menu,
 )
 from ..support import (
     global_settings,
@@ -174,14 +176,14 @@ class SettingsFrame(wx.Frame):
                     choice.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                     choice.SetSelection(choice.FindString(setting_info["value"]))
                     if "override_function" in setting_info:
-                        choice.Bind(wx.EVT_CHOICE, lambda event, variable=setting: self.settings[tab][variable]["override_function"](event))
+                        choice.Bind(wx.EVT_CHOICE, lambda event, tab=tab, variable=setting: self.settings[tab][variable]["override_function"](event))
                     else:
-                        choice.Bind(wx.EVT_CHOICE, lambda event, variable=setting: self.on_choice(event, variable))
+                        choice.Bind(wx.EVT_CHOICE, lambda event, tab=tab, variable=setting: self.on_choice(event, variable))
                     height += 10
                 elif setting_info["type"] == "button":
                     button = wx.Button(panel, label=setting, pos=(width + 25, 10 + height), size = (200,-1))
                     button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
-                    button.Bind(wx.EVT_BUTTON, lambda event, variable=setting: self.settings[tab][variable]["function"](event))
+                    button.Bind(wx.EVT_BUTTON, lambda event, tab=tab, variable=setting: self.settings[tab][variable]["function"](event))
                     height += 10
                     if "condition" in setting_info:
                         button.Enable(setting_info["condition"])
@@ -237,9 +239,6 @@ class SettingsFrame(wx.Frame):
                 "General": {
                     "type": "title",
                 },
-                "wrap_around 1": {
-                    "type": "wrap_around",
-                },
                 "Allow Reporting": {
                     "type": "checkbox",
                     "value": global_settings.GlobalEnviromentSettings().read_property("EnableCrashAndAnalyticsReporting"),
@@ -263,6 +262,9 @@ class SettingsFrame(wx.Frame):
                     ],
                     "override_function": self._update_global_settings,
                 },
+                "wrap_around 1": {
+                    "type": "wrap_around",
+                },
                 "Enable Experimental Features": {
                     "type": "checkbox",
                     "override_function": self._toggle_developer_mode,
@@ -272,6 +274,15 @@ class SettingsFrame(wx.Frame):
                     "description": [
                         "Enables experimental features and build settings.",
                         "Requires restarting the app to take effect."
+                    ],
+                },
+                "Check for updates": {
+                    "type": "button",
+                    "variable": "",
+                    "function": self.on_check_for_updates,
+                    "description": [
+                        "Manually check for updates so you have the",
+                        "latest features and bug fixes."
                     ],
                 },
             },
@@ -492,6 +503,30 @@ Hardware Information:
         if global_setting is not None:
             self._update_setting(global_setting, value)
 
+    def on_check_for_updates(self, event: wx.Event = None, str = "") -> None:
+            """
+            Manual "Check for updates" button.
+    
+            Unlike the startup check this ignores constants.has_checked_updates and
+            always reports back - a user who clicks the button gets an answer even
+            when there is nothing new. Runs on a worker thread so the GitHub request
+            cannot freeze the GUI.
+            """
+            thread = getattr(self, "update_thread", None)
+            if thread is not None and thread.is_alive():
+                logging.info("An update check is already running.")
+                return
+    
+            main_frame = self.parent
+            """ button = getattr(self, "update_button", None)
+            if button is not None:
+                button.SetLabel("Checking...")
+                button.Disable() """ #this logic is broken, TODO: fix this logic.
+            self.update_thread = threading.Thread(target=main_frame._check_for_updates, kwargs={"manual": True}, daemon=True)
+            self.update_thread.daemon = True
+            self.update_thread.start()
+            self.constants.update_thread = self.update_thread
+            
 
     def _toggle_developer_mode(self, variable, value, constants_variable = None) -> None:
         """

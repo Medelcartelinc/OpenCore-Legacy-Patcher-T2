@@ -63,7 +63,7 @@ pip3 install pyinstaller
 # Move into project directory
 cd ~/Developer/OpenCore-Legacy-Patcher-T2/
 # Create the pyinstaller based Application
-python3 Build-Project.command
+Build-Project.command
 # Open build folder
 open ./dist/
 ```

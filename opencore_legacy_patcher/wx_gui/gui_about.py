@@ -3,12 +3,12 @@ gui_about.py: About frame
 """
 
 import wx
-import wx.adv
+import markdown
+import re
 import logging
-
+from pathlib import Path
 from .. import constants
 
-from ..wx_gui import gui_support
 
 
 class AboutFrame(wx.Frame):
@@ -18,7 +18,7 @@ class AboutFrame(wx.Frame):
             return
 
         logging.info("Generating About frame")
-        super(AboutFrame, self).__init__(None, title="About", size=(350, 350), style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
+        super(AboutFrame, self).__init__(None, title="About", size=(500, 600), style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
         self.constants: constants.Constants = global_constants
         self.Centre()
         self.hyperlink_colour = (25, 179, 231)
@@ -30,40 +30,176 @@ class AboutFrame(wx.Frame):
 
     def _generate_elements(self, frame: wx.Frame) -> None:
 
-        # Set title
-        title = wx.StaticText(frame, label="OpenCore Legacy Patcher T2", pos=(-1, 5))
-        title.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
-        title.Centre(wx.HORIZONTAL)
+        self.webview = wx.html2.WebView.New(self)
 
-        # Set version
-        version = wx.StaticText(frame, label=f"Version: {self.constants.patcher_version}", pos=(-1, title.GetPosition()[1] + title.GetSize()[1] + 5))
-        version.SetFont(gui_support.font_factory(11, wx.FONTWEIGHT_NORMAL))
-        version.Centre(wx.HORIZONTAL)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self.webview, 1, wx.EXPAND)
+        self.SetSizer(sizer)
 
-        # Description
-        description = [
-            "Written by a small group of Mac hobbyists who just",
-            "want to keep old machines out of the landfill!",
+        self.load_markdown()
 
-        ]
-        spacer = 5
-        for line in description:
-            desc = wx.StaticText(frame, label=line, pos=(-1, version.GetPosition()[1] + version.GetSize()[1] + 5 + spacer))
-            desc.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
-            desc.Centre(wx.HORIZONTAL)
+    def load_markdown(self):
+        markdown_text = Path("./README.md").read_text(encoding="utf-8")
 
-            spacer += 20
+        # Call your custom function here.
+        html_body = self.render_markdown(markdown_text)
 
-        # Set icon
-        icon_mac = "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/com.apple.macbook-unibody-plastic.icns"
-        icon_mac = wx.StaticBitmap(frame, bitmap=wx.Bitmap(icon_mac, wx.BITMAP_TYPE_ICON), pos=(5, desc.GetPosition()[1] - 15))
-        icon_mac.SetSize((160, 160))
-        icon_mac.Centre(wx.HORIZONTAL)
+        html_document = f"""<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
 
-        icon_path = str(self.constants.app_icon_path)
-        icon = wx.StaticBitmap(frame, bitmap=wx.Bitmap(icon_path, wx.BITMAP_TYPE_ICON), pos=(5, desc.GetPosition()[1] + desc.GetSize()[1] + 17))
-        icon.SetSize((64, 64))
-        icon.Centre(wx.HORIZONTAL)
+    <style>
+        :root {{
+            color-scheme: light;
 
-        # Set frame size
-        frame.SetSize((-1, icon.GetPosition()[1] + icon.GetSize()[1] + 60))
+            --background: #ffffff;
+            --foreground: #202124;
+            --muted-foreground: #5f6368;
+            --link: #268bd2;
+            --code-background: #f0f0f0;
+            --border: #999999;
+            --blockquote-border: #cccccc;
+        }}
+
+        html,
+        body {{
+            background: var(--background);
+            color: var(--foreground);
+        }}
+
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                         sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 24px;
+            line-height: 1.5;
+        }}
+
+        img {{
+            max-width: 100%;
+            height: auto;
+        }}
+
+        input[type="checkbox"] {{
+            width: 1.1em;
+            height: 1.1em;
+            vertical-align: middle;
+            margin-right: 0.4em;
+        }}
+
+        .task-list-item {{
+            list-style: none;
+        }}
+
+        ul:has(.task-list-item) {{
+            padding-left: 0;
+        }}
+
+        pre {{
+            overflow-x: auto;
+            padding: 12px;
+            border-radius: 6px;
+            background: var(--code-background);
+            color: var(--foreground);
+        }}
+
+        code {{
+            background: var(--code-background);
+            color: var(--foreground);
+        }}
+
+        table {{
+            border-collapse: collapse;
+        }}
+
+        th,
+        td {{
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+        }}
+
+        blockquote {{
+            margin-left: 0;
+            padding-left: 16px;
+            border-left: 4px solid var(--blockquote-border);
+            color: var(--muted-foreground);
+        }}
+
+        a {{
+            color: var(--link);
+        }}
+
+        @media (prefers-color-scheme: dark) {{
+            :root {{
+                color-scheme: dark;
+
+                --background: #0d1117;
+                --foreground: #e6edf3;
+                --muted-foreground: #8b949e;
+                --link: #58a6ff;
+                --code-background: #161b22;
+                --border: #30363d;
+                --blockquote-border: #30363d;
+            }}
+        }}
+    </style>
+</head>
+<body>
+{html_body}
+</body>
+</html>
+"""
+
+        # This lets relative images and links resolve relative to the
+        # directory containing the Markdown file.
+        base_url = Path("./README.md").resolve().parent.as_uri() + "/"
+
+        self.webview.SetPage(html_document, base_url)
+
+
+    def render_markdown(self, text: str):
+        # Convert bare GitHub-style task lines into Markdown list items.
+        #
+        # Input:
+        #   [X] Installer boots
+        #
+        # Becomes:
+        #   - [X] Installer boots
+        text = re.sub(
+            r"^(\s*)(\[[ xX]\])\s+(.*)$",
+            r"\1- \2 \3",
+            text,
+            flags=re.MULTILINE,
+        )
+
+        html = markdown.markdown(
+            text,
+            extensions=[
+                "extra",
+                "tables",
+                "fenced_code",
+                "sane_lists",
+            ],
+        )
+
+        # Convert [X] and [ ] inside <li> elements into HTML checkboxes.
+        def checkbox_replacement(match):
+            checked = match.group(1).lower() == "x"
+
+            return (
+                '<li class="task-list-item">'
+                '<input type="checkbox" '
+                f'{"checked " if checked else ""}'
+                'disabled> '
+            )
+
+        html = re.sub(
+            r"<li>\[([ xX])\]\s*",
+            checkbox_replacement,
+            html,
+            flags=re.IGNORECASE,
+        )
+
+        return html

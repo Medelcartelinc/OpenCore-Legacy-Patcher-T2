@@ -7,7 +7,6 @@ import atexit
 import plistlib
 import tempfile
 import subprocess
-import applescript
 
 import logging
 
@@ -22,22 +21,15 @@ class RoutePayloadDiskImage:
 
     def __init__(self, global_constants: constants.Constants) -> None:
         self.constants: constants.Constants = global_constants
-        self.icon_path = str(self.constants.app_icon_path).replace("/", ":")[1:]
+        # POSIX path - see subprocess_wrapper.applescript_icon_clause() for why the
+        # previous HFS conversion never resolved.
+        self.icon_path = self.constants.app_icon_path
 
         self._setup_tmp_disk_image()
 
     def _request_admin_password(self) -> str:
-        """Prompt for the local administrator password via a plain dialog.
-
-        See PatcherSupportPkgMount._request_admin_password (sys_patch/utilities/dmg_mount.py)
-        for why this is a plain "display dialog" rather than an elevated "do shell script".
-        """
-        try:
-            return applescript.AppleScript(
-                f'set theResult to display dialog "OpenCore Legacy Patcher requires administrator access to mount patch resources." default answer "" with hidden answer with title "OpenCore Legacy Patcher" with icon file "{self.icon_path}"\nreturn the text returned of theResult'
-            ).run()
-        except Exception:
-            return ""
+        """Prompt for the local administrator password. See subprocess_wrapper.request_admin_password()."""
+        return subprocess_wrapper.request_admin_password(self.icon_path)
 
 
     def _setup_tmp_disk_image(self) -> None:

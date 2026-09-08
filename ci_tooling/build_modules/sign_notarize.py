@@ -7,10 +7,10 @@ import os
 from pathlib import Path
 import mac_signing_buddy
 import macos_pkg_builder
+import rich
 import macos_pkg_builder.utilities.signing
 
 # Set up standard logging to avoid revealing secrets in raw standard output
-logger = logging.getLogger(__name__)
 
 
 class SignAndNotarize:
@@ -33,14 +33,13 @@ class SignAndNotarize:
         Sign and Notarize with explicit verification constraints
         """
         if not self._signing_identity:
-            logger.warning("Signing identity not provided. Skipping signing pipeline.")
+            rich.print("[yellow]Signing identity not provided. Skipping signing pipeline.[/yellow]")
             return
 
         if not self._path.exists():
             raise FileNotFoundError(f"Target binary asset payload path missing: {self._path}")
 
-        print(f"{self._path.name} signieren...")
-        print(f"Signing {self._path.name}...")
+        rich.print(f"Signing {self._path.name}...")
 
         try:
             if self._path.suffix.lower() == ".pkg":
@@ -62,8 +61,7 @@ class SignAndNotarize:
             raise RuntimeError(f"Cryptographic signature step critically failed: {e}")
 
         if all([self._notarization_apple_id, self._notarization_password, self._notarization_team_id]):
-            print(f"Notarisierung von {self._path.name} über die Apple Developer API...")
-            print(f"Notarizing {self._path.name} via Apple Developer API...")
+            rich.print(f"Notarizing {self._path.name} via Apple Developer API...")
             
             try:
                 # Underlying wrapper invokes Apple's notarytool binary or API
@@ -78,7 +76,6 @@ class SignAndNotarize:
                 raise RuntimeError(f"Apple Notarization dispatch layer failed: {e}")
                 sys.exit(3)
         else:
-            logger.warning("Notarization credentials not completely provided. Skipping notarization.")
+            rich.print("[yellow]Notarization credentials not completely provided. Skipping notarization.[/yellow]")
 
-        print(f"Erfolgreich sicher gemacht und verifiziert {self._path.name}")
-        print(f"Successfully secured and verified {self._path.name}")
+        rich.print(f"[green]Successfully secured and verified {self._path.name}[/green]")
