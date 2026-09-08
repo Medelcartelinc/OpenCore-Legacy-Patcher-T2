@@ -213,6 +213,7 @@ def main() -> None:
                     notarization_team_id=args.notarization_team_id,
                 ).sign_and_notarize()
                 step += 1
+            status = "[8/8] Complete"
             done = True
     except Exception as e:
         rich.print(f"\n[yellow] Building the app stopped because of some error: {e}[/yellow]")
@@ -239,6 +240,7 @@ if __name__ == '__main__':
         while not done:
             spinner.update(text=status)
             time.sleep(0.1)
+        spinner.update(text=status)
     thread.join()
     done = True
     rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
