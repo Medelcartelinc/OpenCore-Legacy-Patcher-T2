@@ -71,11 +71,12 @@ class T1LoginExperimental(BaseHardware):
         (which causes WindowServer/SecurityAgent login crashes), we deploy
         libT1BiometricShim.dylib to bridge RemoteServiceDiscovery and Mesa calibration.
         """
+        shim_dir = str(self._constants.payload_path / "Shim" / "T1BiometricShim")
         return {
             "T1 Touch ID Compatibility": {
                 PatchType.OVERWRITE_SYSTEM_VOLUME: {
                     "/usr/local/lib": {
-                        "libT1BiometricShim.dylib": "26.0",
+                        "libT1BiometricShim.dylib": shim_dir,
                     },
                 },
             },
