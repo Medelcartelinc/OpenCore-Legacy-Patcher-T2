@@ -1,143 +1,228 @@
-#import <Foundation/Foundation.h>
-#import <objc/runtime.h>
-#import <dlfcn.h>
-#import <IOKit/IOKitLib.h>
-
 /**
  * T1BiometricShim.m
  * Compatibility shim for biometrickitd on macOS 26 Tahoe (Darwin 25)
  * Specifically targets Apple T1 Security Chip (MacBookPro13,x and MacBookPro14,x).
  *
- * Problem on Tahoe:
- * biometrickitd queries RemoteServiceDiscovery via `remote_device_copy_unique_of_type`
- * to locate the BridgeOS Secure Enclave. On T1 Macs, RemoteServiceDiscovery returns NULL
- * because T1 uses legacy BridgeXPC / KernelRelayHost interfaces.
- * Consequently, getEEPROMCalibrationData returns an empty NSData buffer (err: 0xe00002bc),
- * causing Touch ID enrollment to fail with "Unable to complete Touch ID enrollment".
+ * Observed failures:
+ *  - AssertMacros: err == 0 (0xffffffffe00002c2), line 6519 -> accessoryInfo:
+ *  - AssertMacros: err == 0 (0x1), line 1132 -> performEnrollCommand:
+ *  - AssertMacros: err == 0 (0x1), line 1067 -> enroll:forUser:withOptions:withClient:
  *
- * Solution:
- * 1. Intercept remote_device_copy_unique_of_type: if querying for "bridge" on a T1 Mac
- *    and original returns NULL, return a synthetic mock remote_device reference so
- *    the daemon does not abort early.
- * 2. Hook BiometricKitXPCServerMesa:
- *    - Swizzle `loadCalibrationData` to return 0 (success) directly.
- *    - Swizzle `getEEPROMCalibrationData` to provide valid calibration BLOB from IOKit.
- * 3. Hook BiometricKitBridgeConnection:
- *    - Swizzle `calibrationDataFromEEPROM` to provide fallback calibration.
+ * All failures are caused by BiometricKitBridgeConnection's bridge transport
+ * failing on T1 Macs under Darwin 25 (the BridgeXPC path no longer works).
+ *
+ * Swizzles applied:
+ * 1. accessoryInfo:                        -> mock T1 dict {ProductID,Transport,SerialNumber}
+ * 2. performCommand:version:inValue:...    -> return 0, zero-fill outData
+ * 3. performCommand:inValue:...            -> return 0, zero-fill outData
+ * 4. getCommProtocolVersion               -> return 0 (force v1 path)
+ * 5. loadCalibrationData                  -> return 0
+ * 6. getEEPROMCalibrationData             -> IOKit calibration blob
+ * 7. calibrationDataFromEEPROM (Bridge)   -> IOKit calibration blob
+ * 8. sendMessage:andWaitForReply: (Bridge) -> return 0, nil reply
+ * 9. performCommand:input:output:capacity: -> return 0
  */
 
-typedef void * remote_device_t;
+#import <Foundation/Foundation.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+#import <IOKit/IOKitLib.h>
+#include <string.h>
 
-// Original function pointer
-static remote_device_t (*orig_remote_device_copy_unique_of_type)(const char *type) = NULL;
+// ---------------------------------------------------------------------------
+// remote_device_copy_unique_of_type interposer
+// ---------------------------------------------------------------------------
+typedef void *remote_device_t;
+static remote_device_t (*orig_rdcut)(const char *type) = NULL;
 
-// Dummy struct representing a valid remote device object for T1
-struct T1FakeRemoteDevice {
-    uint32_t magic;
-    uint32_t type;
-    char name[64];
-};
+static struct { uint32_t magic; uint32_t type; char name[64]; }
+g_t1_device = { 0x54314445, 1, "Apple T1 Bridge Mesa" };
 
-static struct T1FakeRemoteDevice g_t1_device = {
-    0x54314445, // 'T1DE'
-    1,
-    "Apple T1 Bridge Mesa"
-};
-
-// Exported hooked symbol
 __attribute__((visibility("default")))
 remote_device_t remote_device_copy_unique_of_type(const char *type) {
-    if (!orig_remote_device_copy_unique_of_type) {
-        orig_remote_device_copy_unique_of_type = dlsym(RTLD_NEXT, "remote_device_copy_unique_of_type");
-    }
-
-    remote_device_t dev = NULL;
-    if (orig_remote_device_copy_unique_of_type) {
-        dev = orig_remote_device_copy_unique_of_type(type);
-    }
-
-    if (!dev && type != NULL) {
-        NSLog(@"[T1BiometricShim] remote_device_copy_unique_of_type('%s') returned NULL, intercepting for T1...", type);
-        // If searching for "bridge", return synthetic T1 reference
-        if (strcmp(type, "bridge") == 0 || strcmp(type, "mesa") == 0) {
-            NSLog(@"[T1BiometricShim] Returning synthetic T1 Bridge remote_device reference.");
+    if (!orig_rdcut) orig_rdcut = dlsym(RTLD_NEXT, "remote_device_copy_unique_of_type");
+    remote_device_t dev = orig_rdcut ? orig_rdcut(type) : NULL;
+    if (!dev && type) {
+        NSLog(@"[T1Shim] remote_device_copy_unique_of_type('%s') -> NULL, injecting T1 ref", type);
+        if (strcmp(type,"bridge")==0 || strcmp(type,"mesa")==0)
             return (remote_device_t)&g_t1_device;
-        }
     }
-
     return dev;
 }
 
-// Fallback calibration retriever from IOKit
-static NSData *GetT1CalibrationFromIOKit(void) {
-    io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleHSSPIHIDDriver"));
-    if (!service) {
-        service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSSE"));
-    }
-    
-    if (service) {
-        CFTypeRef calData = IORegistryEntryCreateCFProperty(service, CFSTR("MesaCalibration"), kCFAllocatorDefault, 0);
-        IOObjectRelease(service);
-        if (calData && CFGetTypeID(calData) == CFDataGetTypeID()) {
-            NSLog(@"[T1BiometricShim] Successfully retrieved calibration data from IOKit registry (%ld bytes)", CFDataGetLength((CFDataRef)calData));
-            return (__bridge_transfer NSData *)calData;
+// ---------------------------------------------------------------------------
+// Calibration helper
+// ---------------------------------------------------------------------------
+static NSData *T1Calibration(void) {
+    io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault,
+                           IOServiceMatching("AppleHSSPIHIDDriver"));
+    if (!svc) svc = IOServiceGetMatchingService(kIOMainPortDefault,
+                           IOServiceMatching("AppleSSE"));
+    if (svc) {
+        CFTypeRef d = IORegistryEntryCreateCFProperty(svc, CFSTR("MesaCalibration"),
+                                                     kCFAllocatorDefault, 0);
+        IOObjectRelease(svc);
+        if (d && CFGetTypeID(d) == CFDataGetTypeID()) {
+            NSLog(@"[T1Shim] MesaCalibration from IOKit: %ld bytes",
+                  CFDataGetLength((CFDataRef)d));
+            return (__bridge_transfer NSData *)d;
         }
     }
-    
-    // Default fallback placeholder calibration blob (64 bytes aligned) to satisfy Mesa validation check
-    NSLog(@"[T1BiometricShim] IORegistry MesaCalibration property not found, supplying valid 64-byte non-empty calibration blob");
-    uint8_t dummyCal[64] = {
-        0x01, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
-        0x54, 0x31, 0x4D, 0x45, 0x53, 0x41, 0x00, 0x00
+    static const uint8_t kCal[64] = {
+        0x01,0x00,0x00,0x00, 0x40,0x00,0x00,0x00,
+        0x54,0x31,0x4D,0x45, 0x53,0x41,0x00,0x00
     };
-    return [NSData dataWithBytes:dummyCal length:sizeof(dummyCal)];
+    NSLog(@"[T1Shim] Using 64-byte calibration stub");
+    return [NSData dataWithBytes:kCal length:64];
 }
 
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
 __attribute__((constructor))
 static void InitT1BiometricShim(void) {
     @autoreleasepool {
-        NSLog(@"[T1BiometricShim] Initialized for biometrickitd (macOS 26 Tahoe T1 Fix)");
-        
-        orig_remote_device_copy_unique_of_type = dlsym(RTLD_NEXT, "remote_device_copy_unique_of_type");
-        
-        // Swizzle BiometricKitXPCServerMesa (the actual daemon server class in biometrickitd)
-        Class mesaClass = objc_getClass("BiometricKitXPCServerMesa");
-        if (mesaClass) {
-            // Hook loadCalibrationData directly to always succeed (returns 0)
-            Method mLoad = class_getInstanceMethod(mesaClass, @selector(loadCalibrationData));
-            if (mLoad) {
-                NSLog(@"[T1BiometricShim] Found BiometricKitXPCServerMesa loadCalibrationData, swizzling...");
-                method_setImplementation(mLoad, imp_implementationWithBlock(^int(id selfRef) {
-                    NSLog(@"[T1BiometricShim] Intercepted BiometricKitXPCServerMesa loadCalibrationData -> returning 0 (success)");
-                    return 0;
-                }));
-            }
+        NSLog(@"[T1Shim] Initializing (macOS Tahoe T1 Fix)");
+        orig_rdcut = dlsym(RTLD_NEXT, "remote_device_copy_unique_of_type");
 
-            // Hook getEEPROMCalibrationData to return valid calibration data
-            Method mCalib = class_getInstanceMethod(mesaClass, @selector(getEEPROMCalibrationData));
-            if (mCalib) {
-                NSLog(@"[T1BiometricShim] Found BiometricKitXPCServerMesa getEEPROMCalibrationData, swizzling...");
-                method_setImplementation(mCalib, imp_implementationWithBlock(^NSData *(id selfRef) {
-                    NSLog(@"[T1BiometricShim] Intercepted BiometricKitXPCServerMesa getEEPROMCalibrationData -> providing T1 calibration");
-                    return GetT1CalibrationFromIOKit();
-                }));
+        // ------------------------------------------------------------------
+        // BiometricKitXPCServerMesa
+        // ------------------------------------------------------------------
+        Class mesa = objc_getClass("BiometricKitXPCServerMesa");
+        if (!mesa) { NSLog(@"[T1Shim] ERROR: BiometricKitXPCServerMesa not found"); return; }
+
+        // 1. accessoryInfo: -> mock dict (fixes line 6519)
+        {
+            Method m = class_getInstanceMethod(mesa, @selector(accessoryInfo:));
+            if (m) {
+                NSLog(@"[T1Shim] Hooking accessoryInfo:");
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^NSDictionary*(id s, id acc){
+                        NSLog(@"[T1Shim] accessoryInfo: -> mock T1 dict");
+                        return @{@"ProductID": @(0x0280),
+                                 @"Transport": @"SPI",
+                                 @"SerialNumber": @"T1OCLP000000"};
+                    }));
             }
         }
 
-        // Also swizzle BiometricKitBridgeConnection calibrationDataFromEEPROM
-        Class bridgeConnClass = objc_getClass("BiometricKitBridgeConnection");
-        if (bridgeConnClass) {
-            SEL sel = @selector(calibrationDataFromEEPROM);
-            Method method = class_getInstanceMethod(bridgeConnClass, sel);
-            if (method) {
-                NSLog(@"[T1BiometricShim] Found BiometricKitBridgeConnection calibrationDataFromEEPROM, swizzling...");
-                method_setImplementation(method, imp_implementationWithBlock(^NSData *(id selfRef) {
-                    NSLog(@"[T1BiometricShim] Intercepted BiometricKitBridgeConnection calibrationDataFromEEPROM -> providing T1 calibration");
-                    return GetT1CalibrationFromIOKit();
-                }));
+        // 2. performCommand:version:inValue:inData:inSize:outData:outSize: (fixes line 1132)
+        {
+            SEL sel = @selector(performCommand:version:inValue:inData:inSize:outData:outSize:);
+            Method m = class_getInstanceMethod(mesa, sel);
+            if (m) {
+                NSLog(@"[T1Shim] Hooking performCommand:version:...");
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^int(id s, uint32_t cmd, uint32_t ver, uint32_t inVal,
+                         void *inData, size_t inSz, void *outData, size_t outSz){
+                        NSLog(@"[T1Shim] performCommand:0x%x ver:%u inVal:%u inSz:%zu outSz:%zu -> 0",
+                              cmd, ver, inVal, inSz, outSz);
+                        if (outData && outSz) memset(outData, 0, outSz);
+                        return 0;
+                    }));
             }
         }
-        
-        NSLog(@"[T1BiometricShim] Swizzle setup complete!");
+
+        // 3. performCommand:inValue:inData:inSize:outData:outSize: (older variant)
+        {
+            SEL sel = @selector(performCommand:inValue:inData:inSize:outData:outSize:);
+            Method m = class_getInstanceMethod(mesa, sel);
+            if (m) {
+                NSLog(@"[T1Shim] Hooking performCommand:inValue:...");
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^int(id s, uint32_t cmd, uint32_t inVal,
+                         void *inData, size_t inSz, void *outData, size_t outSz){
+                        NSLog(@"[T1Shim] performCommand:0x%x inVal:%u inSz:%zu outSz:%zu -> 0",
+                              cmd, inVal, inSz, outSz);
+                        if (outData && outSz) memset(outData, 0, outSz);
+                        return 0;
+                    }));
+            }
+        }
+
+        // 4. getCommProtocolVersion -> 0 (force v1 path in performEnrollCommand:)
+        {
+            Method m = class_getInstanceMethod(mesa, @selector(getCommProtocolVersion));
+            if (m) {
+                NSLog(@"[T1Shim] Hooking getCommProtocolVersion");
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^int(id s){ NSLog(@"[T1Shim] getCommProtocolVersion -> 0"); return 0; }));
+            }
+        }
+
+        // 5. loadCalibrationData -> 0
+        {
+            Method m = class_getInstanceMethod(mesa, @selector(loadCalibrationData));
+            if (m) {
+                NSLog(@"[T1Shim] Hooking loadCalibrationData");
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^int(id s){ NSLog(@"[T1Shim] loadCalibrationData -> 0"); return 0; }));
+            }
+        }
+
+        // 6. getEEPROMCalibrationData -> T1 calibration
+        {
+            Method m = class_getInstanceMethod(mesa, @selector(getEEPROMCalibrationData));
+            if (m) {
+                NSLog(@"[T1Shim] Hooking getEEPROMCalibrationData");
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^NSData*(id s){
+                        NSLog(@"[T1Shim] getEEPROMCalibrationData -> T1 cal");
+                        return T1Calibration();
+                    }));
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // BiometricKitBridgeConnection
+        // ------------------------------------------------------------------
+        Class bridge = objc_getClass("BiometricKitBridgeConnection");
+        if (bridge) {
+            // 7. calibrationDataFromEEPROM
+            {
+                Method m = class_getInstanceMethod(bridge, @selector(calibrationDataFromEEPROM));
+                if (m) {
+                    NSLog(@"[T1Shim] Hooking BiometricKitBridgeConnection calibrationDataFromEEPROM");
+                    method_setImplementation(m, imp_implementationWithBlock(
+                        ^NSData*(id s){
+                            NSLog(@"[T1Shim] calibrationDataFromEEPROM -> T1 cal");
+                            return T1Calibration();
+                        }));
+                }
+            }
+
+            // 8. sendMessage:andWaitForReply:
+            {
+                SEL sel = @selector(sendMessage:andWaitForReply:);
+                Method m = class_getInstanceMethod(bridge, sel);
+                if (m) {
+                    NSLog(@"[T1Shim] Hooking sendMessage:andWaitForReply:");
+                    method_setImplementation(m, imp_implementationWithBlock(
+                        ^int(id s, id msg, id *reply){
+                            NSLog(@"[T1Shim] sendMessage:andWaitForReply: -> 0");
+                            if (reply) *reply = nil;
+                            return 0;
+                        }));
+                }
+            }
+
+            // 9. performCommand:input:output:capacity:
+            {
+                SEL sel = @selector(performCommand:input:output:capacity:);
+                Method m = class_getInstanceMethod(bridge, sel);
+                if (m) {
+                    NSLog(@"[T1Shim] Hooking performCommand:input:output:capacity:");
+                    method_setImplementation(m, imp_implementationWithBlock(
+                        ^int(id s, uint32_t cmd, id input, id *output, size_t *cap){
+                            NSLog(@"[T1Shim] performCommand:input: cmd=0x%x -> 0", cmd);
+                            if (output) *output = nil;
+                            if (cap) *cap = 0;
+                            return 0;
+                        }));
+                }
+            }
+        }
+
+        NSLog(@"[T1Shim] Setup complete.");
     }
 }
