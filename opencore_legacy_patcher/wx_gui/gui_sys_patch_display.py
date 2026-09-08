@@ -59,6 +59,7 @@ class SysPatchDisplayFrame(wx.Frame):
         # Populated by the detection run in '_generate_elements_display_patches()'.
         self.available_patchsets: list = []
         self.disabled_patchsets:  list = []
+        self.required_patchsets:  list = []
 
         self.frame_modal = wx.Dialog(self.frame, title=title, size=(360, 200))
 
@@ -112,6 +113,7 @@ class SysPatchDisplayFrame(wx.Frame):
             # never be re-enabled from the menu again.
             self.available_patchsets = detection.available_patchsets
             self.disabled_patchsets  = detection.disabled_patchsets
+            self.required_patchsets  = detection.required_patchsets
 
         thread = threading.Thread(target=_fetch_patches, args=(self,))
         thread.start()
@@ -373,7 +375,10 @@ by creating a new APFS snapshot.
         skipping it lets the remaining patches install and the Mac reach the desktop,
         with only that piece of hardware left unaccelerated.
         """
-        available = list(self.available_patchsets)
+        # Required patchsets are never offered: skipping them would leave the machine
+        # without a working input device, ie. no way back into this menu to undo it.
+        required  = list(self.required_patchsets)
+        available = [name for name in self.available_patchsets if name not in required]
         if not available:
             pop_up = wx.MessageDialog(
                 self.frame,
@@ -387,13 +392,23 @@ by creating a new APFS snapshot.
 
         currently_disabled = set(self.disabled_patchsets)
 
-        dialog = wx.MultiChoiceDialog(
-            self.frame,
+        description = (
             "All patches detected for your Mac are installed by default.\n\n"
             "Uncheck any patch you do not want to install, for example one that is known to\n"
             "break booting on your machine. Your selection is remembered for future runs.\n\n"
             "Note: unchecked patches leave the matching hardware unpatched, so features such\n"
-            "as graphics acceleration, Wi-Fi or audio may not work.",
+            "as graphics acceleration, Wi-Fi or audio may not work."
+        )
+        if required:
+            description += (
+                "\n\nAlways installed: " + ", ".join(required) + "\n"
+                "These cannot be turned off. Without them your Mac loses its keyboard and\n"
+                "mouse, leaving no way to return to this menu and undo the change."
+            )
+
+        dialog = wx.MultiChoiceDialog(
+            self.frame,
+            description,
             "Configure Root Patches",
             available
         )
@@ -411,10 +426,29 @@ by creating a new APFS snapshot.
             logging.info("Patch selection unchanged")
             return
 
+        # Deselecting is a deliberate, remembered choice with visible consequences, so
+        # spell them out once before storing it.
+        if newly_disabled:
+            confirmation = wx.MessageDialog(
+                self.frame,
+                "These patches will not be installed:\n\n"
+                + "\n".join(f"  \u2022 {name}" for name in sorted(newly_disabled))
+                + "\n\nThe matching hardware stays unpatched, so graphics acceleration, Wi-Fi, "
+                  "audio or the built-in camera may stop working until you re-enable them here "
+                  "and patch again.\n\nContinue?",
+                "Skip these patches?",
+                style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING
+            )
+            answer = confirmation.ShowModal()
+            confirmation.Destroy()
+            if answer != wx.ID_YES:
+                logging.info("Patch selection discarded by user")
+                return
+
         # Preserve stored entries that don't apply to this host (ie. a patchset for
         # hardware that isn't currently detected) - only the visible ones are being
         # decided here.
-        stored = set(get_disabled_patchsets()) - set(available)
+        stored = set(get_disabled_patchsets()) - set(available) - set(required)
         set_disabled_patchsets(sorted(stored | newly_disabled))
 
         logging.info(f"Patch selection updated, disabled patchsets: {sorted(newly_disabled) if newly_disabled else 'None'}")

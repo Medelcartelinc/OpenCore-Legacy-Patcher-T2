@@ -212,6 +212,10 @@ class HardwarePatchsetDetection:
         self.available_patchsets: list[str] = []
         self.disabled_patchsets:  list[str] = []
 
+        # Patchsets that cannot be deselected (BaseHardware.required()), exposed so the
+        # GUI can leave them out of the checklist and explain why.
+        self.required_patchsets:  list[str] = []
+
         self._hardware_variants = []
 
         self._hardware_variants += [
@@ -458,7 +462,7 @@ class HardwarePatchsetDetection:
                 )
                 for hw in self._hardware_variants
             ])
-            if (item.present() and not item.native_os() and item.name() not in self._disabled_patchsets)
+            if (item.present() and not item.native_os() and not self._is_disabled(item))
         }
         uninstalled_hardware_patches = present_hardware_names - set(manifest)
         if uninstalled_hardware_patches:
@@ -608,6 +612,25 @@ class HardwarePatchsetDetection:
         return present_hardware
 
 
+    def _is_disabled(self, hardware: BaseHardware) -> bool:
+        """
+        Whether the user opted out of this patchset
+
+        Patchsets marked as required (BaseHardware.required()) are never skipped, no
+        matter what the settings file says: the key is plain text and hand editable,
+        and the GUI is only one of three entry points into detection (the auto patcher
+        and headless runs come through here as well).
+        """
+        if hardware.name() not in self._disabled_patchsets:
+            return False
+
+        if hardware.required() is True:
+            logging.warning(f"Ignoring deselection of required patchset: {hardware.name()}")
+            return False
+
+        return True
+
+
     def _strip_disabled_hardware(self, present_hardware: list[BaseHardware]) -> list[BaseHardware]:
         """
         Strip out patchsets the user deselected
@@ -617,6 +640,7 @@ class HardwarePatchsetDetection:
         patchset can never revive hardware that was stripped for being incompatible.
         """
         self.available_patchsets = [hardware.name() for hardware in present_hardware]
+        self.required_patchsets  = [hardware.name() for hardware in present_hardware if hardware.required() is True]
 
         if not self._disabled_patchsets:
             return present_hardware
@@ -624,7 +648,7 @@ class HardwarePatchsetDetection:
         remaining_hardware = []
         for hardware in present_hardware:
             hardware: BaseHardware
-            if hardware.name() in self._disabled_patchsets:
+            if self._is_disabled(hardware) is True:
                 logging.info(f"Skipping patchset disabled by user: {hardware.name()}")
                 self.disabled_patchsets.append(hardware.name())
                 continue
