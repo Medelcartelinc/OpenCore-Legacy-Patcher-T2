@@ -97,7 +97,7 @@ body:
   - type: dropdown
     id: issue-type
     attributes:
-      label: Issue type / Typ Fehler
+      label: Issue type or recommendation / Typ Fehler oder Empfehlung
       options:
         - Boot failure / Startfehler
         - Kernel panic
@@ -109,12 +109,16 @@ body:
         - Sleep / wake / Ruhezustand / Aufwachen
         - USB
         - Installing root patches fails / Installierung von Root Patches schlägt fehl
-        - Application related issues / Anwendungsprobleme
+        - Downloading and flashing macOS through the patcher fails / Herunterladen und Flashen von macOS über dieser Patcher scheitert
+        - Building and installing OpenCore fails / Abbilden und Installation von OpenCore schlägt fehl
+        - OpenCore doesn't start at all / OpenCore startet überhaupt nicht
+        - Other application related issues / Andere verwandte Anwendungsprobleme
         - Security vulnerability - in the main project, please do not report it here and go to Security and quality and report a vulnerability there / - Sicherheitslücke - in der Hauptprojekt, bitte melden Sie diese nicht hier, sondern im Bereich „Security and quality“.
         - Malicious website delivering malware disguised as OpenCore Legacy Patcher / Bösartige Webseite, die sich tarnt als OpenCore Legacy Patcher T2, um Malware einzuschleusen
         - Malicious, typosquatting site trying to impersonate Dortania or Albert Müller / Bösartiges, Tippfehler-Webseite, die sich als Dortania oder Albert Müller tarnt
         - Typosquatting repository (e.g  ОpenCore-Legacy-Patchеr-T2 with cyrilic o and e or OCLP-T2) / Repository mit Tippfehlern (z.B ОpenCore-Legacy-Patchеr-T2 mit kirillischer o und e)
         - Malicious fork / Bösartiges Fork
+        - Suggestion about a new feature / Empfehlung für neues Funktion
         - Other / Andere
     validations:
       required: true
