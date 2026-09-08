@@ -494,11 +494,11 @@ def mount_dmg(
     if password:
         cmd.append("-stdinpass")
 
-    # Force hdiutil to output in English so we can reliably match "Permission denied".
-    # NOTE: brittle by nature - hdiutil's wording is not a stable interface. If a future
-    # macOS reworks these messages, the elevation retry silently stops triggering.
+    # Force hdiutil and CoreFoundation to output in English so error matching is consistent.
     env = os.environ.copy()
     env["LC_ALL"] = "C"
+    env["LANG"] = "en_US.UTF-8"
+    env["AppleLanguages"] = '("en")'
 
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     stdout, _ = process.communicate(input=password.encode() if password else None)
@@ -506,20 +506,18 @@ def mount_dmg(
     if process.returncode == 0 or admin_password_prompt is None:
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
-    # EACCES is not the only shape this takes: the same gate has also surfaced as
-    # EPERM ("Operation not permitted"). Match both.
-    _privilege_error = b"Permission denied" in stdout or b"Operation not permitted" in stdout
+    # Privilege error patterns across macOS versions / POSIX:
+    _privilege_error = (
+        b"Permission denied" in stdout
+        or b"Operation not permitted" in stdout
+        or b"not permitted" in stdout.lower()
+    )
     _auth_error = retry_on_auth_error and b"Authentication error" in stdout
 
-    # These strings are not a stable interface, and LC_ALL only reaches hdiutil's
-    # POSIX-level messages - the DiskImages framework localises via AppleLanguages,
-    # so a non-English system can produce a failure none of the matches above catch.
-    # When the caller passed a fixed, known-correct passphrase (retry_on_auth_error),
-    # a wrong password is not a plausible explanation for the failure, so fall back
-    # to retrying elevated on ANY error rather than giving up on a string mismatch.
-    # The cost of being wrong is one superfluous password prompt; the cost of not
-    # retrying is root patching that cannot start at all.
-    _should_retry = _privilege_error or _auth_error or retry_on_auth_error
+    # DiskImages / CoreFoundation localization may cause non-English error messages
+    # on non-English installations. If unprivileged attach failed and we have an admin prompt,
+    # retry with elevation rather than aborting due to language differences or unknown error strings.
+    _should_retry = _privilege_error or _auth_error or retry_on_auth_error or (process.returncode != 0 and password is not None)
     if not _should_retry:
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
@@ -538,9 +536,9 @@ def mount_dmg(
     # even when run as root - elevating privileges alone does not clear it. Run it
     # in the same elevated shell as the actual attach so it always has the rights to.
     elevated_shell = (
-        # sudo resets the environment (env_reset), so LC_ALL set for the unprivileged
-        # attempt does not survive into this one. Re-export it here.
-        "export LC_ALL=C; "
+        # sudo resets the environment (env_reset), so LC_ALL and AppleLanguages set
+        # for the unprivileged attempt do not survive into this one. Re-export them here.
+        "export LC_ALL=C LANG=en_US.UTF-8 AppleLanguages='(\"en\")'; "
         f"xattr -d com.apple.quarantine {shlex.quote(str(dmg_path))} 2>/dev/null; "
         + " ".join(shlex.quote(str(arg)) for arg in cmd)
     )
