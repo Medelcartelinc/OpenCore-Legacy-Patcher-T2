@@ -30,8 +30,16 @@ def install_new_file(source_folder: Path, destination_folder: Path, file_name: s
 
     file_name_str = str(file_name)
 
+    # Ensure destination directory exists on target volume (e.g. /usr/local/lib)
     if not Path(destination_folder).exists():
-        logging.info(f"  - Skipping {file_name}, cannot locate {source_folder}")
+        try:
+            subprocess_wrapper.run_as_root_and_verify(["/bin/mkdir", "-p", str(destination_folder)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            fix_permissions(str(destination_folder))
+        except Exception as e:
+            logging.warning(f"  - Failed to create destination folder {destination_folder}: {e}")
+
+    if not Path(destination_folder).exists():
+        logging.info(f"  - Skipping {file_name}, cannot locate destination {destination_folder}")
         return
 
     if method in [PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]:
