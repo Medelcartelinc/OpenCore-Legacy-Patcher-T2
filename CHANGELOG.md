@@ -1,23 +1,126 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
-## Unreleased
+## 4.0.0.18004.1 - 4.0.0 alpha 18.4.1
 This release:
-- adds a "Configure Patches" option to the Post-Install menu, letting you choose which root patches are installed (resolves #308)
-  - all detected patches stay enabled by default, so nothing changes unless you deselect something
-  - deselecting a patch that misbehaves on your Mac (for example a graphics patch causing a kernel panic) now lets the remaining patches install, so you can reach the desktop with only that piece of hardware left unpatched
-  - the selection is stored in the global settings file and is applied to every later patch run, including automatic ones
-  - skipped patches are recorded in the root volume manifest, so they can be told apart from a failed detection
+- fixes privilege escalation issues when mounting the Universal-Binaries.dmg:
+
+Three defects could leave Universal-Binaries.dmg unmounted even though the
+elevation path existed:
+
+1. The administrator-password dialog was built with an HFS icon path
+   (str(app_icon_path).replace("/", ":")[1:]), whose first component
+   AppleScript reads as a VOLUME name - so it resolved against a
+   non-existent volume "Users" and 'display dialog' raised. Both call
+   sites swallowed that in a bare 'except: return ""', which mount_dmg()
+   then read as "user cancelled" and aborted elevation - no prompt shown,
+   no explanation logged, mount fails. Dialogs now use
+   'with icon POSIX file', drop the icon clause entirely when the file is
+   missing, and log a failed prompt instead of swallowing it. The prompt
+   itself moved to subprocess_wrapper.request_admin_password() so
+   dmg_mount.py and reroute_payloads.py cannot drift apart again.
+
+2. PatcherSupportPkgMount.mount() short-circuited on
+   Path(payload_local_binaries_root_path).exists(). Now that the attach
+   can run under sudo, hdiutil creates the mountpoint as root, so an
+   attach that fails afterwards leaves an EMPTY root-owned directory -
+   and every later run treated it as "resources available" and patched
+   against nothing, with the user unable to delete it without sudo.
+   Replaced with _resources_already_available(): a real mount or a
+   non-empty directory still short-circuits, an empty leftover does not.
+
+3. mount_dmg() only retried elevated on "Permission denied". The same
+   gate has also surfaced as EPERM ("Operation not permitted"), and
+   LC_ALL does not reach the DiskImages framework's own localised
+   strings, so a non-English system could miss every match and never
+   elevate at all. Now matches EPERM as well and, when the caller passed
+   a fixed known-correct passphrase, falls back to retrying on any error
+   rather than giving up on a string mismatch.
+
+Also: '-k' does not override a NOPASSWD sudoers rule, contrary to the
+comment it carried - sudo would then consume no stdin and the admin
+password would be fed to hdiutil's -stdinpass as the image passphrase.
+_sudo_will_prompt() now asks sudo up front and sends no password line
+when none is wanted. LC_ALL is re-exported inside the elevated shell,
+since sudo's env_reset drops it.
+
+- changes the update screen to show how much it has been completed updating, thx @gandolf243 . The new update screen looks like this:
+<img width="512" height="393" alt="IMG_0935" src="https://github.com/user-attachments/assets/dcf2a72a-6d1f-4967-9ccf-e865f17a98c3" />
+
+Just a note when installing root patches:
+If OpenCore Legacy Patcher requires administrator access to mount patch resources pops up, you need to enter your user password and hit Enter to mount the Universal-Binaries.dmg.
+<img width="1600" height="900" alt="288FD706-DDC7-4754-A3AB-B31E2B51764F" src="https://github.com/user-attachments/assets/7a2c4d56-6b34-4140-a1ff-51bf67f76158" />
+
+
+Diese Version:
+- behebt Probleme bei der Rechteeskalation (Privilege Escalation) während des Einbindens (Mountens) der Universal-Binaries.dmg:
+
+Drei Fehler konnten dazu führen, dass die Universal-Binaries.dmg nicht eingebunden wurde, obwohl die Möglichkeit zur Rechteerhöhung bestand:
+
+1. Der Dialog zur Eingabe des Administratorpassworts verwendete einen HFS-Icon-Pfad
+(str(app_icon_path).replace("/", ":")[1:]), dessen erste Komponente
+von AppleScript als Volume-Name interpretiert wurde – er bezog sich also auf ein
+nicht existierendes Volume namens „Users“, woraufhin ‚display dialog‘ einen Fehler auslöste. 
+Beide Aufrufstellen fingen diesen Fehler mit einem bloßen ‚except: return ""‘ ab;
+mount_dmg() interpretierte dies als „Benutzer hat abgebrochen“ und brach die
+Rechteerhöhung ab – es erschien keine Abfrage, es wurde keine Erklärung protokolliert,
+und das Einbinden schlug fehl. Dialoge verwenden nun ‚with icon POSIX file‘,
+lassen die Icon-Angabe ganz weg, wenn die Datei fehlt, und protokollieren eine
+fehlgeschlagene Abfrage, anstatt sie zu unterdrücken. Die Abfrage-Logik selbst
+wurde in subprocess_wrapper.request_admin_password() verlagert, damit
+dmg_mount.py und reroute_payloads.py nicht erneut auseinanderdriften.
+
+2. PatcherSupportPkgMount.mount() brach vorzeitig ab, wenn
+Path(payload_local_binaries_root_path).exists() wahr war. Da der „Attach“-Vorgang
+nun unter sudo laufen kann, erstellt hdiutil den Mountpoint als root; ein
+anschließend fehlschlagender „Attach“-Vorgang hinterlässt also ein LEERES,
+im Besitz von root befindliches Verzeichnis – und jeder spätere Durchlauf
+interpretierte dies als „Ressourcen verfügbar“ und führte Patches ins Leere,
+wobei der Benutzer das Verzeichnis ohne sudo nicht löschen konnte. 
+Ersetzt durch _resources_already_available(): Ein tatsächlicher Mount oder
+ein nicht leeres Verzeichnis führen weiterhin zum vorzeitigen Abbruch,
+ein leerer Überrest hingegen nicht.
+
+3. mount_dmg() versuchte die Aktion mit erhöhten Rechten nur bei „Permission denied“
+erneut. Dieselbe Fehlerbedingung trat auch als EPERM („Operation not permitted“)
+auf, und LC_ALL wirkt sich nicht auf die lokalisierten Strings des
+DiskImages-Frameworks aus; auf einem nicht-englischen System konnte daher
+keine Übereinstimmung gefunden werden, sodass es nie zu einer Rechteerhöhung kam. 
+Nun wird auch EPERM berücksichtigt; wenn der Aufrufer zudem eine feste,
+bekanntlich korrekte Passphrase übergeben hat, wird bei jedem Fehler ein
+erneuter Versuch unternommen, anstatt bei einer Nichtübereinstimmung der
+Fehlermeldung aufzugeben. Außerdem: „-k“ setzt eine NOPASSWD-Regel in der sudoers-Datei nicht außer Kraft – entgegen dem dortigen Kommentar. Stattdessen würde sudo keine Eingabe von stdin lesen, und das Administratorpasswort würde als Image-Passphrase an den Parameter „-stdinpass“ von hdiutil weitergegeben. _sudo_will_prompt() fragt sudo nun vorab ab und sendet keine Passwortzeile, wenn keine benötigt wird. LC_ALL wird innerhalb der Shell mit erhöhten Rechten erneut exportiert, da sudo die Variable aufgrund von „env_reset“ verwirft.
+
+- ändert den Aktualisierungsfenster so, dass der Fortschritt der Aktualisierung angezeigt wird; danke an @gandolf243 . Das neue Aktualisierungsfenster sieht so aus:
+<img width="512" height="393" alt="IMG_0935" src="https://github.com/user-attachments/assets/dcf2a72a-6d1f-4967-9ccf-e865f17a98c3" />
+
+Ein Hinweis zur Installation von Root-Patches:
+Wenn die Aufforderung erscheint, dass der OpenCore Legacy Patcher Administratorrechte zum Einbinden der Patch-Ressourcen benötigt, müssen Sie Ihr Benutzerpasswort eingeben und die Eingabetaste (Enter) drücken, um die Datei „Universal-Binaries.dmg“ einzubinden.
+<img width="1600" height="900" alt="288FD706-DDC7-4754-A3AB-B31E2B51764F" src="https://github.com/user-attachments/assets/7a2c4d56-6b34-4140-a1ff-51bf67f76158" />
+
+
+
+## 4.0.0.18004 - 4.0.0 alpha 18.4
+This version:
+- improves CI/CD pipelines for building the app, now when building the app says at which step it is and when downloading, it now says the percentage
+- fixes an issue where when trying to mount Universal-Binaries.dmg, it asks for the Universal-Binaries.dmg password:
+<img width="1600" height="900" alt="image" src="https://github.com/user-attachments/assets/8e403b64-35ea-4496-a9e0-aed54750a19d" />
+
+- in the About section, now there is support for dark mode when showing the readme, thx @gandolf243 
+- fixes a bug where if it detects a software update was downloaded and the user was trying to root patch, it was expecting a Terminal output instead of GUI one - like it expected the user to enter Y or N in the Terminal and not use a GUI window
+
+Now with the fix applied, it only asks for the user password only.
 
 Diese Version:
 
-- Fügt dem Post-Install-Menü die Option „Configure Patches“ hinzu, mit der ausgewählt werden kann, welche Root-Patches installiert werden (behebt #308).
+- Verbessert die CI/CD-Pipelines für den App-Build. Beim Build-Prozess wird nun der aktuelle Schritt angezeigt, und beim Download wird der Fortschritt in Prozent angezeigt.
 
-- Standardmäßig bleiben alle erkannten Patches aktiviert, es ändert sich also nichts, solange nichts abgewählt wird.
+- Behebt ein Problem, bei dem beim Mounten von Universal-Binaries.dmg nach dem Passwort für diese Datei gefragt wurde:
 
-- Wird ein Patch abgewählt, der auf dem jeweiligen Mac Probleme verursacht (zum Beispiel ein Grafik-Patch, der eine Kernel-Panic auslöst), lassen sich die übrigen Patches trotzdem installieren. So wird der Schreibtisch erreicht, und nur die betroffene Hardware bleibt ungepatcht.
+<img width="1600" height="900" alt="image" src="https://github.com/user-attachments/assets/8e403b64-35ea-4496-a9e0-aed54750a19d" />
 
-- Die Auswahl wird in der globalen Einstellungsdatei gespeichert und bei jedem weiteren Patch-Vorgang angewendet, auch bei automatischen.
+Nach der Behebung des Fehlers wird nun nur noch das Benutzerpasswort abgefragt.
 
-- Übersprungene Patches werden im Manifest des Systemvolumes vermerkt, damit sie von einer fehlgeschlagenen Erkennung unterschieden werden können.
+- in die "About" / "Über"-Sektion, jetzt Dunkelmodus-Unterstützung beim Anzeigen des READMEs ist jetzt verfügbar, danke an @gandolf243 
+- - Behebt einen Fehler, der auftrat, wenn erkannt wurde, dass ein Software-Update heruntergeladen wurde und der Benutzer versuchte, einen Root-Patch zu installieren. Dabei wurde eine Terminalausgabe anstelle einer GUI-Ausgabe erwartet – so als ob der Benutzer im Terminal „J“ oder „N“ eingeben und kein GUI-Fenster verwenden würde.
 
 ## 4.0.0.18003.9 - 4.0.0 alpha 18.3.9
 This release:
