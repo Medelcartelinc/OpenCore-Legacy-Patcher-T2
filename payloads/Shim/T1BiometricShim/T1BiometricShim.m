@@ -19,10 +19,11 @@
  * 1. Intercept remote_device_copy_unique_of_type: if querying for "bridge" on a T1 Mac
  *    and original returns NULL, return a synthetic mock remote_device reference so
  *    the daemon does not abort early.
- * 2. Swizzle/hook BiometricKitXPCServerMesa / BiometricKitBridgeConnection:
- *    When getEEPROMCalibrationData is requested, if the bridge connection returns empty,
- *    query the IOKit registry for AppleHSSPIHIDDriver / Mesa calibration properties
- *    or provide the cached calibration BLOB.
+ * 2. Hook BiometricKitXPCServerMesa:
+ *    - Swizzle `loadCalibrationData` to return 0 (success) directly.
+ *    - Swizzle `getEEPROMCalibrationData` to provide valid calibration BLOB from IOKit.
+ * 3. Hook BiometricKitBridgeConnection:
+ *    - Swizzle `calibrationDataFromEEPROM` to provide fallback calibration.
  */
 
 typedef void * remote_device_t;
@@ -99,28 +100,44 @@ static void InitT1BiometricShim(void) {
         
         orig_remote_device_copy_unique_of_type = dlsym(RTLD_NEXT, "remote_device_copy_unique_of_type");
         
-        // Swizzle getEEPROMCalibrationData on BiometricKitXPCServerMesa or BiometricKitBridgeConnection if available
-        Class bridgeConnClass = objc_getClass("BiometricKitBridgeConnection");
-        if (bridgeConnClass) {
-            SEL sel = @selector(getEEPROMCalibrationData);
-            Method method = class_getInstanceMethod(bridgeConnClass, sel);
-            if (method) {
-                NSLog(@"[T1BiometricShim] Found BiometricKitBridgeConnection getEEPROMCalibrationData, swizzling...");
-                IMP origImp = method_getImplementation(method);
-                
-                IMP newImp = imp_implementationWithBlock(^NSData *(id selfRef) {
-                    typedef NSData *(*OrigFunc)(id, SEL);
-                    NSData *result = ((OrigFunc)origImp)(selfRef, sel);
-                    if (!result || [result length] == 0) {
-                        NSLog(@"[T1BiometricShim] Native getEEPROMCalibrationData returned empty, providing T1 fallback...");
-                        return GetT1CalibrationFromIOKit();
-                    }
-                    return result;
-                });
-                
-                method_setImplementation(method, newImp);
-                NSLog(@"[T1BiometricShim] Swizzle complete for BiometricKitBridgeConnection!");
+        // Swizzle BiometricKitXPCServerMesa (the actual daemon server class in biometrickitd)
+        Class mesaClass = objc_getClass("BiometricKitXPCServerMesa");
+        if (mesaClass) {
+            // Hook loadCalibrationData directly to always succeed (returns 0)
+            Method mLoad = class_getInstanceMethod(mesaClass, @selector(loadCalibrationData));
+            if (mLoad) {
+                NSLog(@"[T1BiometricShim] Found BiometricKitXPCServerMesa loadCalibrationData, swizzling...");
+                method_setImplementation(mLoad, imp_implementationWithBlock(^int(id selfRef) {
+                    NSLog(@"[T1BiometricShim] Intercepted BiometricKitXPCServerMesa loadCalibrationData -> returning 0 (success)");
+                    return 0;
+                }));
+            }
+
+            // Hook getEEPROMCalibrationData to return valid calibration data
+            Method mCalib = class_getInstanceMethod(mesaClass, @selector(getEEPROMCalibrationData));
+            if (mCalib) {
+                NSLog(@"[T1BiometricShim] Found BiometricKitXPCServerMesa getEEPROMCalibrationData, swizzling...");
+                method_setImplementation(mCalib, imp_implementationWithBlock(^NSData *(id selfRef) {
+                    NSLog(@"[T1BiometricShim] Intercepted BiometricKitXPCServerMesa getEEPROMCalibrationData -> providing T1 calibration");
+                    return GetT1CalibrationFromIOKit();
+                }));
             }
         }
+
+        // Also swizzle BiometricKitBridgeConnection calibrationDataFromEEPROM
+        Class bridgeConnClass = objc_getClass("BiometricKitBridgeConnection");
+        if (bridgeConnClass) {
+            SEL sel = @selector(calibrationDataFromEEPROM);
+            Method method = class_getInstanceMethod(bridgeConnClass, sel);
+            if (method) {
+                NSLog(@"[T1BiometricShim] Found BiometricKitBridgeConnection calibrationDataFromEEPROM, swizzling...");
+                method_setImplementation(method, imp_implementationWithBlock(^NSData *(id selfRef) {
+                    NSLog(@"[T1BiometricShim] Intercepted BiometricKitBridgeConnection calibrationDataFromEEPROM -> providing T1 calibration");
+                    return GetT1CalibrationFromIOKit();
+                }));
+            }
+        }
+        
+        NSLog(@"[T1BiometricShim] Swizzle setup complete!");
     }
 }
