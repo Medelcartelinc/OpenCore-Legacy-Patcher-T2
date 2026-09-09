@@ -167,18 +167,24 @@ def get_disabled_patchsets() -> list[str]:
     return [str(entry).strip() for entry in stored if str(entry).strip()]
 
 
-def set_disabled_patchsets(patchsets: list[str]) -> None:
+def set_disabled_patchsets(patchsets: list[str]) -> bool:
     """
     Store the patchsets the user opted out of
 
     Parameters:
         patchsets (list): Full hardware patchset names to skip during patching
+
+    Returns:
+        bool: Whether the selection reached the settings file. False means the choice
+              was dropped (ie. an unwritable settings file) and the next detection run
+              will happily patch everything again - the caller has to tell the user,
+              otherwise the menu simply reappears with every patch re-enabled and no
+              explanation.
     """
     cleaned = sorted({str(entry).strip() for entry in patchsets if str(entry).strip()})
     if not cleaned:
-        global_settings.GlobalEnviromentSettings().delete_property(DISABLED_PATCHSETS_KEY)
-        return
-    global_settings.GlobalEnviromentSettings().write_property(DISABLED_PATCHSETS_KEY, cleaned)
+        return global_settings.GlobalEnviromentSettings().delete_property(DISABLED_PATCHSETS_KEY)
+    return global_settings.GlobalEnviromentSettings().write_property(DISABLED_PATCHSETS_KEY, cleaned)
 
 
 class HardwarePatchsetDetection:

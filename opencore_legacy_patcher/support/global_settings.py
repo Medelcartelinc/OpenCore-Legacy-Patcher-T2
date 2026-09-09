@@ -14,6 +14,13 @@ import subprocess
 from pathlib import Path
 
 
+# Location of the settings file, exposed so callers can name it in user facing errors
+# (ie. "run 'sudo rm <path>'") without hardcoding a second copy of the path.
+SETTINGS_FILE_NAME:  str = ".com.dortania.opencore-legacy-patcher.plist"
+SETTINGS_FOLDER:     str = "/Users/Shared"
+SETTINGS_PLIST_PATH: str = f"{SETTINGS_FOLDER}/{SETTINGS_FILE_NAME}"
+
+
 class GlobalEnviromentSettings:
     """
     Library for querying and writing global environment settings
@@ -26,9 +33,9 @@ class GlobalEnviromentSettings:
     _warned_inaccessible: bool = False
 
     def __init__(self) -> None:
-        self.file_name:              str = ".com.dortania.opencore-legacy-patcher.plist"
-        self.global_settings_folder: str = "/Users/Shared"
-        self.global_settings_plist:  str = f"{self.global_settings_folder}/{self.file_name}"
+        self.file_name:              str = SETTINGS_FILE_NAME
+        self.global_settings_folder: str = SETTINGS_FOLDER
+        self.global_settings_plist:  str = SETTINGS_PLIST_PATH
 
         self._generate_settings_file()
         self._convert_defaults_to_global_settings()
@@ -159,61 +166,86 @@ class GlobalEnviromentSettings:
         return None
 
 
-    def delete_property(self, property_name: str) -> None:
+    def delete_property(self, property_name: str) -> bool:
         """
         Deletes a property from the global settings file
+
+        Returns whether the settings file is known to no longer hold the property.
+        Callers that need the removal to stick (ie. a choice made in the GUI) can act
+        on a False instead of assuming it was stored - a failure here is silent
+        otherwise, and the setting simply reappears on the next read.
         """
-        if Path(self.global_settings_plist).exists():
-            # Security: Verify ownership
-            file_info = os.stat(self.global_settings_plist)
-            if file_info.st_uid not in self._trusted_uids():
-                logging.error("Security Error: Settings file is owned by an untrusted user.")
-                return
+        if not Path(self.global_settings_plist).exists():
+            # Nothing to delete from, and _generate_settings_file() already reported
+            # why the file could not be created
+            return False
 
-            if not self._file_is_accessible():
-                self._warn_inaccessible_once()
-                return
+        # Security: Verify ownership
+        file_info = os.stat(self.global_settings_plist)
+        if file_info.st_uid not in self._trusted_uids():
+            logging.error("Security Error: Settings file is owned by an untrusted user.")
+            return False
 
-            try:
-                plist = plistlib.load(Path(self.global_settings_plist).open("rb"))
-                if property_name in plist:
-                    del plist[property_name]
-                    plistlib.dump(plist, Path(self.global_settings_plist).open("wb"))
-                    self._finalize_permissions()
-            except Exception as e:
-                logging.error("Error: Unable to modify global settings file")
-                logging.error(e)
+        if not self._file_is_accessible():
+            self._warn_inaccessible_once()
+            return False
+
+        try:
+            plist = plistlib.load(Path(self.global_settings_plist).open("rb"))
+            if property_name not in plist:
+                return True
+            del plist[property_name]
+            plistlib.dump(plist, Path(self.global_settings_plist).open("wb"))
+            self._finalize_permissions()
+            return True
+        except Exception as e:
+            logging.error("Error: Unable to modify global settings file")
+            logging.error(e)
+            return False
 
 
-    def write_property(self, property_name: str, property_value) -> None:
+    def write_property(self, property_name: str, property_value) -> bool:
         """
         Writes a property to the global environment settings
+
+        Returns whether the value actually reached the settings file. Every failure
+        path here is recoverable-looking to the caller but not to the user: the write
+        is dropped, the next read returns the old value, and whatever they just chose
+        in the GUI quietly reverts. Callers that surface a result to the user should
+        check this rather than assume the write succeeded.
         """
         # Security: Destroy symlinks
         if Path(self.global_settings_plist).is_symlink():
             logging.warning("Security Alert: Symlink detected. Unlinking.")
             Path(self.global_settings_plist).unlink()
 
-        if Path(self.global_settings_plist).exists():
-            # Security: Verify ownership
-            file_info = os.stat(self.global_settings_plist)
-            if file_info.st_uid not in self._trusted_uids():
-                logging.error("Security Error: Settings file is owned by an untrusted user.")
-                return
+        if not Path(self.global_settings_plist).exists():
+            # _generate_settings_file() runs in __init__ and already logged why it
+            # could not create the file
+            logging.error("Failed to write to global settings file: file is missing")
+            return False
 
-            if not self._file_is_accessible():
-                self._warn_inaccessible_once()
-                return
+        # Security: Verify ownership
+        file_info = os.stat(self.global_settings_plist)
+        if file_info.st_uid not in self._trusted_uids():
+            logging.error("Security Error: Settings file is owned by an untrusted user.")
+            return False
 
-            try:
-                plist = plistlib.load(Path(self.global_settings_plist).open("rb"))
-                plist[property_name] = property_value
+        if not self._file_is_accessible():
+            self._warn_inaccessible_once()
+            return False
 
-                plistlib.dump(plist, Path(self.global_settings_plist).open("wb"))
-                self._finalize_permissions()
-            except Exception as e:
-                logging.error("Failed to write to global settings file")
-                logging.error(e)
+        try:
+            plist = plistlib.load(Path(self.global_settings_plist).open("rb"))
+            plist[property_name] = property_value
+
+            plistlib.dump(plist, Path(self.global_settings_plist).open("wb"))
+            self._finalize_permissions()
+            return True
+        except Exception as e:
+            logging.error("Failed to write to global settings file")
+            logging.error(e)
+            return False
 
 
     def _generate_settings_file(self) -> None:

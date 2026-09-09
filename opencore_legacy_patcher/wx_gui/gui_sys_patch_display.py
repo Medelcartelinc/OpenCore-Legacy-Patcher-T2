@@ -24,6 +24,8 @@ from ..wx_gui import (
     gui_sys_patch_start,
 )
 
+from ..support import global_settings
+
 
 class SysPatchDisplayFrame(wx.Frame):
     """
@@ -175,37 +177,37 @@ class SysPatchDisplayFrame(wx.Frame):
                     patch_label.SetLabel(patch_label.GetLabel().replace("-", ""))
                     patch_label.Centre(wx.HORIZONTAL)
 
-            if patches[HardwarePatchsetValidation.PATCHING_NOT_POSSIBLE] is True or no_new_patches is True:
+            # Reasons that actually block patching, collected once and reused below.
+            #
+            # 'PATCHING_NOT_POSSIBLE' always comes with at least one of these, but
+            # 'no_new_patches' does not: everything applicable can already be installed
+            # with nothing blocking at all. That left the list empty, and the anchor
+            # label below then ran ''.split('Validation: ')[1] -> IndexError, taking the
+            # whole Post-Install menu down with an uncaught exception. Nothing to list
+            # also means nothing to explain, so fall through to the regular
+            # "Root Volume last patched" summary instead (what the menu did before
+            # 'no_new_patches' was added to this branch).
+            blocking_reasons = [
+                patch for patch in patches
+                if patch.startswith("Validation")
+                and patches[patch] is True
+                and patch not in [HardwarePatchsetValidation.PATCHING_NOT_POSSIBLE, HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE]
+            ]
+
+            if blocking_reasons and (patches[HardwarePatchsetValidation.PATCHING_NOT_POSSIBLE] is True or no_new_patches is True):
                 # Cannot patch due to the following reasons:
                 patch_label = wx.StaticText(frame, label="Cannot patch due to the following reasons:", pos=(-1, patch_label.GetPosition()[1] + 25))
                 patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
                 patch_label.Centre(wx.HORIZONTAL)
 
-                longest_patch = ""
-                for patch in patches:
-                    if not patch.startswith("Validation"):
-                        continue
-                    if patches[patch] is False:
-                        continue
-                    if patch in [HardwarePatchsetValidation.PATCHING_NOT_POSSIBLE, HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE]:
-                        continue
-
-                    if len(patch) > len(longest_patch):
-                        longest_patch = patch
+                longest_patch = max(blocking_reasons, key=len)
                 anchor = wx.StaticText(frame, label=longest_patch.split('Validation: ')[1], pos=(-1, patch_label.GetPosition()[1] + 20))
                 anchor.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                 anchor.Centre(wx.HORIZONTAL)
                 anchor.Hide()
 
                 i = 0
-                for patch in patches:
-                    if not patch.startswith("Validation"):
-                        continue
-                    if patches[patch] is False:
-                        continue
-                    if patch in [HardwarePatchsetValidation.PATCHING_NOT_POSSIBLE, HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE]:
-                        continue
-
+                for patch in blocking_reasons:
                     patch_label = wx.StaticText(frame, label=f"- {patch.split('Validation: ')[1]}", pos=(anchor.GetPosition()[0], anchor.GetPosition()[1] + i))
                     patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                     i = i + 20
@@ -449,7 +451,28 @@ by creating a new APFS snapshot.
         # hardware that isn't currently detected) - only the visible ones are being
         # decided here.
         stored = set(get_disabled_patchsets()) - set(available) - set(required)
-        set_disabled_patchsets(sorted(stored | newly_disabled))
+        if set_disabled_patchsets(sorted(stored | newly_disabled)) is False:
+            # The selection never reached disk, so reloading the menu here would show
+            # every patch enabled again with no hint as to why - the failure has to be
+            # named, together with the one command that fixes the usual cause (a
+            # settings file left behind root-owned by an earlier elevated run, which
+            # cannot be removed without sudo thanks to the sticky bit on /Users/Shared).
+            logging.error("Failed to store patch selection")
+            pop_up = wx.MessageDialog(
+                self.frame,
+                "Your patch selection could not be saved.\n\n"
+                "The patcher's settings file cannot be written, so the selection would "
+                "be lost again on the next run. This usually happens when the file was "
+                "left behind by an earlier run as root.\n\n"
+                "Run this in Terminal, then reopen this menu:\n\n"
+                f"    sudo rm '{global_settings.SETTINGS_PLIST_PATH}'\n\n"
+                "The patch list is unchanged for now.",
+                "Could not save patch selection",
+                style=wx.OK | wx.ICON_ERROR
+            )
+            pop_up.ShowModal()
+            pop_up.Destroy()
+            return
 
         logging.info(f"Patch selection updated, disabled patchsets: {sorted(newly_disabled) if newly_disabled else 'None'}")
 
