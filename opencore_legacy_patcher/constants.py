@@ -22,7 +22,6 @@ class Constants:
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania"
 
         # Versions
-        self.opencore_version:           str = "1.0.4"  #      OpenCore
         self.lilu_version:               str = "1.7.0"  #      Lilu
         self.whatevergreen_version:      str = "1.6.8"  #      WhateverGreen
         self.airportbcrmfixup_version:   str = "1.4.1"  #      AirportBrcmFixup
@@ -37,7 +36,7 @@ class Constants:
 
         # OpenCore Versioning
         # https://github.com/acidanthera/OpenCorePkg
-        self.opencore_version: str = "2.0.3"
+        self.opencore_version: str = "2.0.4"
 
         # Kext Versioning
         ## Acidanthera
