@@ -214,14 +214,14 @@ def main() -> None:
                 ).sign_and_notarize()
                 step += 1
             status = "[8/8] Complete"
-            done = True
     except Exception as e:
         rich.print(f"\n[yellow] Building the app stopped because of some error: {e}[/yellow]")
         # Print the traceback too. Without it the message alone gives no file or line,
         # which turns any error raised deep in a build module into a repo-wide hunt.
         traceback.print_exc()
-        done = True
         sys.exit(3)
+    finally:
+        done = True
 
 if __name__ == '__main__':
     _start = time.time()
