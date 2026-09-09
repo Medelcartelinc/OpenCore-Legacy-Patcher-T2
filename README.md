@@ -26,6 +26,14 @@ This repository is the dedicated development fork led by **albert-mueller (Alber
 A Python-based project revolving around [Acidanthera's OpenCorePkg](https://github.com/acidanthera/OpenCorePkg) and [Lilu](https://github.com/acidanthera/Lilu) for both running and unlocking features in macOS on supported and unsupported Macs.
 Security researchers can report vulnerabilities in the app via GitHub Security advisories.
 
+⚠️ Attention! Macs with Intel Core i7 prior to 4th generation currently will be unable to boot macOS 26 due to missing AVX2 instructions. This means:
+- 2014 MacBook Pro or later
+- 2014 MacBook Air or later
+- 2015 MacBook or later
+- 2014 Mac mini or later
+- 2013 Mac Pro or later
+are currently able to boot into macOS 26 at this time.
+
 ⚠️ Attention! Macs with Intel Core 2 Duos:
 
 - 2010 11 inch and 13 inch MacBook Air
