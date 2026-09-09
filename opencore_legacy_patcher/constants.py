@@ -16,13 +16,21 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.18005"  # OpenCore-Legacy-Patcher-T2 # die richtige Version kennzeichen, damit nicht den Update-API mit unnötigen Anfragen zu überladen 
+        self.patcher_version:                 str = "4.0.0.18006"  # OpenCore-Legacy-Patcher-T2 # die richtige Version kennzeichen, damit nicht den Update-API mit unnötigen Anfragen zu überladen 
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.0.1"  # PatcherSupportPkg
+        self.patcher_support_pkg_version:     str = "2.0.2"  # PatcherSupportPkg
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania"
 
+        # Versions
+        self.opencore_version:           str = "1.0.4"  #      OpenCore
+        self.lilu_version:               str = "1.7.0"  #      Lilu
+        self.whatevergreen_version:      str = "1.6.8"  #      WhateverGreen
+        self.airportbcrmfixup_version:   str = "1.4.1"  #      AirportBrcmFixup
+        self.nvme_fix_version:           str = "1.1.2"  #      NVMeFix
+        self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
+
         # URLs
-        self.url_patcher_support_pkg:         str = "https://github.com/albert-mueller/PatcherSupportPkg/download/"
+        self.url_patcher_support_pkg:         str = "https://github.com/Medelcartelinc/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://dortania.github.io/OpenCore-Legacy-Patcher/"
         self.repo_link:                       str = "https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/"
         self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"

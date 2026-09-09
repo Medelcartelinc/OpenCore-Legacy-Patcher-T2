@@ -4,8 +4,6 @@ os_data.py: OS Version Data
 
 import enum
 
-from curses.ascii import isdigit
-
 
 class os_data(enum.IntEnum):
     # OS Versions, Based off Major Kernel Version

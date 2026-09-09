@@ -213,14 +213,15 @@ def main() -> None:
                     notarization_team_id=args.notarization_team_id,
                 ).sign_and_notarize()
                 step += 1
-            done = True
+            status = "[8/8] Complete"
     except Exception as e:
         rich.print(f"\n[yellow] Building the app stopped because of some error: {e}[/yellow]")
         # Print the traceback too. Without it the message alone gives no file or line,
         # which turns any error raised deep in a build module into a repo-wide hunt.
         traceback.print_exc()
-        done = True
         sys.exit(3)
+    finally:
+        done = True
 
 if __name__ == '__main__':
     _start = time.time()
@@ -239,6 +240,7 @@ if __name__ == '__main__':
         while not done:
             spinner.update(text=status)
             time.sleep(0.1)
+        spinner.update(text=status)
     thread.join()
     done = True
     rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")

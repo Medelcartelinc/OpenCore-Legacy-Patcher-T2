@@ -339,6 +339,20 @@ class PatchSysVolume:
         self._clean_skylight_plugins()
         self._delete_nonmetal_enforcement()
 
+        # Clean up any lingering OCLP manifests across root mount and Data volume
+        for manifest_path in [
+            Path("/Library/Application Support/Dortania/OpenCore-Legacy-Patcher.plist"),
+            Path("/Library/Application Support/Dortania/OpenCore-Legacy-Patcher-Lifecycle.plist"),
+            Path(f"{self.mount_location}{CORE_SERVICES_PATH}/{PATCHSET_FILENAME}"),
+            Path(f"{CORE_SERVICES_PATH}/{PATCHSET_FILENAME}"),
+        ]:
+            if manifest_path.exists():
+                logging.info(f"- Removing manifest: {manifest_path}")
+                try:
+                    subprocess_wrapper.run_as_root(["/bin/rm", "-f", str(manifest_path)])
+                except Exception as e:
+                    logging.warning(f"- Failed to remove {manifest_path}: {e}")
+
         try:
             kernelcache.KernelCacheSupport(
                 mount_location_data=self.mount_location_data,
@@ -950,6 +964,23 @@ class PatchSysVolume:
                             source_file = source_files_path + "/" + source_file
 
                         if not Path(source_file).exists():
+                            # If a payload directory (such as a speculative macOS release version like
+                            # '12.5-25' or '12.5-26') does not exist in PatcherSupportPkg's Universal-Binaries,
+                            # attempt fallback to earlier compatible payload versions (e.g. 12.5-24 -> 12.5-23.4 -> 12.5-22 -> 12.5).
+                            current_src_rel = required_patches[patch][method_type][install_patch_directory][install_file]
+                            if not current_src_rel.startswith("/"):
+                                for fallback_ver in ["12.5-24", "12.5-23.4", "12.5-23", "12.5-22", "12.5"]:
+                                    candidate_file = source_files_path + "/" + fallback_ver + install_patch_directory + "/" + install_file
+                                    if Path(candidate_file).exists():
+                                        logging.warning(
+                                            f"- Missing payload {current_src_rel}/{install_file}; "
+                                            f"falling back to existing {fallback_ver}/{install_file}"
+                                        )
+                                        required_patches[patch][method_type][install_patch_directory][install_file] = fallback_ver
+                                        source_file = candidate_file
+                                        break
+
+                        if not Path(source_file).exists():
                             # _local_metallib_installed() only matches an already-installed
                             # MetallibSupportPkg folder by macOS build name, never by verifying
                             # every file inside it is actually present. If an earlier run left
@@ -1096,14 +1127,11 @@ class PatchSysVolume:
             logging.info("- Exiting the Install drivers and patches menu.")
             return
         try:
-            logging.info("Patchen des Root-Volumes")
             logging.info("Patching the root volume")
             self._patch_root_vol()
         except Exception as e:
-            logging.error("Es hat gescheitert, des Root-Volumes zu patchen")
             logging.error("Failed to root patch the volume")
             logging.exception("Stack Trace:")
-            logging.info("Damit wir sicherstellen, dass Ihr System trotz fehlgeschlagener Root-Volumes-Patch noch überhaupt startet, wir werden alle Patches widerrufen.")
             logging.info("To ensure that your system continues to boot even after the root volume patches have failed to apply, we'll undo the patches that were applied until now.")
             self.unpatch_root_vol()
 

@@ -49,7 +49,6 @@ from .hardware.misc import (
     modern_audio,
     pcie_webcam,
     t1_security,
-    t1_login_experimental,
     usb11,
 )
 
@@ -257,7 +256,6 @@ class HardwarePatchsetDetection:
             keyboard_backlight.KeyboardBacklight,
             pcie_webcam.PCIeFaceTimeCamera,
             t1_security.T1SecurityChip,
-            t1_login_experimental.T1LoginExperimental,
             usb11.USB11Controller,
         ]
 

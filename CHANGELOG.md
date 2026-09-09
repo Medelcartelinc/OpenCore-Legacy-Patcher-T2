@@ -670,6 +670,7 @@ Diese Version:
 - Behebt den Fehler OSError [Errno 5] (Ein-/Ausgabefehler beim Neustart der Anwendung beim Ausführen aus dem Quellcode) durch Deaktivierung der Standard-E/A (Danke an @Medelcartelinc).
 
 ## 4.0.0.18002 - 4.0.0 alpha 18.2
+>>>>>>> upstream/main
 This release:
 - fixes a bug where upon clicking Save OpenCore and the EFI configuration has been saved successfully, it will show a crash log
 - fixes an issue where WiFi doesn't work on MacBook Air Mid 2013 and MacBook Air Early 2014 on macOS 26 Tahoe by adding dart=0 in the boot arguments

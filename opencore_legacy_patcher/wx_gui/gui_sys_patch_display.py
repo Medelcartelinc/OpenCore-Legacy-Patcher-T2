@@ -572,13 +572,22 @@ by creating a new APFS snapshot.
             # If commits are different, assume patches are as well
             return True
 
-        oclp_plist = "/System/Library/CoreServices/OpenCore-Legacy-Patcher.plist"
-        if not Path(oclp_plist).exists():
+        oclp_plist = Path("/System/Library/CoreServices/OpenCore-Legacy-Patcher.plist")
+        if not oclp_plist.exists():
+            manifest = utilities.find_any_oclp_manifest()
+            if manifest is not None:
+                oclp_plist = manifest
+
+        if not oclp_plist.exists():
             # If it doesn't exist, no patches were ever installed
             # ie. all patches applicable
             return True
 
-        oclp_plist_data = plistlib.load(open(oclp_plist, "rb"))
+        try:
+            oclp_plist_data = plistlib.loads(oclp_plist.read_bytes())
+        except Exception as e:
+            logging.error(f"Failed to read patch manifest ({oclp_plist}): {e}")
+            return True
         for patch in patches:
             if (not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True):
                 # Patches should share the same name as the plist key
