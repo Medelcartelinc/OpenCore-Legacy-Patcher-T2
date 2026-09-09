@@ -32,6 +32,7 @@ Security researchers can report vulnerabilities in the app via GitHub Security a
 - 2015 MacBook or later
 - 2014 Mac mini or later
 - 2013 Mac Pro or later
+
 are currently able to boot into macOS 26 at this time.
 
 ⚠️ Attention! Macs with Intel Core 2 Duos:
