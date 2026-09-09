@@ -26,7 +26,6 @@ class Constants:
         self.lilu_version:               str = "1.7.0"  #      Lilu
         self.whatevergreen_version:      str = "1.6.8"  #      WhateverGreen
         self.airportbcrmfixup_version:   str = "1.4.1"  #      AirportBrcmFixup
-        self.restrictevents_version:     str = "1.1.5"  #      RestrictEvents
         self.nvme_fix_version:           str = "1.1.2"  #      NVMeFix
         self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
