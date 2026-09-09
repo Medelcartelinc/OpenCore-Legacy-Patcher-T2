@@ -34,6 +34,65 @@ class GlobalEnviromentSettings:
         self._convert_defaults_to_global_settings()
 
 
+    def _owning_uid(self) -> int:
+        """
+        UID the settings file is supposed to belong to.
+
+        Unprivileged runs: ourselves.
+
+        Elevated runs (the macos-update / os-caching LaunchDaemons, the
+        auto-patcher, or the app started from source via sudo) have no
+        settings of their own - they act on behalf of the GUI user, so the
+        file has to keep belonging to that user. SUDO_UID covers the sudo
+        case, /dev/console covers LaunchDaemons, which inherit no such
+        environment.
+        """
+        if os.geteuid() != 0:
+            return os.getuid()
+
+        sudo_uid = os.environ.get("SUDO_UID", "")
+        if sudo_uid.isdigit() and int(sudo_uid) != 0:
+            return int(sudo_uid)
+
+        try:
+            console_uid = os.stat("/dev/console").st_uid
+            if console_uid != 0:
+                return console_uid
+        except Exception:
+            pass
+
+        return 0
+
+
+    def _trusted_uids(self) -> list:
+        """
+        Owners we accept for the settings file.
+
+        The GUI user is trusted even while we run as root: rejecting it there
+        made every elevated run treat the user's own settings file as hostile,
+        delete it, and hand back an empty one - wiping every "GUI:*" key the
+        user had saved.
+        """
+        return list({0, os.getuid(), self._owning_uid()})
+
+
+    def _finalize_permissions(self) -> None:
+        """
+        Keep the file private (0600) *and* owned by the GUI user.
+
+        Without the chown, an elevated write leaves a root-owned 0600 file
+        behind that no later unprivileged run can read or write, so settings
+        silently stop persisting until it is removed by hand.
+        """
+        try:
+            os.chmod(self.global_settings_plist, 0o600)
+            owner = self._owning_uid()
+            if os.geteuid() == 0 and owner != 0:
+                os.chown(self.global_settings_plist, owner, -1)
+        except Exception as e:
+            logging.error(f"Unable to set permissions on global settings file: {e}")
+
+
     def _file_is_accessible(self) -> bool:
         """
         True if the current process can actually read AND write the
@@ -81,7 +140,7 @@ class GlobalEnviromentSettings:
         if Path(self.global_settings_plist).exists():
             # Security: Verify ownership before loading data
             file_info = os.stat(self.global_settings_plist)
-            if file_info.st_uid not in [0, os.getuid()]:
+            if file_info.st_uid not in self._trusted_uids():
                 logging.error("Security Error: Settings file is owned by an untrusted user.")
                 return None
 
@@ -107,7 +166,7 @@ class GlobalEnviromentSettings:
         if Path(self.global_settings_plist).exists():
             # Security: Verify ownership
             file_info = os.stat(self.global_settings_plist)
-            if file_info.st_uid not in [0, os.getuid()]:
+            if file_info.st_uid not in self._trusted_uids():
                 logging.error("Security Error: Settings file is owned by an untrusted user.")
                 return
 
@@ -120,7 +179,7 @@ class GlobalEnviromentSettings:
                 if property_name in plist:
                     del plist[property_name]
                     plistlib.dump(plist, Path(self.global_settings_plist).open("wb"))
-                    os.chmod(self.global_settings_plist, 0o600)
+                    self._finalize_permissions()
             except Exception as e:
                 logging.error("Error: Unable to modify global settings file")
                 logging.error(e)
@@ -138,7 +197,7 @@ class GlobalEnviromentSettings:
         if Path(self.global_settings_plist).exists():
             # Security: Verify ownership
             file_info = os.stat(self.global_settings_plist)
-            if file_info.st_uid not in [0, os.getuid()]:
+            if file_info.st_uid not in self._trusted_uids():
                 logging.error("Security Error: Settings file is owned by an untrusted user.")
                 return
 
@@ -151,7 +210,7 @@ class GlobalEnviromentSettings:
                 plist[property_name] = property_value
 
                 plistlib.dump(plist, Path(self.global_settings_plist).open("wb"))
-                os.chmod(self.global_settings_plist, 0o600)
+                self._finalize_permissions()
             except Exception as e:
                 logging.error("Failed to write to global settings file")
                 logging.error(e)
@@ -170,7 +229,7 @@ class GlobalEnviromentSettings:
         # 2. Ownership/Permission Conflict Resolution (Self-Healing)
         if path.exists():
             file_info = os.stat(self.global_settings_plist)
-            owner_untrusted = file_info.st_uid not in [0, os.getuid()]
+            owner_untrusted = file_info.st_uid not in self._trusted_uids()
 
             # A "trusted" owner (root, or ourselves) doesn't guarantee this
             # process can actually open the file - eg. a root-owned 0600
@@ -203,7 +262,7 @@ class GlobalEnviromentSettings:
             try:
                 Path(self.global_settings_folder).mkdir(parents=True, exist_ok=True)
                 plistlib.dump({"Developed by Dortania": True}, path.open("wb"))
-                os.chmod(self.global_settings_plist, 0o600)
+                self._finalize_permissions()
             except (PermissionError, OSError) as e:
                 logging.info(f"Unable to initialize global settings file: {e}")
 
@@ -236,7 +295,7 @@ class GlobalEnviromentSettings:
                 global_settings_plist.update(defaults_plist)
 
                 plistlib.dump(global_settings_plist, Path(self.global_settings_plist).open("wb"))
-                os.chmod(self.global_settings_plist, 0o600)
+                self._finalize_permissions()
 
                 defaults_path.unlink()
             except Exception as e:
