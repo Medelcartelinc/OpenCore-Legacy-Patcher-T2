@@ -16,7 +16,7 @@ class OSUpdateFrame(wx.Frame):
         self.os_data = utilities.fetch_staged_update(variant="Preflight")
         
         if not self.os_data[0]:
-            logging.info("Kein Update gefunden, beende Prozess.")
+            logging.info("No update found, exiting process.")
             wx.CallAfter(self.Close)
             return
 
@@ -44,9 +44,9 @@ class OSUpdateFrame(wx.Frame):
         self._notify_user_dialog()
 
     def _notify_user_dialog(self):
-        message = (f"Systemvorbereitung für {self.os_data[0]} ({self.os_data[1]}) erforderlich.\n\n"
-                   "Sollen benötigte Ressourcen jetzt geladen werden?")
-        dlg = wx.MessageDialog(self, message, "Update Vorbereitung", wx.YES_NO | wx.ICON_QUESTION)
+        message = (f"System preparation is required for {self.os_data[0]} ({self.os_data[1]}).\n\n"
+                   "Would you like to download the required resources now?")
+        dlg = wx.MessageDialog(self, message, "Update Preparation", wx.YES_NO | wx.ICON_QUESTION)
         
         if dlg.ShowModal() == wx.ID_YES:
             threading.Thread(target=self._run_tasks, daemon=True).start()
@@ -60,7 +60,7 @@ class OSUpdateFrame(wx.Frame):
             if self.patch_results[HardwarePatchsetSettings.KERNEL_DEBUG_KIT_REQUIRED]:
                 # Hier Aufruf der Handler-Methoden
                 # WICHTIG: KDK/Metallib-Handler müssen intern subprocess mit Pfad-Validierung nutzen!
-                logging.info("Verarbeite KDK...")
+                logging.info("Processing KDK...")
             
             # Update des UI nach Abschluss über CallAfter
             wx.CallAfter(self._on_tasks_complete)
@@ -70,7 +70,7 @@ class OSUpdateFrame(wx.Frame):
             wx.CallAfter(self._exit)
 
     def _on_tasks_complete(self):
-        logging.info("Alle Tasks erfolgreich abgeschlossen.")
+        logging.info("All tasks completed successfully.")
         self._exit()
 
     def _generate_ui(self):

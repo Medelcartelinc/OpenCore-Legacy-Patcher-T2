@@ -30,7 +30,7 @@ class Constants:
         self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         # URLs
-        self.url_patcher_support_pkg:         str = "https://github.com/Medelcartelinc/PatcherSupportPkg/releases/download/"
+        self.url_patcher_support_pkg:         str = "https://github.com/albert-mueller/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://dortania.github.io/OpenCore-Legacy-Patcher/"
         self.repo_link:                       str = "https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/"
         self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
