@@ -75,6 +75,18 @@ class BaseHardware(BasePatchset):
         raise NotImplementedError
 
 
+    def required(self) -> bool:
+        """
+        Whether this patch set must always be installed
+
+        Patch sets returning True cannot be deselected in the 'Configure Patches' menu:
+        skipping them leaves the Mac in a state the user cannot get out of through the
+        GUI (ie. no working input device left to re-run the patcher with), unlike a
+        graphics patch, which merely leaves that hardware unaccelerated.
+        """
+        return False
+
+
     def hardware_variant(self) -> HardwareVariant:
         """
         What hardware variant is this patch set for
