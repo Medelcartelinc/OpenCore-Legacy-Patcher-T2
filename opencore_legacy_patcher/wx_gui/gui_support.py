@@ -517,10 +517,19 @@ class CheckProperties:
         if "PatcherSupportPkg" not in oclp_plist:
             return packaging.version.Version("0.0.0")
 
-        if oclp_plist["PatcherSupportPkg"].startswith("v"):
-            oclp_plist["PatcherSupportPkg"] = oclp_plist["PatcherSupportPkg"][1:]
+        if str(oclp_plist["PatcherSupportPkg"]).startswith("v"):
+            oclp_plist["PatcherSupportPkg"] = str(oclp_plist["PatcherSupportPkg"])[1:]
 
-        return packaging.version.parse(oclp_plist["PatcherSupportPkg"])
+        # This plist sits on the root volume and is written by whichever build patched it
+        # last, so the value is attacker-controllable. An unhandled InvalidVersion here
+        # carries it verbatim into the uncaught-exception dialog in logging_handler.py;
+        # TypeError is caught alongside it because a non-string plist value (int, array)
+        # raises that instead of InvalidVersion.
+        try:
+            return packaging.version.parse(oclp_plist["PatcherSupportPkg"])
+        except (packaging.version.InvalidVersion, TypeError):
+            logging.error("Malformed PatcherSupportPkg version in OpenCore-Legacy-Patcher.plist, assuming 0.0.0")
+            return packaging.version.Version("0.0.0")
 
     def host_has_3802_gpu(self) -> bool:
         """

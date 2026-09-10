@@ -1,4 +1,39 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+
+## 4.0.0.18009 - 4.0.0 alpha 18.8
+This release fixes a security issue. Please update.
+
+    - Security: a version string could be rendered as AppleScript code. Values
+    interpolated into a "display dialog" script were never escaped, and
+    AppleScript is compiled rather than passed to a shell, so a value containing
+    a double quote closed the string literal and everything after it was parsed
+    as code - '1.0" & (do shell script "...") & "' gave arbitrary command
+    execution as the logged-in user.
+
+    - Two versions reach those dialogs from outside the app: the booted build's
+    OCLP-Version NVRAM variable, and the PatcherSupportPkg entry in
+    /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist. Both are written
+    by whichever OpenCore build ran last, so a malicious build could set either
+    one. Neither needed the updater to run: host_psp_version() parsed the plist
+    value with no error handling, packaging's InvalidVersion echoes the offending
+    string back verbatim ("Invalid version: '<value>'"), and the resulting
+    uncaught exception was rendered by the crash dialog in logging_handler.py -
+    which builds its AppleScript by string interpolation and also renders
+    patcher_version into the same script. Root patch detection reaches this on
+    startup, long before any update check.
+
+    - Added subprocess_wrapper.applescript_quote() and routed every interpolated
+    value through it: the crash dialog, the outdated-bootloader prompt in
+    auto_patcher, and the DortaniaInternal key prompt. osascript() now shares the
+    same helper instead of escaping inline.
+
+    - The crash dialog also truncates the exception text to 500 characters, so a
+    long payload or a long legitimate traceback cannot push the buttons off it.
+
+    - host_psp_version() now catches InvalidVersion and TypeError and falls back
+    to 0.0.0, so a malformed manifest degrades instead of unwinding into the
+    excepthook at all.
+
 ## 4.0.0.18008 - 4.0.0 alpha 18.6
 This release fixes an issue where the patcher would ask you to update even though you are already on the latest version. Sorry, that was my (@gandolf243) fault.
 

@@ -27,6 +27,7 @@ from ...support import (
     updates,
     global_settings,
     network_handler,
+    subprocess_wrapper,
 )
 from ..patchsets import (
     HardwarePatchsetDetection,
@@ -168,7 +169,7 @@ Please check the Github page for more information about this release."""
 
                 warning_str = ""
                 if network_handler.NetworkUtilities("https://api.github.com/repos/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/latest").verify_network_connection() is False:
-                    warning_str = f"""\n\nWARNING: We're unable to verify whether there are any new releases of OpenCore Legacy Patcher T2 on Github. Be aware that you may be using an outdated version for this OS. If you're unsure, verify on Github that OpenCore Legacy Patcher T2 {self.constants.patcher_version} is the latest official release"""
+                    warning_str = f"""\n\nWARNING: We're unable to verify whether there are any new releases of OpenCore Legacy Patcher T2 on Github. Be aware that you may be using an outdated version for this OS. If you're unsure, verify on Github that OpenCore Legacy Patcher T2 {subprocess_wrapper.applescript_quote(self.constants.patcher_version)} is the latest official release"""
 
                 args = [
                     "/usr/bin/osascript",
@@ -229,10 +230,18 @@ Please check the Github page for more information about this release."""
             logging.info("- Installed version is newer than booted version")
             return True
 
+        # computer.oclp_version is read out of the OCLP-Version NVRAM variable, i.e. it is
+        # whatever the booted EFI put there - fully controlled by whoever built it. It must
+        # never be interpolated into AppleScript source unescaped. The version.parse() call
+        # above happens to reject most payloads today, but that is incidental: it is a
+        # version comparison, not a validation step, and it is not on every path here.
+        booted_version = subprocess_wrapper.applescript_quote(self.constants.computer.oclp_version)
+        installed_version = subprocess_wrapper.applescript_quote(self.constants.patcher_version)
+
         args = [
             "/usr/bin/osascript",
             "-e",
-            f"""display dialog "OpenCore Legacy Patcher T2 has detected that you are booting {'a different' if self.constants.special_build else 'an outdated'} OpenCore build\n- Booted: {self.constants.computer.oclp_version}\n- Installed: {self.constants.patcher_version}\n\nWould you like to update the OpenCore bootloader?" """
+            f"""display dialog "OpenCore Legacy Patcher T2 has detected that you are booting {'a different' if self.constants.special_build else 'an outdated'} OpenCore build\n- Booted: {booted_version}\n- Installed: {installed_version}\n\nWould you like to update the OpenCore bootloader?" """
             f'with icon POSIX file "{self.constants.app_icon_path}"',
         ]
         output = subprocess.run(

@@ -18,6 +18,8 @@ from logging.handlers import RotatingFileHandler
 
 from .. import constants
 
+from . import subprocess_wrapper
+
 
 
 class InitializeLoggingSupport:
@@ -241,9 +243,21 @@ class InitializeLoggingSupport:
 
             error_msg += "\n\nReveal log file?"
 
+            # An exception message is not trusted input: it routinely echoes back a string
+            # that came from disk or NVRAM. packaging's InvalidVersion, for one, embeds the
+            # offending value verbatim ("Invalid version: '<value>'"), so a crafted version
+            # in /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist or in the
+            # OCLP-Version NVRAM variable used to reach this dialog and break out of the
+            # AppleScript string literal. Escape it, and cap the length so a long payload
+            # (or a long legitimate traceback) cannot push the buttons off the dialog.
+            if len(error_msg) > 500:
+                error_msg = error_msg[:500] + "..."
+            safe_error_msg = subprocess_wrapper.applescript_quote(error_msg)
+            safe_version = subprocess_wrapper.applescript_quote(self.constants.patcher_version)
+
             # Ask user if they want to send crash report
             try:
-                result = applescript.AppleScript(f'display dialog "{error_msg}" with title "OpenCore Legacy Patcher ({self.constants.patcher_version})" buttons {{"Yes", "No"}} default button "Yes" with icon caution').run()
+                result = applescript.AppleScript(f'display dialog "{safe_error_msg}" with title "OpenCore Legacy Patcher ({safe_version})" buttons {{"Yes", "No"}} default button "Yes" with icon caution').run()
             except Exception as e:
                 logging.error(f"Failed to display crash report dialog: {e}")
                 return
