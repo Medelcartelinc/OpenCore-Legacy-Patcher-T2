@@ -1,8 +1,9 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
-## 4.0.0.18009 - 4.0.0 alpha 18.8
-This release fixes a security issue. Please update.
-
+## 4.0.0.18009 - 4.0.0 alpha 18.9
+This release:
+- fixes a bug where on T2 Macs, when macOS 26 Tahoe succeeds to boot, and when pressing ->, the WindowServer process fails to draw the next window and crashes
+- fixes the following vulnerabilities:
     - Security: a version string could be rendered as AppleScript code. Values
     interpolated into a "display dialog" script were never escaped, and
     AppleScript is compiled rather than passed to a shell, so a value containing
