@@ -162,12 +162,12 @@ def main() -> None:
     try:
         # 1. Assets
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_assets):
-            status = "[1/8] Generating disk images"
+            status = "[1/9] Generating disk images"
             disk_images.GenerateDiskImages(args.reset_dmg_cache).generate()
 
         # 2. Application
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_application):
-            status = "[2/8] Signing Helper Tool"
+            status = "[2/9] Signing Helper Tool"
             sign_notarize.SignAndNotarize(
                 path=Path("./ci_tooling/privileged_helper_tool/com.dortania.opencore-legacy-patcher.privileged-helper"),
                 signing_identity=application_signing_identity,
@@ -176,7 +176,7 @@ def main() -> None:
                 notarization_team_id=args.notarization_team_id,
             ).sign_and_notarize()
 
-            status = "[3/8] Building the app"
+            status = "[3/9] Building the app"
             application.GenerateApplication(
                 reset_pyinstaller_cache=args.reset_pyinstaller_cache,
                 git_branch=args.git_branch,
@@ -185,7 +185,7 @@ def main() -> None:
             ).generate()
 
             check_file_exists(Path("dist/OpenCore-Patcher-T2.app"))
-            status = "[4/8] Signing the app"
+            status = "[4/9] Signing the app"
             sign_notarize.SignAndNotarize(
                 path=Path("dist/OpenCore-Patcher-T2.app"),
                 signing_identity=application_signing_identity,
