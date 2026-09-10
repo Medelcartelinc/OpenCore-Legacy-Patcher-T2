@@ -1,4 +1,49 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.18008 - 4.0.0 alpha 18.6
+This release fixes an issue where the patcher would ask you to update even though you are already on the latest version. Sorry, that was my (@gandolf243) fault.
+
+## 4.0.0.18007 - 4.0.0 alpha 18.7
+This release fixes the following bugs:
+
+    - _gpu_probe() skipped sip_status/secure_status/disable_cs_lv for
+    Polaris/Vega/Navi whenever the host CPU has AVX2. That skip is the
+    counterpart to the '"AVX2" not in cpu.leafs' condition the matching
+    patchsets carry in present(): if the patchset never reports itself as
+    present, there is nothing to root patch and SIP can stay enabled.
+
+    - amd_vega.py has since dropped that condition, because Apple removed
+    Vega support in Tahoe by GPU architecture rather than by CPU, so a Vega
+    card needs patches even on an AVX2 host (iMac Pro, iMac19,x with Vega).
+    The skip here was never updated to match, so those machines kept
+    sip_status True, BuildSecurity._build() never wrote csr-active-config,
+    and the built config shipped the template default of 0x0 while
+    detect.py demanded 0x803 - "Booted SIP: 0x0 vs expected: 0x803".
+    Polaris and Navi still gate on AVX2 in present(), so they are unchanged.
+
+    - Also set disable_amfi on that path: AMFIPass is only injected for models
+    the target OS no longer supports natively, so a Tahoe-native Mac that
+    merely lost its GPU driver never gets it, detect.py cannot downgrade the
+    required AMFI level, and the ALLOW_ALL default inherited from
+    patchsets/hardware/base.py is only satisfied by amfi=0x80 - which
+    BuildSecurity writes solely when disable_cs_lv and disable_amfi are both
+    set. Without it the run stays blocked on "AMFI is enabled".
+
+    - Add _modern_audio_probe(), mirroring modern_audio.py: ModernAudio is
+    present on every non-T2 Mac under Tahoe, including ones Tahoe still
+    supports natively, which never pass through any GPU or wireless branch
+    and were therefore left with SIP enabled and no way to clear the
+    blocker short of flipping the SIP bits by hand.
+
+    - security: hoist the needs_amfipass evaluation above both branches. It
+    was computed after them while the non-T2 branch already read it in its
+    amfi=0x80 fallback condition; assigned later in the same function it is
+    a local, so that read raised UnboundLocalError rather than seeing False.
+    Any non-T2 build with both disable_cs_lv and disable_amfi set died
+    there - which the change above now makes reachable.
+
+    main_menu: in experimental mode, it would show 5.0.0 instead of Patcher's actual version
+
+This release also updates the copyright info to include Information about this fork.
 ## 4.0.0.18006 - 4.0.0 alpha 18.6
 This release:
 - fixes a bug where when updating macOS, when OpenCore Legacy Patcher T2 shows a popup, that it was in German instead of English
