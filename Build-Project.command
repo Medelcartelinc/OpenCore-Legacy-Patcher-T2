@@ -217,7 +217,7 @@ def main() -> None:
                 step += 1
             hash_pkg.GenerateHash()
             Bauen_des_Patchers_ist_fertig=True
-            status = "[8/8] Complete"
+            status = "[8/9] Verifying the building process has been completed"
     except Exception as e:
         rich.print(f"\n[red] Building the app stopped because of some error: {e}[/yellow]")
         # Print the traceback too. Without it the message alone gives no file or line,
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     _start = time.time()
     global status
     global done
-    status = "[0/8] Starting"
+    status = "[0/9] Starting"
     done = False
     thread = threading.Thread(target=main)
     thread.start()
@@ -246,6 +246,7 @@ if __name__ == '__main__':
             time.sleep(0.1)
         spinner.update(text=status)
     if Bauen_des_Patchers_ist_fertig==True: # behebt eine Sicherheitslücke, die erlaubt Angreifern, das Build-Prozess als fertig zu markieren und Build script completed trotz Fehler ausdrucken
+        status = "[9/9] Build completed" 
         thread.join()
         done = True
         rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
