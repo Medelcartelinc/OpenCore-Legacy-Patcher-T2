@@ -16,6 +16,8 @@ from rich.live import Live
 from rich.spinner import Spinner
 from pathlib import Path
 
+Bauen_des_Patchers_ist_fertig=False
+
 # Fix: Force the execution directory immediately before importing local modules. 
 # This guarantees that 'ci_tooling' looks for assets in the right relative path.
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -214,6 +216,7 @@ def main() -> None:
                 ).sign_and_notarize()
                 step += 1
             hash_pkg.GenerateHash()
+            Bauen_des_Patchers_ist_fertig=True
             status = "[8/8] Complete"
     except Exception as e:
         rich.print(f"\n[red] Building the app stopped because of some error: {e}[/yellow]")
@@ -242,6 +245,7 @@ if __name__ == '__main__':
             spinner.update(text=status)
             time.sleep(0.1)
         spinner.update(text=status)
-    thread.join()
-    done = True
-    rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
+    if Bauen_des_Patchers_ist_fertig==True: # behebt eine Sicherheitslücke, die erlaubt Angreifern, das Build-Prozess als fertig zu markieren und Build script completed trotz Fehler ausdrucken
+        thread.join()
+        done = True
+        rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
