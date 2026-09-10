@@ -1,4 +1,88 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.18008 - 4.0.0 alpha 18.6
+This release fixes an issue where the patcher would ask you to update even though you are already on the latest version. Sorry, that was my (@gandolf243) fault.
+
+## 4.0.0.18007 - 4.0.0 alpha 18.7
+This release fixes the following bugs:
+
+    - _gpu_probe() skipped sip_status/secure_status/disable_cs_lv for
+    Polaris/Vega/Navi whenever the host CPU has AVX2. That skip is the
+    counterpart to the '"AVX2" not in cpu.leafs' condition the matching
+    patchsets carry in present(): if the patchset never reports itself as
+    present, there is nothing to root patch and SIP can stay enabled.
+
+    - amd_vega.py has since dropped that condition, because Apple removed
+    Vega support in Tahoe by GPU architecture rather than by CPU, so a Vega
+    card needs patches even on an AVX2 host (iMac Pro, iMac19,x with Vega).
+    The skip here was never updated to match, so those machines kept
+    sip_status True, BuildSecurity._build() never wrote csr-active-config,
+    and the built config shipped the template default of 0x0 while
+    detect.py demanded 0x803 - "Booted SIP: 0x0 vs expected: 0x803".
+    Polaris and Navi still gate on AVX2 in present(), so they are unchanged.
+
+    - Also set disable_amfi on that path: AMFIPass is only injected for models
+    the target OS no longer supports natively, so a Tahoe-native Mac that
+    merely lost its GPU driver never gets it, detect.py cannot downgrade the
+    required AMFI level, and the ALLOW_ALL default inherited from
+    patchsets/hardware/base.py is only satisfied by amfi=0x80 - which
+    BuildSecurity writes solely when disable_cs_lv and disable_amfi are both
+    set. Without it the run stays blocked on "AMFI is enabled".
+
+    - Add _modern_audio_probe(), mirroring modern_audio.py: ModernAudio is
+    present on every non-T2 Mac under Tahoe, including ones Tahoe still
+    supports natively, which never pass through any GPU or wireless branch
+    and were therefore left with SIP enabled and no way to clear the
+    blocker short of flipping the SIP bits by hand.
+
+    - security: hoist the needs_amfipass evaluation above both branches. It
+    was computed after them while the non-T2 branch already read it in its
+    amfi=0x80 fallback condition; assigned later in the same function it is
+    a local, so that read raised UnboundLocalError rather than seeing False.
+    Any non-T2 build with both disable_cs_lv and disable_amfi set died
+    there - which the change above now makes reachable.
+
+    main_menu: in experimental mode, it would show 5.0.0 instead of Patcher's actual version
+
+This release also updates the copyright info to include Information about this fork.
+## 4.0.0.18006 - 4.0.0 alpha 18.6
+This release:
+- fixes a bug where when updating macOS, when OpenCore Legacy Patcher T2 shows a popup, that it was in German instead of English
+- Fixed Boot crash loop on legacy AMD GPUs caused by incorrect reported version in CoreImage patch (Ported from OpenCore Legacy Patcher 2.5.0), thx @Medelcartelinc and @Jazzzny
+- Fixes an issue where in the PatcherSupportPkg, ~117 files were missing, thx @Medelcartelinc 
+- updates PatcherSupportPkg to 2.0.2
+- updates OpenCore to 2.0.4
+- removes Touch ID support for T1 Macs for macOS 26 Tahoe temporarily, thx @Medelcartelinc 
+- fixes a bug where upon trying to configure SIP on non-T2 Macs, the settings were not saved
+- fixes a bug where on T2 Macs, on many of them, were stuck at the language selection screen when pressing -> , thx @Medelcartelinc 
+- fixes a bug where upon trying to deselect certain root patches and after confirming Yes, it doesn't remember that it was deselected
+
+Diese Version:
+- behebt einen Fehler, bei dem ein Popup des OpenCore Legacy Patcher T2 während eines macOS-Updates auf Deutsch statt auf Englisch angezeigt wurde
+- behebt eine Boot-Absturzschleife bei älteren AMD-GPUs, die durch eine falsch gemeldete Version im CoreImage-Patch verursacht wurde (übernommen aus OpenCore Legacy Patcher 2.5.0); danke an @Medelcartelinc und @Jazzzny
+- behebt ein Problem, bei dem im PatcherSupportPkg etwa 117 Dateien fehlten; danke an @Medelcartelinc
+- aktualisiert PatcherSupportPkg auf Version 2.0.2
+- aktualisiert OpenCore auf Version 2.0.4
+- entfernt vorübergehend die Touch-ID-Unterstützung für T1-Macs unter macOS 26 „Tahoe“; danke an @Medelcartelinc
+- behebt einen Fehler, bei dem die Einstellungen nicht gespeichert wurden, wenn man versuchte, SIP auf Macs ohne T2-Chip zu konfigurieren
+- behebt einen Fehler, bei dem viele T2-Macs beim Drücken der „Weiter“-Taste (->) am Sprachauswahlbildschirm hängen blieben; danke an @Medelcartelinc
+- behebt einen Fehler, bei dem die Abwahl bestimmter Root-Patches – auch nach Bestätigung mit „Ja“ – nicht gespeichert wurde
+
+## 4.0.0.18005 - 4.0.0 alpha 18.5
+This release adds an option for the users when root patching to disable non-critical patches:
+<img width="1600" height="900" alt="image" src="https://github.com/user-attachments/assets/31d19775-8454-48fa-b8f1-99a27b2ba32c" />
+So for example, if a certain patch causes a kernel panic that us the maintainers may not know yet, that you can disable these and inject the rest.
+And also, the installer is updated to encourage checking for the SHA256 certificates.
+
+Diese Version bietet Nutzern beim Root-Patching die Möglichkeit, nicht kritische Patches zu deaktivieren:
+<img width="1600" height="900" alt="image" src="https://github.com/user-attachments/assets/31d19775-8454-48fa-b8f1-99a27b2ba32c" />
+Sollte beispielsweise ein bestimmter Patch eine Kernel-Panic verursachen, die uns als Betreuern womöglich noch nicht bekannt ist, können Sie diesen Patch deaktivieren und die übrigen anwenden.
+Zudem wurde der Installer aktualisiert, um dazu zu ermutigen, die SHA256-Zertifikate zu überprüfen.
+
+## 4.0.0.18004.2 - 4.0.0 alpha 18.4.2
+This release updates PatcherSupportPkg to 2.0.1 to fix certain patches completely missing when the Universal-Binaries.dmg is built due to bugs in the CI/CD pipeline for building this
+
+Dieses Release aktualisiert PatcherSupportPkg auf Version 2.0.1, um das Problem zu beheben, dass bestimmte Patches beim Erstellen der Universal-Binaries.dmg aufgrund von Fehlern in der zugehörigen CI/CD-Pipeline vollständig fehlten.
+
 ## 4.0.0.18004.1 - 4.0.0 alpha 18.4.1
 This release:
 - fixes privilege escalation issues when mounting the Universal-Binaries.dmg:

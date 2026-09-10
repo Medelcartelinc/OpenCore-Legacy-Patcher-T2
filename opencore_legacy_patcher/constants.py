@@ -16,13 +16,12 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.18006"  # OpenCore-Legacy-Patcher-T2 # die richtige Version kennzeichen, damit nicht den Update-API mit unnötigen Anfragen zu überladen 
+        self.patcher_version:                 str = "4.0.0.18008"  # OpenCore-Legacy-Patcher-T2 # die richtige Version kennzeichen, damit nicht den Update-API mit unnötigen Anfragen zu überladen 
         self.patcher_version_label=self.patcher_version
         self.patcher_support_pkg_version:     str = "2.0.2"  # PatcherSupportPkg
-        self.copyright_date:                  str = "Copyright © 2020-2026 Dortania"
+        self.copyright_date:                  str = "Copyright © 2020-2026 Dortania · T2 fork © 2026 Albert Müller"
 
         # Versions
-        self.opencore_version:           str = "1.0.4"  #      OpenCore
         self.lilu_version:               str = "1.7.0"  #      Lilu
         self.whatevergreen_version:      str = "1.6.8"  #      WhateverGreen
         self.airportbcrmfixup_version:   str = "1.4.1"  #      AirportBrcmFixup
@@ -37,7 +36,7 @@ class Constants:
 
         # OpenCore Versioning
         # https://github.com/acidanthera/OpenCorePkg
-        self.opencore_version: str = "2.0.3"
+        self.opencore_version: str = "2.0.4"
 
         # Kext Versioning
         ## Acidanthera

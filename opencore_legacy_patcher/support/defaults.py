@@ -92,6 +92,7 @@ class GenerateDefaults:
         self._gpu_probe()
         self._networking_probe()
         self._misc_hardwares_probe()
+        self._modern_audio_probe()
         self._smbios_probe()
         self._check_amfipass_supported()
         self._load_gui_defaults()
@@ -307,6 +308,44 @@ class GenerateDefaults:
                                 break
 
 
+    def _modern_audio_probe(self) -> None:
+        """
+        Modern Audio probe
+
+        AppleHDA was removed outright in macOS Tahoe, so ModernAudio.present() returns
+        True for every non-T2 Mac running it - including Macs that Tahoe still supports
+        natively and that therefore never pass through any of the GPU/wireless branches
+        above. Those machines were left at sip_status True, so BuildSecurity._build()
+        never wrote csr-active-config and root patching stayed blocked on
+        "Booted SIP: 0x0 vs expected: 0x803" / "AMFI is enabled" with no way to clear it
+        short of flipping the SIP bits by hand.
+
+        Mirrors sys_patch/patchsets/hardware/misc/modern_audio.py - keep both in sync.
+        """
+        if self.constants.detected_os < os_data.os_data.tahoe:
+            return
+        if self.constants.allow_modern_audio is False:
+            return
+        # Tahoe Beta 1 still shipped AppleHDA
+        if self.constants.detected_os_build == "25A5279m":
+            return
+        if not self.host_is_target:
+            return
+
+        # T2 Macs keep native (digital) audio routing under Tahoe; Apple only dropped
+        # AppleHDA-based analog routing for non-T2 Macs. T1 Macs are not T2 Macs here.
+        if self.constants.computer.t2_chip is True and self.constants.computer.real_model not in [
+            "MacBookPro14,3", "MacBookPro14,2", "MacBookPro14,1",
+            "MacBookPro13,3", "MacBookPro13,2", "MacBookPro13,1",
+        ]:
+            return
+
+        self.constants.sip_status    = False
+        self.constants.secure_status = False
+        self.constants.disable_cs_lv = True
+        self.constants.disable_amfi  = True
+
+
     def _gpu_probe(self) -> None:
         """
         Graphics specific probe
@@ -364,7 +403,27 @@ class GenerateDefaults:
                             self.constants.serial_settings = "Minimal"
 
                 # See if system can use the native AMD stack in Ventura
-                if arch in [
+                #
+                # This AVX2 skip is the counterpart to the '"AVX2" not in cpu.leafs'
+                # condition that amd_polaris.py / amd_navi.py / amd_vega.py carry in
+                # their present(): if the patchset never reports itself as present,
+                # there is nothing to root patch and SIP can stay enabled.
+                #
+                # amd_vega.py has since dropped that condition - Apple removed Vega
+                # support in Tahoe by GPU architecture, not by CPU, so a Vega card
+                # needs patches even on an AVX2 host (iMac Pro, iMac19,x with Vega).
+                # Leaving the skip in place for those left sip_status at True, so
+                # BuildSecurity._build() never wrote csr-active-config and the config
+                # shipped with the template default of 0x0 while detect.py demanded
+                # 0x803 - "Booted SIP: 0x0 vs expected: 0x803".
+                # Polaris and Navi still gate on AVX2 in present(), so they keep the
+                # old behaviour here.
+                _vega_needs_patches = (
+                    arch == device_probe.AMD.Archs.Vega
+                    and self.constants.detected_os >= os_data.os_data.tahoe
+                )
+
+                if _vega_needs_patches is False and arch in [
                     device_probe.AMD.Archs.Polaris,
                     device_probe.AMD.Archs.Polaris_Spoof,
                     device_probe.AMD.Archs.Vega,
@@ -381,6 +440,17 @@ class GenerateDefaults:
                 self.constants.sip_status = False
                 self.constants.secure_status = False
                 self.constants.disable_cs_lv = True
+
+                if _vega_needs_patches:
+                    # AMFIPass is only injected for models the target OS no longer
+                    # supports natively (see BuildSecurity._build()), which is not the
+                    # case for a Tahoe-native Mac that only lost its GPU driver. Without
+                    # AMFIPass, detect.py cannot downgrade the required AMFI level, and
+                    # every patchset inherits ALLOW_ALL from patchsets/hardware/base.py -
+                    # a level only 'amfi=0x80' satisfies. BuildSecurity writes that
+                    # boot-arg solely when disable_cs_lv and disable_amfi are both set,
+                    # so without this the run stays blocked on "AMFI is enabled".
+                    self.constants.disable_amfi = True
 
             # Non-Metal Logic
             elif arch in [

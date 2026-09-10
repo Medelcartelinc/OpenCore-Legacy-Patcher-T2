@@ -81,7 +81,7 @@ class MainFrame(wx.Frame):
 
         is_matteo = getattr(self.constants, "app_mode", "albert") == "matteo"
 
-        display_version = self.constants.experimental_version if is_matteo else self.constants.patcher_version_label
+        display_version = self.constants.experimental_version if is_matteo else self.constants.patcher_version
         version_label = wx.StaticText(self, label=f"Version {display_version}", pos=(-1, title_label.GetPosition()[1] + 32))
         version_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         version_label.Centre(wx.HORIZONTAL)

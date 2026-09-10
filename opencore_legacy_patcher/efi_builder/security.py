@@ -302,6 +302,29 @@ class BuildSecurity:
         OCLP_NVRAM_UUID  = "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"
 
         # ==============================================================
+        # GLOBAL EVALUATION: Universal AMFIPass Injection Engine
+        # ==============================================================
+        # This used to be evaluated *after* both branches below, while Branch B
+        # already read 'needs_amfipass' in its amfi=0x80 fallback condition.
+        # Since the name is assigned later in the same function it is a local,
+        # so that read raised UnboundLocalError instead of seeing False - any
+        # non-T2 build with both disable_cs_lv and disable_amfi set died there.
+        # The value depends only on the model and the target OS, so compute it
+        # up front; the actual kext injection still happens at the end.
+        needs_amfipass = False
+
+        if self._is_t2_mac():
+            if self.is_tahoe_target or smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe:
+                needs_amfipass = True
+        else:
+            if self.model in model_array.T2Macs:
+                logging.error(f"By accident, we executed logic for non-T2 Macs while {self.model} has the T2 chip. Aborting. Try reinstalling OpenCore Legacy Patcher T2.")
+                sys.exit(3) # sollte normalerweise niemals hier erreichen - falls die Programme durch einen Angreifer ausgetrickst wurde, dass ein T2 Mac nicht ein T2 Mac ist, nur denn wird es hier erreichen
+            else:
+                if smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.sonoma or self.model == "MacBookPro14,3":
+                    needs_amfipass = True
+
+        # ==============================================================
         # Branch A: T2 Mac Consolidated Security Configuration
         # ==============================================================
         if self._is_t2_mac():
@@ -399,21 +422,8 @@ class BuildSecurity:
                     self.config["Misc"]["Security"]["SecureBootModel"] = "Disabled"
 
         # ==============================================================
-        # GLOBAL EVALUATION: Universal AMFIPass Injection Engine
+        # AMFIPass injection (evaluation happens at the top of _build())
         # ==============================================================
-        needs_amfipass = False
-
-        if self._is_t2_mac():
-            if self.is_tahoe_target or smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe:
-                needs_amfipass = True
-        else:
-            if self.model in model_array.T2Macs:
-                logging.error(f"By accident, we executed logic for non-T2 Macs while {self.model} has the T2 chip. Aborting. Try reinstalling OpenCore Legacy Patcher T2.")
-                sys.exit(3) # sollte normalerweise niemals hier erreichen - falls die Programme durch einen Angreifer ausgetrickst wurde, dass ein T2 Mac nicht ein T2 Mac ist, nur denn wird es hier erreichen
-            else:
-                if smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.sonoma or self.model == "MacBookPro14,3":
-                    needs_amfipass = True
-
         if needs_amfipass:
             logging.info("- Enabling AMFIPass Framework Kext injection context natively.")
             support.BuildSupport(self.model, self.constants, self.config).enable_kext(
