@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Build-Project.command: Generate OpenCore-Patcher-T2.app and OpenCore-Patcher-T2.pkg
-Optimiert für Sicherheit und Stabilität.
 """
 
 import os
@@ -27,7 +26,8 @@ from ci_tooling.build_modules import (
     application,
     disk_images,
     package,
-    sign_notarize
+    sign_notarize,
+    hash as hash_pkg
 )
 
 def check_file_exists(path: Path) -> None:
@@ -213,6 +213,7 @@ def main() -> None:
                     notarization_team_id=args.notarization_team_id,
                 ).sign_and_notarize()
                 step += 1
+            hash_pkg.GenerateHash()
             status = "[8/8] Complete"
     except Exception as e:
         rich.print(f"\n[yellow] Building the app stopped because of some error: {e}[/yellow]")
