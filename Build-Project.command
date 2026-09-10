@@ -281,5 +281,5 @@ if __name__ == '__main__':
     if build_result["completed"] is False:
         # main() left early without failing, e.g. argparse handled --help.
         sys.exit(0)
-
-    rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
+    else: # behebt einen Fehler, indem es ohne Bedingung Build script completed ausdruckt; diesmal nicht richtig eine Sicherheitslücke
+        rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
