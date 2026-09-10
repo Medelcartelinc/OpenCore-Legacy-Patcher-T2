@@ -52,6 +52,13 @@ class T1SecurityChip(BaseHardware):
         if self.native_os() is True:
             return {}
 
+        if self._xnu_major >= os_data.tahoe.value:
+            # On macOS Tahoe (26.x / Darwin 25), legacy Ventura 13.6 biometrickitd and
+            # SharedUtils binaries cause SecurityAgent and WindowServer to crash with SIGSEGV
+            # in -[NSXPCInterface setInterface:forSelector:argumentIndex:ofReply:], resulting
+            # in an infinite loginwindow respawn loop and black screen with cursor on MBP13,2.
+            return {}
+
         return {
             "T1 Security Chip": {
                 PatchType.OVERWRITE_SYSTEM_VOLUME: {

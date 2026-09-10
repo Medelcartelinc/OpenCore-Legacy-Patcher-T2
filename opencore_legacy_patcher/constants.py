@@ -16,8 +16,8 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.18006"  # OpenCore-Legacy-Patcher-T2 # die richtige Version kennzeichen, damit nicht den Update-API mit unnötigen Anfragen zu überladen 
-        self.patcher_version_label=self.patcher_version
+        self.patcher_version:                 str = "4.0.0.18007.1-exp-skylake-mbp13"
+        self.patcher_version_label:           str = "4.0.0.18007.1 (Experimental Skylake MBP13 Beta)"
         self.patcher_support_pkg_version:     str = "2.0.2"  # PatcherSupportPkg
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania"
 
@@ -50,7 +50,7 @@ class Constants:
         self.applealc_version:           str = "1.6.7"  #      AppleALC
         self.restrictevents_version:     str = "1.1.6"  #      RestrictEvents
         self.featureunlock_version:      str = "1.1.8"  #      FeatureUnlock
-        self.debugenhancer_version:      str = "1.1.0"  #      DebugEnhancer
+        self.debugenhancer_version:      str = "1.1.1"  #      DebugEnhancer
         self.cpufriend_version:          str = "1.3.0"  #      CPUFriend
         self.bluetool_version:           str = "2.7.2"  #      BlueToolFixup (BrcmPatchRAM)
         self.cslvfixup_version:          str = "2.6.1"  #      CSLVFixup
