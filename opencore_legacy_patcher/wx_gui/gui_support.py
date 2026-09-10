@@ -399,14 +399,25 @@ class CheckProperties:
         # Settings silently re-enable "Build and Install OpenCore" on these hosts
         # (this is what the on_model_choice() fix alone could not solve, since it
         # just re-checks this same function).
-        if self.constants.host_is_hackintosh is True and self.constants.allow_oc_everywhere is False:
+        if self.constants.host_is_hackintosh is True:
             # A Hackintosh/VM can still be a *build station* for a different, real Mac: if the
             # user explicitly picked a target (custom_model) and that target is itself a genuine,
             # supported Mac model, the resulting OpenCore build isn't destined for this Hackintosh/VM
-            # at all, so the allow_oc_everywhere gate above - which exists to stop a Hackintosh from
-            # installing OpenCore onto ITSELF - doesn't apply. Bare `custom_model` truthiness isn't
-            # enough here (that's what let ANY custom SMBIOS choice re-enable the button before, see
-            # note above), so this specifically requires the target to be a real, supported Mac.
+            # at all. Bare `custom_model` truthiness isn't enough here (that's what let ANY custom
+            # SMBIOS choice re-enable the button before, see note above), so this specifically
+            # requires the target to be a real, supported Mac.
+            #
+            # allow_oc_everywhere ("Allow native models") deliberately does NOT lift this branch,
+            # which is what an earlier revision got wrong: it was part of the condition above, so
+            # enabling the checkbox skipped this block entirely and the `allow_oc_everywhere is True`
+            # fallthrough further down returned True even with Host Model selected (custom_model
+            # empty). That toggle means "let me build for a Mac that doesn't need OCLP" - it cannot
+            # conjure a build target for a machine that isn't a Mac at all. A Host Model build on
+            # such a host runs against the host's own model, which smbios_data has no entry for,
+            # and dies with a bare KeyError in efi_builder/firmware.py's _dual_dp_handling() -
+            # exactly the VMware failure described above. Note this also covers a Hackintosh whose
+            # SMBIOS spoofs a supported Mac: that target now has to be chosen explicitly as Target
+            # Model rather than inherited from the host, so what gets built is never implicit.
             if self.constants.custom_model and self.constants.custom_model in model_array.SupportedSMBIOS:
                 return True
             return False
@@ -458,6 +469,14 @@ class CheckProperties:
         # a GUI checkbox could. Scoped to host_is_vmware_vm specifically, so it can never unlock
         # root patching for a hackintosh or any other unsupported real Mac.
         if self.constants.host_is_vmware_vm is True and self.constants.allow_vmware_root_patching is True:
+            return True
+
+        # Root patching a Hackintosh stays available under allow_oc_everywhere exactly as before.
+        # host_can_build() now refuses a Host Model build on such a host (it has no smbios_data
+        # entry to build an EFI against), but that reasoning is build-specific: root patching
+        # targets the volume this host already booted and needs no Mac SMBIOS build target, so
+        # falling through to host_can_build() here would take away working behaviour.
+        if self.constants.host_is_hackintosh is True and self.constants.allow_oc_everywhere is True:
             return True
 
         return self.host_can_build()

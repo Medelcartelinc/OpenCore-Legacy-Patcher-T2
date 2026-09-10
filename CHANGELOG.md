@@ -34,6 +34,19 @@ This release fixes a security issue. Please update.
     to 0.0.0, so a malformed manifest degrades instead of unwinding into the
     excepthook at all.
 
+    - host_can_build(): on a Hackintosh or VM, enabling "Allow native models"
+    used to unlock "Build and Install OpenCore" even with Host Model selected.
+    The checkbox was part of the condition guarding the Hackintosh branch, so
+    ticking it skipped that branch entirely and the allow_oc_everywhere
+    fallthrough returned True with no target model at all. The resulting build
+    ran against the host's own model, which smbios_data has no entry for, and
+    died with a bare KeyError in efi_builder/firmware.py's _dual_dp_handling().
+    The branch now applies regardless of that checkbox: on such a host, building
+    requires a real, supported Mac chosen explicitly as Target Model.
+
+    - host_can_root_patch() keeps the old behaviour for that case, since root
+    patching targets the booted volume and needs no Mac SMBIOS build target.
+
 ## 4.0.0.18008 - 4.0.0 alpha 18.6
 This release fixes an issue where the patcher would ask you to update even though you are already on the latest version. Sorry, that was my (@gandolf243) fault.
 
