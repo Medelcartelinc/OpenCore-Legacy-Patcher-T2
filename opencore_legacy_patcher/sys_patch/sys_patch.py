@@ -465,19 +465,19 @@ class PatchSysVolume:
         Only required on Mojave and older.
         """
         if self.constants.detected_os > os_data.os_data.catalina:
-            logging.info(f"You're running macOS 10.15 Catalina or newer, which is newer than macOS 10.14 Mojave, so not compatible with dyld shared cache patches.")
+            logging.info(f"You're running newer version than macOS 10.14 Mojave, so not compatible with dyld shared cache patches.")
             return
-        
-        logging.info("- Rebuilding dyld shared cache")
-        try:
-            subprocess_wrapper.run_as_root_and_verify(
-                ["/usr/bin/update_dyld_shared_cache", "-root", f"{self.mount_location}/"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
-            )
-        except Exception as e:
-            logging.error(f"- Failed to rebuild dyld shared cache: {e}")
-            logging.exception("Stack Trace:")
+        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern zum Erzwingen von macOS Mojave-Patches auf moderne Systemen zu erzwingen, um die Betriebssystem unbrauchbar zu machen
+            logging.info("- Rebuilding dyld shared cache")
+            try:
+                subprocess_wrapper.run_as_root_and_verify(
+                    ["/usr/bin/update_dyld_shared_cache", "-root", f"{self.mount_location}/"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT
+                )
+            except Exception as e:
+                logging.error(f"- Failed to rebuild dyld shared cache: {e}")
+                logging.exception("Stack Trace:")
 
 
     def _update_preboot_kernel_cache(self) -> None:
@@ -1129,7 +1129,7 @@ class PatchSysVolume:
             logging.error("Failed to root patch the volume")
             logging.exception("Stack Trace:")
             logging.info("To ensure that your system continues to boot even after the root volume patches have failed to apply, we'll undo the patches that were applied until now.")
-            self.unpatch_root_vol()
+            self.start_unpatch()
 
 
     def start_unpatch(self) -> None:
