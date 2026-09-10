@@ -216,7 +216,7 @@ def main() -> None:
             hash_pkg.GenerateHash()
             status = "[8/8] Complete"
     except Exception as e:
-        rich.print(f"\n[yellow] Building the app stopped because of some error: {e}[/yellow]")
+        rich.print(f"\n[red] Building the app stopped because of some error: {e}[/yellow]")
         # Print the traceback too. Without it the message alone gives no file or line,
         # which turns any error raised deep in a build module into a repo-wide hunt.
         traceback.print_exc()
