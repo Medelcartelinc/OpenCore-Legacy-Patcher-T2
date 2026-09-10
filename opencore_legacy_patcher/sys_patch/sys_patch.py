@@ -333,7 +333,6 @@ class PatchSysVolume:
         
         if not APFSSnapshot(self.constants.detected_os, self.mount_location).revert_snapshot():
             logging.error("- Failed to revert APFS snapshot")
-            logging.exception("Stack Trace:")
             return
 
         self._clean_skylight_plugins()
@@ -466,19 +465,19 @@ class PatchSysVolume:
         Only required on Mojave and older.
         """
         if self.constants.detected_os > os_data.os_data.catalina:
-            logging.info(f"You're running macOS 10.15 Catalina or newer, which is newer than macOS 10.14 Mojave, so not compatible with dyld shared cache patches.")
+            logging.info(f"You're running newer version than macOS 10.14 Mojave, so not compatible with dyld shared cache patches.")
             return
-        
-        logging.info("- Rebuilding dyld shared cache")
-        try:
-            subprocess_wrapper.run_as_root_and_verify(
-                ["/usr/bin/update_dyld_shared_cache", "-root", f"{self.mount_location}/"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
-            )
-        except Exception as e:
-            logging.error(f"- Failed to rebuild dyld shared cache: {e}")
-            logging.exception("Stack Trace:")
+        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern zum Erzwingen von macOS Mojave-Patches auf moderne Systemen zu erzwingen, um die Betriebssystem unbrauchbar zu machen
+            logging.info("- Rebuilding dyld shared cache")
+            try:
+                subprocess_wrapper.run_as_root_and_verify(
+                    ["/usr/bin/update_dyld_shared_cache", "-root", f"{self.mount_location}/"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT
+                )
+            except Exception as e:
+                logging.error(f"- Failed to rebuild dyld shared cache: {e}")
+                logging.exception("Stack Trace:")
 
 
     def _update_preboot_kernel_cache(self) -> None:
@@ -490,17 +489,17 @@ class PatchSysVolume:
         if self.constants.detected_os != os_data.os_data.catalina:
             logging.info("You're not running macOS 10.15 Catalina. The patch for updating the preboot kernel cache is not compatible for your system.")
             return
-        
-        logging.info("- Rebuilding preboot kernel cache")
-        try:
-            subprocess_wrapper.run_as_root_and_verify(
-                ["/usr/sbin/kcditto"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
-            )
-        except Exception as e:
-            logging.error(f"- Failed to update preboot kernel cache: {e}")
-            logging.exception("Stack Trace:")
+        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Patches fürs Catalina zu injizieren
+            logging.info("- Rebuilding preboot kernel cache")
+            try:
+                subprocess_wrapper.run_as_root_and_verify(
+                    ["/usr/sbin/kcditto"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT
+                )
+            except Exception as e:
+                logging.error(f"- Failed to update preboot kernel cache: {e}")
+                logging.exception("Stack Trace:")
 
 
     def _clean_skylight_plugins(self) -> None:
@@ -1095,7 +1094,6 @@ class PatchSysVolume:
         logging.info("- Verifying whether Root Patching possible")
         if not patchset_obj.can_patch:
             logging.error("- Cannot continue with patching!!!")
-            logging.exception("Stack Trace:")
             patchset_obj.detailed_errors()
             return
 
@@ -1103,12 +1101,10 @@ class PatchSysVolume:
         logging.info("If you see a prompt that says Enter password to access Universal-Binaries.dmg, don't enter your user password! Enter the password for Universal-Binaries.dmg instead, which is password. If this fails, report this issue.")
         if not PatcherSupportPkgMount(self.constants).mount():
             logging.error("- Critical resources missing, cannot continue with patching!!!")
-            logging.exception("Stack Trace:")
             return
 
         if not self._mount_root_vol():
             logging.error("- Failed to mount root volume, cannot continue with patching!!!")
-            logging.exception("Stack Trace:")
             return
 
         if not self._run_sanity_checks():
@@ -1133,7 +1129,7 @@ class PatchSysVolume:
             logging.error("Failed to root patch the volume")
             logging.exception("Stack Trace:")
             logging.info("To ensure that your system continues to boot even after the root volume patches have failed to apply, we'll undo the patches that were applied until now.")
-            self.unpatch_root_vol()
+            self.start_unpatch()
 
 
     def start_unpatch(self) -> None:
@@ -1147,13 +1143,11 @@ class PatchSysVolume:
         
         if not patchset_obj.can_unpatch:
             logging.error("- Cannot continue with unpatching!!!")
-            logging.exception("Stack Trace:")
             patchset_obj.detailed_errors()
             return
 
         if not self._mount_root_vol():
             logging.error("- Failed to mount root volume, cannot continue with unpatching!!!")
-            logging.exception("Stack Trace:")
             return
 
         self._unpatch_root_vol()

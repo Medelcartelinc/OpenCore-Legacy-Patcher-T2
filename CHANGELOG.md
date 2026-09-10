@@ -1,4 +1,53 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+
+## 4.0.0.18009 - 4.0.0 alpha 18.9
+This release:
+- fixes a bug where on T2 Macs, when macOS 26 Tahoe succeeds to boot, and when pressing ->, the WindowServer process fails to draw the next window and crashes, thx @Medelcartelinc 
+- fixes the following vulnerabilities:
+    - Security: a version string could be rendered as AppleScript code. Values
+    interpolated into a "display dialog" script were never escaped, and
+    AppleScript is compiled rather than passed to a shell, so a value containing
+    a double quote closed the string literal and everything after it was parsed
+    as code - '1.0" & (do shell script "...") & "' gave arbitrary command
+    execution as the logged-in user.
+
+    - Two versions reach those dialogs from outside the app: the booted build's
+    OCLP-Version NVRAM variable, and the PatcherSupportPkg entry in
+    /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist. Both are written
+    by whichever OpenCore build ran last, so a malicious build could set either
+    one. Neither needed the updater to run: host_psp_version() parsed the plist
+    value with no error handling, packaging's InvalidVersion echoes the offending
+    string back verbatim ("Invalid version: '<value>'"), and the resulting
+    uncaught exception was rendered by the crash dialog in logging_handler.py -
+    which builds its AppleScript by string interpolation and also renders
+    patcher_version into the same script. Root patch detection reaches this on
+    startup, long before any update check.
+
+    - Added subprocess_wrapper.applescript_quote() and routed every interpolated
+    value through it: the crash dialog, the outdated-bootloader prompt in
+    auto_patcher, and the DortaniaInternal key prompt. osascript() now shares the
+    same helper instead of escaping inline.
+
+    - The crash dialog also truncates the exception text to 500 characters, so a
+    long payload or a long legitimate traceback cannot push the buttons off it.
+
+    - host_psp_version() now catches InvalidVersion and TypeError and falls back
+    to 0.0.0, so a malformed manifest degrades instead of unwinding into the
+    excepthook at all.
+
+    - host_can_build(): on a Hackintosh or VM, enabling "Allow native models"
+    used to unlock "Build and Install OpenCore" even with Host Model selected.
+    The checkbox was part of the condition guarding the Hackintosh branch, so
+    ticking it skipped that branch entirely and the allow_oc_everywhere
+    fallthrough returned True with no target model at all. The resulting build
+    ran against the host's own model, which smbios_data has no entry for, and
+    died with a bare KeyError in efi_builder/firmware.py's _dual_dp_handling().
+    The branch now applies regardless of that checkbox: on such a host, building
+    requires a real, supported Mac chosen explicitly as Target Model.
+
+    - host_can_root_patch() keeps the old behaviour for that case, since root
+    patching targets the booted volume and needs no Mac SMBIOS build target.
+
 ## 4.0.0.18008 - 4.0.0 alpha 18.6
 This release fixes an issue where the patcher would ask you to update even though you are already on the latest version. Sorry, that was my (@gandolf243) fault.
 

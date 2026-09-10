@@ -161,7 +161,7 @@ class PatcherSupportPkgMount:
         msg = "Welcome to the DortaniaInternal Program, please provide the decryption key." if attempt == 0 else f"Decryption failed. {2 - attempt} attempts remaining."
         try:
             return applescript.AppleScript(
-                f'set theResult to display dialog "{msg}" default answer "" with hidden answer with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}\nreturn the text returned of theResult'
+                f'set theResult to display dialog "{subprocess_wrapper.applescript_quote(msg)}" default answer "" with hidden answer with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}\nreturn the text returned of theResult'
             ).run()
         except Exception:
             return ""

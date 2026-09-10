@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Build-Project.command: Generate OpenCore-Patcher-T2.app and OpenCore-Patcher-T2.pkg
-Optimiert für Sicherheit und Stabilität.
 """
 
 import os
@@ -12,12 +11,13 @@ import argparse
 import traceback
 import subprocess
 import threading
+
 import rich
 from rich.live import Live
 from rich.spinner import Spinner
 from pathlib import Path
 
-# Fix: Force the execution directory immediately before importing local modules. 
+# Fix: Force the execution directory immediately before importing local modules.
 # This guarantees that 'ci_tooling' looks for assets in the right relative path.
 SCRIPT_DIR = Path(__file__).resolve().parent
 os.chdir(SCRIPT_DIR)
@@ -27,8 +27,23 @@ from ci_tooling.build_modules import (
     application,
     disk_images,
     package,
-    sign_notarize
+    sign_notarize,
+    hash as hash_pkg
 )
+
+
+TOTAL_STEPS = 9
+
+# Written by the build thread, read by the spinner in the main thread.
+status = f"[0/{TOTAL_STEPS}] Starting"
+
+# Filled in by _run_build(). "completed" is only True when main() returned normally,
+# so the "Build script completed" line can never be printed after a failed build.
+# Do NOT replace this with a module level flag assigned inside main(): an assignment
+# there creates a function local unless 'global' is declared, and the module level
+# value stays False forever - the failure mode this structure exists to prevent.
+build_result = {"exit_code": 0, "completed": False}
+
 
 def check_file_exists(path: Path) -> None:
     if not path.exists():
@@ -112,16 +127,16 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> "str | No
         rich.print(f"[yellow]      Pass --application-signing-identity \"<name>\" to choose one.[/yellow]")
         return None
 
-    _, name, status = identities[0]
+    _, name, identity_status = identities[0]
     rich.print(f"[yellow]Automatically selected signing identity: {name}[/yellow]")
-    if status:
-        rich.print(f"[yellow]      Note: certificate is not trusted {status} - that is enough for signing,[/yellow]")
+    if identity_status:
+        rich.print(f"[yellow]      Note: certificate is not trusted {identity_status} - that is enough for signing,[/yellow]")
         rich.print(f"[yellow]      the helper tool only compares certificate chains.[/yellow]")
     return name
 
 
 def main() -> None:
-    global status, done
+    global status
     parser = argparse.ArgumentParser(description="Build OpenCore Legacy Patcher Suite")
 
     # Signing & Notarization
@@ -138,7 +153,7 @@ def main() -> None:
     parser.add_argument("--reset-dmg-cache", action="store_true")
     parser.add_argument("--reset-pyinstaller-cache", action="store_true")
     parser.add_argument("--no-auto-detect-identity", action="store_true", help="Never pick a signing identity from the keychain automatically")
-    
+
     # Steps
     parser.add_argument("--run-as-individual-steps", action="store_true")
     parser.add_argument("--prepare-application", action="store_true")
@@ -160,12 +175,12 @@ def main() -> None:
     try:
         # 1. Assets
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_assets):
-            status = "[1/8] Generating disk images"
+            status = f"[1/{TOTAL_STEPS}] Generating disk images"
             disk_images.GenerateDiskImages(args.reset_dmg_cache).generate()
 
         # 2. Application
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_application):
-            status = "[2/8] Signing Helper Tool"
+            status = f"[2/{TOTAL_STEPS}] Signing Helper Tool"
             sign_notarize.SignAndNotarize(
                 path=Path("./ci_tooling/privileged_helper_tool/com.dortania.opencore-legacy-patcher.privileged-helper"),
                 signing_identity=application_signing_identity,
@@ -174,7 +189,7 @@ def main() -> None:
                 notarization_team_id=args.notarization_team_id,
             ).sign_and_notarize()
 
-            status = "[3/8] Building the app"
+            status = f"[3/{TOTAL_STEPS}] Building the app"
             application.GenerateApplication(
                 reset_pyinstaller_cache=args.reset_pyinstaller_cache,
                 git_branch=args.git_branch,
@@ -183,7 +198,7 @@ def main() -> None:
             ).generate()
 
             check_file_exists(Path("dist/OpenCore-Patcher-T2.app"))
-            status = "[4/8] Signing the app"
+            status = f"[4/{TOTAL_STEPS}] Signing the app"
             sign_notarize.SignAndNotarize(
                 path=Path("dist/OpenCore-Patcher-T2.app"),
                 signing_identity=application_signing_identity,
@@ -195,16 +210,16 @@ def main() -> None:
 
         # 3. Packages
         if (args.run_as_individual_steps is False) or (args.run_as_individual_steps and args.prepare_package):
-            status = "[5/8] Building packages"
+            status = f"[5/{TOTAL_STEPS}] Building packages"
             package.GeneratePackage().generate()
-            
+
             # AutoPkg-Assets-T2.pkg is installed by the app itself during auto patching,
             # so it needs a signature just as much as the two user facing packages.
             step = 6
             for pkg in ["OpenCore-Patcher-T2.pkg", "OpenCore-Patcher-Uninstaller.pkg", "AutoPkg-Assets-T2.pkg"]:
                 pkg_path = Path(f"dist/{pkg}")
                 check_file_exists(pkg_path)
-                status = f"[{step}/8] Signing {pkg}"
+                status = f"[{step}/{TOTAL_STEPS}] Signing {pkg}"
                 sign_notarize.SignAndNotarize(
                     path=pkg_path,
                     signing_identity=args.installer_signing_identity,
@@ -213,34 +228,58 @@ def main() -> None:
                     notarization_team_id=args.notarization_team_id,
                 ).sign_and_notarize()
                 step += 1
-            status = "[8/8] Complete"
+
+            status = f"[{TOTAL_STEPS}/{TOTAL_STEPS}] Generating hashes"
+            hash_pkg.GenerateHash()
     except Exception as e:
-        rich.print(f"\n[yellow] Building the app stopped because of some error: {e}[/yellow]")
+        # Closing tag must match the opening one - rich raises MarkupError on a mismatch,
+        # which would replace the real build error with a markup error.
+        rich.print(f"\n[red] Building the app stopped because of some error: {e}[/red]")
         # Print the traceback too. Without it the message alone gives no file or line,
         # which turns any error raised deep in a build module into a repo-wide hunt.
         traceback.print_exc()
         sys.exit(3)
-    finally:
-        done = True
+
+
+def _run_build() -> None:
+    """
+    Thread entry point
+
+    sys.exit() inside a thread only unwinds that thread, it does not set the process
+    exit code. Every failure is recorded here instead, so __main__ can exit non-zero
+    and CI actually fails on a broken build.
+    """
+    try:
+        main()
+    except SystemExit as e:
+        build_result["exit_code"] = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    except BaseException:
+        traceback.print_exc()
+        build_result["exit_code"] = 1
+    else:
+        build_result["completed"] = True
+
 
 if __name__ == '__main__':
     _start = time.time()
-    global status
-    global done
-    status = "[0/8] Starting"
-    done = False
-    thread = threading.Thread(target=main)
-    thread.start()
-    spinner = Spinner(
-        "dots",
-        text=status
-    )
 
+    thread = threading.Thread(target=_run_build)
+    thread.start()
+
+    spinner = Spinner("dots", text=status)
     with Live(spinner, refresh_per_second=10):
-        while not done:
+        while thread.is_alive():
             spinner.update(text=status)
             time.sleep(0.1)
         spinner.update(text=status)
+
     thread.join()
-    done = True
-    rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
+
+    if build_result["exit_code"] != 0:
+        sys.exit(build_result["exit_code"])
+
+    if build_result["completed"] is False:
+        # main() left early without failing, e.g. argparse handled --help.
+        sys.exit(0)
+    else: # behebt einen Fehler, indem es ohne Bedingung Build script completed ausdruckt; diesmal nicht richtig eine Sicherheitslücke
+        rich.print(f"\n[green]Build script completed in {str(round(time.time() - _start, 2))} seconds.[/green]")
