@@ -1,0 +1,29 @@
+-Einen sicheren Weg, die patches zu implementieren ist es durch die _validate_patch-Variable zu verifizieren, damit Sie sicher stellen können, dass die Find -und-Replace Bytes diesebe Länge haben, wie z.B:
+-Auch besonders wenn Sie KI verwenden, um Patches zu generieren, was ist überhaupt nicht empfohlen und stattdessen das KI nur zu verwenden, um für Reverse Engineering zu helfen und dann davon aus einen Patch zu generieren oder Sie selbst zu generieren.
+-Falls Sie KI verwenden, Sie müssen auch darauf achten, dass die Bytes von Find und Replace gleich lang sind, sonst schlägt es fehl, Patches in OpenCore zu injizieren, wird benachbaren Speicher überschreiben und/oder schon Kernel Panics verursachen.
+-Beispiel für die Integration bei den Tahoe-Patches:
+-# 1. Disable xART validation capacity loop checks safely (Symbolic Base Path)
+-    if not any(p.get("Comment") == "Bypass XARTDisableLog limits (Tahoe Cache Fix)" for p in kernel_patches):
+-        new_patch = {
+-            "Arch": "x86_64",
+-            "Identifier": "com.apple.driver.AppleSEPManager",
+-            "Base": "__ZN14XARTDisableLog16register_disableEj",
+-            "Comment": "Bypass XARTDisableLog limits (Tahoe Cache Fix)",
+-            "Count": 1,
+-            "Enabled": True,
+-            "MinKernel": "24.0.0",
+-            "Find": binascii.unhexlify("554889E5488B"),        # 6 Bytes: Prolog + Start von MOV RCX [1]
+-            "Replace": binascii.unhexlify("B800000000C3"),     # 6 Bytes: mov eax, 0; ret
+-            "Mask": b"",
+-            "ReplaceMask": b"",
+-            "Limit": 0,
+-            "Skip": 0
+-        }
+-        if self._validate_patch(new_patch):
+-            logging.info("Wir haben erfolgreich die Prüfung abgeschlossen, ob die Bytes zwischen Find und Replace gleich lang sind.")
+-            logging.info("- Injecting Bypass XARTDisableLog limits patch")
+-            kernel_patches.append(new_patch)
+-        else:
+-            logging.error("Wir haben einen Problem, die Bytes-Länge zwischen Find und Replace zu vergleichen")
+-            sys.exit(3)
+
