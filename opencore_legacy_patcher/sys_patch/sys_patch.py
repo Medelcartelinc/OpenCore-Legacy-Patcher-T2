@@ -1143,11 +1143,23 @@ class PatchSysVolume:
         
         if not patchset_obj.can_unpatch:
             logging.error("- Cannot continue with unpatching!!!")
+            logging.error("If you continue to encounter this error, consider to start an upgrade in place to fix this error, no data will be lost.")
             patchset_obj.detailed_errors()
             return
 
         if not self._mount_root_vol():
             logging.error("- Failed to mount root volume, cannot continue with unpatching!!!")
+            logging.info("This error may appear due to misconfiguration of Apple Mobile File Integrity (AMFI) or/and System Integrity Protection (SIP).")
+            logging.info("To check whether that's the issue or not, do the following:")
+            logging.info("1. Open Terminal")
+            logging.info("2. Type sudo diskutil mount /dev/disk0s1 - this will mount the EFI partition")
+            logging.info("3. Go to EFI > OC and find the config.plist")
+            logging.info("4. If you know how to work with OCAT, proceed, else, submit the plist in a GitHub Discussion or issue")
+            logging.info("5. Open the plist in OCAT")
+            logging.info("6. Go to the NVRAM tab")
+            logging.info("7. Find csr-active-config and change it to the proper value")
+            logging.info("8. Do something similar with the AMFI")
+            logging.info("9. Save the config.plist and restart your Mac")
             return
 
         self._unpatch_root_vol()
