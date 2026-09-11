@@ -8,6 +8,7 @@ import requests
 import tempfile
 import subprocess
 import packaging.version
+import sys 
 
 from typing import cast
 from pathlib import Path
