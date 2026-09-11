@@ -97,15 +97,20 @@ class Analytics:
         # Get approximate country from .GlobalPreferences.plist
         path = "/Library/Preferences/.GlobalPreferences.plist"
         if not Path(path).exists():
-            return "US"
+            logging.error("We're facing an issue to fetch the country name set in System Settings.")
+            return "Error fetching country name"
 
         try:
             result = plistlib.load(Path(path).open("rb"))
+        except Exception as e:
+             logging.error("We're facing an unexpected error while trying to fetch the country name set in System Settings.")
+             return "Unexpected error occured while fetching country name"
         except:
-            return "US"
+            logging.error("We're facing an issue to fetch the country name set in System Settings.")
+            return "Error fetching country name"
 
         if "Country" not in result:
-            return "US"
+            return "The country is outside the results"
 
         return result["Country"]
 
