@@ -197,8 +197,6 @@ class MacosConfigFrame(wx.Frame):
                     height += 10
                     if "condition" in setting_info:
                         button.Enable(setting_info["condition"])
-
-
                 else:
                     raise Exception("Invalid setting type")
 
