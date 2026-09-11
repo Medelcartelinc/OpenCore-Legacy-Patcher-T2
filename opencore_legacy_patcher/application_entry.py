@@ -286,12 +286,6 @@ class OpenCoreLegacyPatcher:
     
             arguments.arguments(self.constants)
 
-
-class SecurityError(Exception):
-    """Raised when an active security check or validation fails."""
-    pass
-
-
 def main():
     """
     Main entry point
