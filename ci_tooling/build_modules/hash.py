@@ -4,12 +4,16 @@ hash.py: creates a hash for the PKGs using hashlib and saves them to certificate
 
 import hashlib
 import rich
+import shutil
 from pathlib import Path
 
 
 class GenerateHash():
     def __init__(self):
+        shutil.copyfile("./ci_tooling/privileged_helper_tool/com.dortania.opencore-legacy-patcher.privileged-helper", "./dist/com.dortania.opencore-legacy-patcher.privileged-helper")
+        shutil.rmtree("./dist/certificates.txt", ignore_errors=True)
         self.start()
+        shutil.rmtree("./dist/com.dortania.opencore-legacy-patcher.privileged-helper")
 
     def start(self):
         file_dump = ["Resource certificates:"]
