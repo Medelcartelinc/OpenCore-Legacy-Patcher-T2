@@ -76,7 +76,7 @@ app = BUNDLE(coll,
              icon=str(SPEC_DIR / "payloads/Resources/AppIcons/OC-Patcher.icns"), # Fix: Use the corrected SPEC_DIR variable and Resources path
              bundle_identifier="com.dortania.opencore-legacy-patcher",
              info_plist={
-                "CFBundleName": "OpenCore Legacy Patcher",
+                "CFBundleName": "OpenCore Legacy Patcher T2",
                 "CFBundleVersion": constants.Constants().patcher_version,
                 "CFBundleShortVersionString": constants.Constants().patcher_version,
                 "NSHumanReadableCopyright": constants.Constants().copyright_date,
