@@ -493,37 +493,7 @@ class MacosConfigFrame(wx.Frame):
             screen_location=self.parent.GetPosition()
         )
 
-    def on_nightly(self, event: wx.Event) -> None:
-        # Ask prompt for which branch
-        branches = ["main"]
-        if self.constants.commit_info[0] not in ["Running from source", "Built from source"]:
-            branches = [self.constants.commit_info[0].split("/")[-1]]
-        result = network_handler.NetworkUtilities().get("https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/branches")
-        if result is not None:
-            result = result.json()
-            for branch in result:
-                if branch["name"] == "gh-pages":
-                    continue
-                if branch["name"] not in branches:
-                    branches.append(branch["name"])
-
-            with wx.SingleChoiceDialog(self.parent, "Which branch would you like to download?", "Branch Selection", branches) as dialog:
-                if dialog.ShowModal() == wx.ID_CANCEL:
-                    return
-
-                branch = dialog.GetStringSelection()
-        else:
-            branch = "main"
-
-        gui_update.UpdateFrame(
-            parent=self.parent,
-            title=self.title,
-            global_constants=self.constants,
-            screen_location=self.parent.GetPosition(),
-            url=f"https://nightly.link/dortania/OpenCore-Legacy-Patcher/workflows/build-app-wxpython/{branch}/OpenCore-Patcher.pkg.zip",
-            version_label="(Nightly)"
-        )
-
+    # behebt eine Sicherheitslücke, die erlaubt Angreifern, die on_nightly-Funktion abzurufen, um OpenCore Legacy Patcher von Dortania unerlaubt zu installieren
 
     def on_export_constants(self, event: wx.Event) -> None:
         # Throw pop up to get save location
