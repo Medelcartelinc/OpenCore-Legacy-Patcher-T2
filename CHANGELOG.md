@@ -1,5 +1,33 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## 4.0.0.18009.1 - 4.0.0 alpha 18.9.1
+This release:
+- fixes a bug where on T2 Macs when trying to launch the guide on how to disable SIP, it throws an Uncaught exception in main thread error instead
+- fixes missing _kmod_info in RestrictEvents
+- fixes a bug where when a root patch fails to install, it only removed the root volume patches instead of calling the start_unpatch function
+- fixes NoneType None error when a real error occurs during root patching which pollutes logs. The cause was that logging.exception was ran when an expected error occured.
+- fixes the following vulnerability:
+sys_patch.py:
+
+        if self.constants.detected_os != os_data.os_data.catalina:
+                    logging.info("You're not running macOS 10.15 Catalina. The patch for updating the preboot kernel cache is not compatible for your system.")
+                    return
+                
+                logging.info("- Rebuilding preboot kernel cache") # <- an attacker could inject patches intended for macOS Catalina on newer systems
+                try:
+                    subprocess_wrapper.run_as_root_and_verify(
+                        ["/usr/sbin/kcditto"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT
+                    )
+                except Exception as e:
+                    logging.error(f"- Failed to update preboot kernel cache: {e}")
+                    logging.exception("Stack Trace:")
+
+Impact: an attacker could inject macOS Catalina root patches on newer macOS versions to brick the operating system and lock out the user of their drive. This is fixed by ensuring the patches for macOS Catalina are set under an else condition to prevent such an attack.
+
+
+
 ## 4.0.0.18009 - 4.0.0 alpha 18.9
 This release:
 - fixes a bug where on T2 Macs, when macOS 26 Tahoe succeeds to boot, and when pressing ->, the WindowServer process fails to draw the next window and crashes, thx @Medelcartelinc 
