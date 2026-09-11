@@ -19,7 +19,8 @@ from ..datasets import os_data
 
 from ..support import (
     kdk_handler,
-    metallib_handler
+    metallib_handler,
+    utilities
 )
 from ..sys_patch import (
     sys_patch,
