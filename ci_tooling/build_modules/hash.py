@@ -12,16 +12,19 @@ class GenerateHash():
         self.start()
 
     def start(self):
-        file_dump= ["Resource certificates:"]
-        sha256 = hashlib.sha256()
-        for pkg in Path("./dist/").glob("*.pkg"):
-            with open(pkg, "rb") as file:
-                while chunk := file.read(8192):
-                    sha256.update(chunk)
+        file_dump = ["Resource certificates:"]
+        dist = Path("./dist/")
 
-            file_hash = sha256.hexdigest()
-            file_dump.append(f"{str(pkg).removeprefix('/dist/')}: {file_hash}")
-            rich.print(f"{str(pkg).removeprefix('/dist/')}: {file_hash}")
+        for filepath in list(dist.glob("*.pkg")) + list(dist.glob("*.privileged-helper")):
+            
+            sha256 = hashlib.sha256()
+            
+            with open(filepath, "rb") as f:
+                while chunk := f.read(8192):
+                    sha256.update(chunk)
+            
+            file_dump.append(f"{filepath.name}: {sha256.hexdigest()}")
+            rich.print(f"{filepath.name}: {sha256.hexdigest()}")
 
         with open("./dist/certificates.txt", "w") as f:
             f.write("\n".join(file_dump))
