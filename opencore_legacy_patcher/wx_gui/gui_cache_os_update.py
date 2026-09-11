@@ -66,7 +66,7 @@ class OSUpdateFrame(wx.Frame):
             wx.CallAfter(self._on_tasks_complete)
             
         except Exception as e:
-            logging.error(f"Fehler bei Hintergrundaufgabe: {e}")
+            logging.error(f"Error on background task: {e}")
             wx.CallAfter(self._exit)
 
     def _on_tasks_complete(self):
