@@ -51,7 +51,7 @@ exe = EXE(pyz,
           a.scripts,
           [],
           exclude_binaries=True,
-          name='OpenCore-Patcher-T2',
+          name='OpenCore-Patcher',
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
@@ -69,7 +69,7 @@ coll = COLLECT(exe,
                strip=False,
                upx=True,
                upx_exclude=[],
-               name='OpenCore-Patcher-T2')
+               name='OpenCore-Patcher')
 
 app = BUNDLE(coll,
              name='OpenCore-Patcher-T2.app',
