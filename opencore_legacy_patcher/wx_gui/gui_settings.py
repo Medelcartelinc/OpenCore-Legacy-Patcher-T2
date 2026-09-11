@@ -725,12 +725,6 @@ Hardware Information:
             return
 
         logging.info(f"{reason} Restarting to apply the change...")
-        wx.MessageDialog(
-            self.frame_modal,
-            f"{reason}\n\nThe app is restarting now to apply this change.",
-            "Restarting",
-            wx.OK | wx.ICON_INFORMATION
-        ).ShowModal()
 
         # Plain sys.exit() here is unreliable: this runs from deep inside nested
         # modal event loops (checkbox handler -> Settings dialog's own
