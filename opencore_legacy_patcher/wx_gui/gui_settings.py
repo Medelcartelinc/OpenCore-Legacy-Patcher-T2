@@ -6,7 +6,6 @@ import wx
 import pprint
 import logging
 import os
-import sys
 import time
 import subprocess
 import Security
@@ -17,13 +16,13 @@ from .. import constants
 
 from ..wx_gui import (
     gui_support,
-    gui_update,
-    gui_main_menu,
+    gui_sys_patch_start,
 )
 from ..support import (
     global_settings,
-    network_handler,
-    analytics_handler
+    analytics_handler,
+    subprocess_wrapper,
+    kdk_handler,
 )
 from ..datasets import (
     smbios_data,
@@ -342,6 +341,14 @@ class SettingsFrame(wx.Frame):
                     "function": self.on_export_constants,
                     "description": [
                         "Export constants.py values to a txt file.",
+                    ],
+                },
+                "Rebuild KDK Cache": {
+                    "type": "button",
+                    "function": self.on_rebuild_kdk,
+                    "description": [
+                        "Wipes the KDK cache and Rebuilds it.",
+                        "This is useful if you have a broken KDK.",
                     ],
                 },
             },
@@ -735,7 +742,29 @@ Hardware Information:
         # and was just confirmed to still be alive above.
         os._exit(0)
 
-
+    def on_rebuild_kdk(self, event: wx.Event) -> None:
+        """
+        Wipes the KDK cache and rebuilds it. This is useful if you have a broken KDK.
+        """
+        logging.info("Rebuilding KDK cache...")
+        subprocess_wrapper.run_as_root_and_verify(["/bin/rm", "-rf", "/Library/Developer/KDKs"])
+        self.parent.Hide()
+        download_frame = gui_sys_patch_start.SysPatchStartFrame(
+            parent=self.parent,
+            title=self.title,
+            global_constants=self.constants,
+        )
+        try:
+            download_succeeded = download_frame._kdk_download()
+            if download_succeeded and not kdk_handler.KernelDebugKitUtilities().install_kdk_dmg(self.constants.kdk_download_path):
+                wx.MessageBox(
+                    "The KDK was downloaded, but installation failed.",
+                    "KDK Installation Failed",
+                    wx.OK | wx.ICON_ERROR,
+                )
+        finally:
+            download_frame.Destroy()
+        self.parent.Show()
 
     def on_export_constants(self, event: wx.Event) -> None:
         # Throw pop up to get save location
