@@ -79,9 +79,7 @@ class GenerateDiskImages:
             '-volname', 'OpenCore Patcher Resources (Base)',
             '-fs', 'APFS',
             '-layout', 'NONE',
-            '-srcfolder', './payloads',
-            '-encryption',
-            '-stdinpass'
+            '-srcfolder', './payloads'
         ]
 
         # Use Popen to pipe the password securely
@@ -91,7 +89,7 @@ class GenerateDiskImages:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        stdout, stderr = process.communicate(input=b"password")
+        stdout, stderr = process.communicate(input=b"password\n")
 
         if process.returncode != 0:
             raise Exception(f"Failed to generate DMG: {stderr.decode().strip()}")
