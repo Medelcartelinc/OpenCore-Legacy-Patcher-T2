@@ -236,9 +236,14 @@ class BuildSecurity:
                 logging.info("  > Appended LP display sync flags safely.")
     
             elif self.model in _T2_UHD630_MODELS:
-                logging.info(f"- {self.model}: Injecting connector-less UHD630 DeviceProperties (Tahoe fix)")
-                gfx["AAPL,ig-platform-id"] = binascii.unhexlify("06009B3E")  # 0x3E9B0006 LE
-                gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
+                if self.is_mac_mini:
+                    logging.info(f"- {self.model}: Injecting desktop UHD630 DeviceProperties (Tahoe fix)")
+                    gfx["AAPL,ig-platform-id"] = binascii.unhexlify("07009B3E")  # 0x3E9B0007 LE
+                    gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
+                else:
+                    logging.info(f"- {self.model}: Injecting connector-less UHD630 DeviceProperties (Tahoe fix)")
+                    gfx["AAPL,ig-platform-id"] = binascii.unhexlify("06009B3E")  # 0x3E9B0006 LE
+                    gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
             else:
                 logging.error(f"FATAL: Model {self.model} lacks specific GPU patch data.")
                 sys.exit(3)
@@ -247,10 +252,10 @@ class BuildSecurity:
             try:
                 gfx["framebuffer-patch-enable"] = binascii.unhexlify("01000000")
                 
-                if self.model in _T2_UHD630_MODELS:
+                if self.model in _T2_UHD630_MODELS and not self.is_mac_mini:
                     # Connector-less ig-platform-id (0x3E9B0006) has no connectors defined,
                     # so con0 must stay in headless isolation for ALL UHD630 T2 models —
-                    # this includes Macmini8,1 (no dGPU) as well as the MBP15/16 models (dGPU present).
+                    # this includes the MBP15/16 models (dGPU present).
                     gfx["framebuffer-con0-enable"]  = binascii.unhexlify("01000000")
                     gfx["framebuffer-con0-type"]    = binascii.unhexlify("00000000")  
                     logging.info(f"  > {self.model}: Enforced strict headless isolation structure on con0 (connector-less platform-id)")
