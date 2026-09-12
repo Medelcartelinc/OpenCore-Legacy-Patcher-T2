@@ -188,7 +188,7 @@ class StartAutomaticPatching:
         try:
             response = network_handler.NetworkUtilities().get(
                 api_url,
-                headers={"User-Agent": f"OpenCore-Legacy-Patcher-T2/{self.constants.patcher_version}"},
+                headers={"User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0/OpenCoreLegacyPatcherT2/{self.constants.patcher_version}"},
                 timeout=10,
             )
             releases = response.json()
