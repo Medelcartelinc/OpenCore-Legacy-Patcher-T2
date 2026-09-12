@@ -35,8 +35,9 @@ class Constants:
         self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
-        # https://github.com/acidanthera/OpenCorePkg
-        self.opencore_version: str = "2.0.4"
+        # https://github.com/albert-mueller/OpenCorePkg-add-T2-support
+        self.opencore_version: str = "2.0.4" #T2
+
 
         # Kext Versioning
         ## Acidanthera
@@ -56,6 +57,9 @@ class Constants:
         self.autopkg_version:            str = "1.0.4"  #      AutoPkgInstaller
         self.cryptexfixup_version:       str = "1.0.5"  #      CryptexFixup
 
+        ## Acidanthera - Albert Mueller Modified
+        self.restrictevents_t2_version: str = "1.1.6-T2"  #RestrictEvents-T2
+        
         ## Apple
         ## https://www.apple.com
         self.marvel_version:        str = "1.0.1"  #  MarvelYukonEthernet
@@ -414,6 +418,11 @@ class Constants:
     @property
     def restrictevents_path(self):
         return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-v{self.restrictevents_version}-{self.kext_variant}.zip")
+
+    @property
+    def restrictevents_t2_path(self):
+        return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-v{self.restrictevents_t2_version}-{self.kext_variant}.zip")
+    
 
     @property
     def efi_disabler_path(self):
