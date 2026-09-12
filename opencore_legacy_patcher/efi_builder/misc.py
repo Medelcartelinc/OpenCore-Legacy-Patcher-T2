@@ -120,9 +120,12 @@ class BuildMiscellaneous:
         if block_args:
             logging.info(f"- Setting RestrictEvents block arguments: {block_args}")
             if self._is_t2_mac():
-                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                    "RestrictEvents.kext", self.constants.restrictevents_t2_version, self.constants.restrictevents_t2_path
-                )
+                if self.constants.allow_t2_experimental_kext:
+                    support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                        "RestrictEvents.kext", self.constants.restrictevents_t2_version, self.constants.restrictevents_t2_path
+                    )
+                else:
+                    logging.info("- Skipping experimental T2 RestrictEvents.kext injection because it is not enabled in settings.")
             else:
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext(
                     "RestrictEvents.kext", self.constants.restrictevents_version, self.constants.restrictevents_path
@@ -135,9 +138,12 @@ class BuildMiscellaneous:
         if patch_args:
             logging.info(f"- Setting RestrictEvents patch arguments: {patch_args}")
             if self._is_t2_mac():
-                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                    "RestrictEvents.kext", self.constants.restrictevents_t2_version, self.constants.restrictevents_t2_path
-                )
+                if self.constants.allow_t2_experimental_kext:
+                    support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                        "RestrictEvents.kext", self.constants.restrictevents_t2_version, self.constants.restrictevents_t2_path
+                    )
+                else:
+                    logging.info("- Skipping experimental T2 RestrictEvents.kext injection because it is not enabled in settings.")
             else:
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext(
                     "RestrictEvents.kext", self.constants.restrictevents_version, self.constants.restrictevents_path
