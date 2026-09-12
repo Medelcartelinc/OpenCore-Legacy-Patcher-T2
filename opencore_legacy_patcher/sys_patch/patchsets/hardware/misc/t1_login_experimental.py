@@ -42,9 +42,7 @@ class T1LoginExperimental(BaseHardware):
         if not self._computer.t1_chip:
             return False
         # Only activate for Tahoe (macOS 26) and later
-        if hasattr(os_data, 'tahoe'):
-            return self._xnu_major >= os_data.tahoe.value
-        return self._xnu_major >= 25
+        return self._xnu_major >= os_data.tahoe.value
 
 
     def native_os(self) -> bool:

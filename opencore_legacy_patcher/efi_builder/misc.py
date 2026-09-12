@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import support
 from .. import constants
-from ..support import generate_smbios
+from ..support import generate_smbios, utilities
 from ..detections import device_probe
 from ..datasets import (
     model_array,
@@ -74,7 +74,7 @@ class BuildMiscellaneous:
 
     def _is_t2_mac(self) -> bool:
         """Check whether the current model configuration matches a known T2 system."""
-        return self.model in _T2_MODELS
+        return utilities.is_t2_mac(self.model, self.constants)
 
     def _build(self) -> None:
         """Kick off Misc Build Process."""
@@ -417,7 +417,8 @@ class BuildMiscellaneous:
             # Injecting Ventura 13.6 kexts causes ABI/IPC mismatch with Tahoe user-space (securityd, LocalAuthentication, akd),
             # breaking password authorization in System Settings and Apple Account login.
             # Using Native Software Keystore mode allows Tahoe to handle password auth & Apple Account natively via CPU crypto.
-            is_tahoe_or_newer = self.constants.detected_os >= os_data.os_data.tahoe if hasattr(os_data.os_data, 'tahoe') else True
+            is_sonoma_or_newer = self.constants.detected_os >= os_data.os_data.sonoma
+            is_tahoe_or_newer = self.constants.detected_os >= os_data.os_data.tahoe
             active_profile = getattr(self.constants, "build_profile", "standard")
             
             if is_tahoe_or_newer or active_profile in ["standard", "test_b", "test_c", "test_c_spoofed", "test_d"]:

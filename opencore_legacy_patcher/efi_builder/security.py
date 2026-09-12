@@ -64,7 +64,7 @@ class BuildSecurity:
         self.computer: device_probe.Computer = self.constants.computer
         
         # ── Global Hardware & OS Targets Scopes ───────────────────────
-        self.is_tahoe_target: bool = False
+        self.is_tahoe_target: bool = (self.constants.detected_os >= os_data.os_data.tahoe)
         self.is_ice_lake: bool = (self.model == "MacBookAir9,1")
         self.is_mac_mini: bool = (self.model == "Macmini8,1")
 
@@ -136,9 +136,7 @@ class BuildSecurity:
 
     def _is_t2_mac(self) -> bool:
         """Return True if the current model has a T2 security chip."""
-        if self.model in model_array.T2Macs:
-            return True
-        return "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
+        return utilities.is_t2_mac(self.model, self.constants)
 
     def _requires_t2_graphics_injection(self) -> bool:
         """Return True if this T2 model needs Intel graphics injection."""
@@ -157,7 +155,7 @@ class BuildSecurity:
         if self._t2_uses_amfipass():
             logging.info("  > T2 target utilizes AMFIPass layer. Injecting validated Tahoe storage bypasses.")
             self._update_nvram_string(apple_nvram_uuid, "boot-args", (
-                "-amfipassbeta cs_allow_invalid=1 cs_unrestricted_cs=1 cs_debug=1 io=0xffffffff"
+                "-amfipassbeta cs_allow_invalid=1 cs_unrestricted_cs=1"
             ))
             return
 
@@ -166,7 +164,7 @@ class BuildSecurity:
         if "amfi=0x80" not in existing:
             logging.warning("  > AMFIPass bypassed. Falling back to amfi=0x80 absolute drop.")
             self._update_nvram_string(apple_nvram_uuid, "boot-args", (
-                "amfi=0x80 amfi_get_out_of_my_way=1 cs_debug=1 io=0xffffffff"
+                "amfi=0x80 amfi_get_out_of_my_way=1"
             ))
 
     # ------------------------------------------------------------------
