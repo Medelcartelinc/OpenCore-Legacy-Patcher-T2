@@ -1,5 +1,63 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## 4.0.0.18009.2 - 4.0.0 alpha 18.9.2
+This release:
+- does not solve the issue where the costum version of RestrictEvents that this project uses causes a kernel panic yet, @Medelcartelinc is currently working on it. On non-T2 Macs, to solve this issue until the next version has been released, you can download RestrictEvents from Accidanthera's official repository here: https://github.com/acidanthera/RestrictEvents and replace the broken RestrictEvents with the working one. On T2 Macs, I recommend to wait until the next release fixes this issue, the official one creates even more issues on T2 Macs. I had to release urgently this update because this one fixes critical issues and vulnerabilities.
+- fixes a bug where if a failure occurs while downloading the Kernel Debug Kit, due to missing import sys import, the process could crash instead, thx @gandolf243 
+- when Enable Experimental Features is enabled, now you can rebuild the KDK if the old one is corrupted, thx @gandolf243 
+- fixes a bug where when enabling/disabling Experimental Features, a dialog popup that says the app is restarting interrupts the process of quitting the application
+- removes scripts that are no longer in use since early alpha 18 releases
+- fixes an issue where in the menu bar, the app was still called OpenCore Legacy Patcher instead of OpenCore Legacy Patcher T2
+- removes the super insecure class class SecurityError(Exception), which sounds very secure but it is not and triggering an error via raise SecurityError makes it very easy for attackers to bypass the error to execute arbitary code or any other action of their own choice.
+- fixes another vulnerability, which is even more critical:
+gui_macos_configuration.py:
+
+          def on_root_patch(self, event):
+                  # Ends this sheet before the root patch sheet gets attached to the same parent:
+                  # a leftover modal session here would keep the parent blocked for good.
+                  gui_support.end_window_modal(self.frame_modal)
+                  self.frame_modal.Hide()
+                  wx.CallAfter(self.frame_modal.Destroy)
+                  gui_sys_patch_display.SysPatchDisplayFrame(
+                      parent=self.parent,
+                      title=self.title,
+                      global_constants=self.constants,
+                      screen_location=self.parent.GetPosition()
+                  )
+          
+              def on_nightly(self, event: wx.Event) -> None: # <- this function has been since a long time retired and no longer in use; an attacker with local access to the computer could trick the user into downloading OpenCore Legacy Patcher, or worse, malware
+                  # Ask prompt for which branch
+                  branches = ["main"]
+                  if self.constants.commit_info[0] not in ["Running from source", "Built from source"]:
+                      branches = [self.constants.commit_info[0].split("/")[-1]]
+                  result = network_handler.NetworkUtilities().get("https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/branches")
+                  if result is not None:
+                      result = result.json()
+                      for branch in result:
+                          if branch["name"] == "gh-pages":
+                              continue
+                          if branch["name"] not in branches:
+                              branches.append(branch["name"])
+          
+                      with wx.SingleChoiceDialog(self.parent, "Which branch would you like to download?", "Branch Selection", branches) as dialog:
+                          if dialog.ShowModal() == wx.ID_CANCEL:
+                              return
+          
+                          branch = dialog.GetStringSelection()
+                  else:
+                      branch = "main"
+          
+                  gui_update.UpdateFrame(
+                      parent=self.parent,
+                      title=self.title,
+                      global_constants=self.constants,
+                      screen_location=self.parent.GetPosition(),
+                      url=f"https://nightly.link/dortania/OpenCore-Legacy-Patcher/workflows/build-app-wxpython/{branch}/OpenCore-Patcher.pkg.zip",
+                      version_label="(Nightly)"
+                  )
+
+Impact: an attacker with local access to the computer could install OpenCore Legacy Patcher by Dortania without authorization, or worse, install some malware from a malicious website by simply calling the on_nightly function. This vulnerability has been fixed by removing the deprecated function.
+
 ## 4.0.0.18009.1 - 4.0.0 alpha 18.9.1
 This release:
 - fixes a bug where on T2 Macs when trying to launch the guide on how to disable SIP, it throws an Uncaught exception in main thread error instead
