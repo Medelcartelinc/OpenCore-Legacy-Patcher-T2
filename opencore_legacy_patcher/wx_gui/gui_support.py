@@ -684,10 +684,10 @@ class RestartHost:
         self.popup = wx.MessageDialog(
             self.frame,
             message,
-            "Reboot to apply?",
+            "Restart to apply?",
             wx.YES_NO | wx.YES_DEFAULT | wx.ICON_INFORMATION
         )
-        self.popup.SetYesNoLabels("Reboot", "Ignore")
+        self.popup.SetYesNoLabels("Restart", "Ignore")
         answer = self.popup.ShowModal()
         if answer == wx.ID_YES:
             # Reboots with Count Down prompt (user can still dismiss if needed)

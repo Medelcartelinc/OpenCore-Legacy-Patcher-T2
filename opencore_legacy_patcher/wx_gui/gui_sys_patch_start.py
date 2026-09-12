@@ -408,7 +408,7 @@ class SysPatchStartFrame(wx.Frame):
             return
 
         if self.constants.needs_to_open_preferences is False:
-            gui_support.RestartHost(self.frame_modal).restart(message="Root Patcher finished successfully!\n\nWould you like to reboot now?")
+            gui_support.RestartHost(self.frame_modal).restart(message="Root Patcher finished successfully!\n\nWould you like to restart now?")
             return
 
         if self.constants.detected_os >= os_data.os_data.ventura:
@@ -418,8 +418,8 @@ class SysPatchStartFrame(wx.Frame):
         # Create dialog box to open System Preferences -> Security and Privacy
         self.popup = wx.MessageDialog(
             self.frame_modal,
-            "We just finished installing the patches to your Root Volume!\n\nHowever, Apple requires users to manually approve the kernel extensions installed before they can be used next reboot.\n\nWould you like to open System Preferences?",
-            "Open System Preferences?",
+            "We just finished installing the patches to your Root Volume!\n\nHowever, Apple requires users to manually approve the kernel extensions installed before they can be used next restart.\n\nWould you like to open System Preferences/System Settings?",
+            "Open System Preferences/System Settings?",
             wx.YES_NO | wx.ICON_INFORMATION
         )
         self.popup.SetYesNoLabels("Open System Preferences", "Ignore")

@@ -344,11 +344,11 @@ class InstallOCFrame(wx.Frame):
                     logging.info(f"Now building OpenCore EFI is done for {self.constants.computer.real_model}. A new browser tab will open automatically in your default browser of your choice that explains how to disable Secure Boot and SIP exactly. Make sure to follow the guide.")
                     url = "https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2-Instructions-for-T2-Macs/tree/main"
                     webbrowser.open(url)
-                gui_support.RestartHost(self).restart(message="OpenCore has finished installing to disk.\n\nYou will need to reboot and hold the Option key and select OpenCore/Boot EFI's option.\n\nWould you like to reboot?")
+                gui_support.RestartHost(self).restart(message="OpenCore has finished installing to disk.\n\nYou will need to restart and hold the Option key and select OpenCore/Boot EFI's option.\n\nWould you like to restart?")
             else:
                 popup_message = wx.MessageDialog(
                     self,
-                    f"OpenCore has finished installing to disk.\n\nYou can eject the drive, insert it into the {self.constants.custom_model}, reboot, hold the Option key and select OpenCore/Boot EFI's option.", "Success",
+                    f"OpenCore has finished installing to disk.\n\nYou can eject the drive, insert it into the {self.constants.custom_model}, restart, hold the Option key and select OpenCore/Boot EFI's option.", "Success",
                     wx.OK
                 )
                 popup_message.ShowModal()
