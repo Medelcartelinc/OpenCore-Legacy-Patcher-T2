@@ -331,6 +331,7 @@ class macOSInstallerDownloadFrame(wx.Frame):
                 dlg.ShowModal()
                 return
 
+            wx.GetApp().SetExitOnFrameDelete(False)
             self.frame_modal.Close()
 
             expected_checksum, checksum_algo = self.catalog_products.checksum_for_product(selected_installer)
@@ -349,6 +350,7 @@ class macOSInstallerDownloadFrame(wx.Frame):
             )
 
             if download_obj.download_complete is False:
+                wx.GetApp().SetExitOnFrameDelete(True)
                 self.on_return_to_main_menu()
                 return
 
