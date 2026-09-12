@@ -131,7 +131,7 @@ class BuildFirmware:
                     "Enabled": True,
                     "Identifier": "com.apple.driver.ACPI_SMC_PlatformPlugin",
                     "MaxKernel": "",
-                    "MinKernel": "26.0.0",
+                    "MinKernel": "25.0.0",
                     "Strategy": "Disable"
                 })
 
