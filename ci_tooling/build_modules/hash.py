@@ -11,9 +11,9 @@ from pathlib import Path
 class GenerateHash():
     def __init__(self):
         shutil.copyfile("./ci_tooling/privileged_helper_tool/com.dortania.opencore-legacy-patcher.privileged-helper", "./dist/com.dortania.opencore-legacy-patcher.privileged-helper")
-        shutil.rmtree("./dist/certificates.txt", ignore_errors=True)
+        Path("./dist/certificates.txt").unlink(missing_ok=True)
         self.start()
-        shutil.rmtree("./dist/com.dortania.opencore-legacy-patcher.privileged-helper")
+        Path("./dist/com.dortania.opencore-legacy-patcher.privileged-helper").unlink(missing_ok=True)
 
     def start(self):
         file_dump = ["Resource certificates:"]
