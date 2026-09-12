@@ -418,7 +418,7 @@ class Constants:
 
     @property
     def restrictevents_path(self):
-        return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-v{self.restrictevents_version}-{self.kext_variant}.zip")
+        return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-{self.restrictevents_version}-{self.kext_variant}.zip")
 
     @property
     def restrictevents_t2_path(self):
