@@ -582,27 +582,7 @@ class BuildMiscellaneous:
             self.config.setdefault('Kernel', {}).setdefault('Patch', [])
             kernel_patches = self.config['Kernel']['Patch']
     
-            if not any(p.get("Comment") == "Patch AppleKeyStore SEP retry limit" for p in kernel_patches):
-                new_patch = {
-                    "Arch": "x86_64",
-                    "Identifier": "com.apple.driver.AppleKeyStore",
-                    "Base": "",
-                    "Comment": "Patch AppleKeyStore SEP retry limit",
-                    "Count": 1,
-                    "Enabled": True,
-                    "MinKernel": "25.0.0",
-                    "MaxKernel": "25.99.99",
-                    "Find": binascii.unhexlify("FF90F00100004183FF140F8D06050000"),
-                    "Replace": binascii.unhexlify("FF90F00100004183FFC80F8D06050000"),
-                    "Mask": b"",
-                    "ReplaceMask": b"",
-                    "Limit": 0,
-                    "Skip": 0
-                }
-                if self._validate_patch(new_patch):
-                    logging.info("- Injecting AppleKeyStore SEP retry-limit patch")
-                    kernel_patches.append(new_patch)
-             
+
             # --- Patch 2: Force FileVault on Broken Seal ---
             if not any(p.get("Comment") == "Force FileVault on Broken Seal" for p in kernel_patches):
                 new_patch = {
