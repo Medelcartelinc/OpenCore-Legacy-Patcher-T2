@@ -53,7 +53,8 @@ class InstallerCreation():
 
         logging.info("Trying manual extraction fallback (xar + tar) for InstallAssistant.pkg")
 
-        with tempfile.TemporaryDirectory() as work_dir:
+        work_dir = tempfile.mkdtemp()
+        try:
             # Step 1: expand the flat PKG with xar
             xar_result = subprocess_wrapper.run_as_root(
                 ["/usr/bin/xar", "-xf", pkg_path, "-C", work_dir],
@@ -89,6 +90,10 @@ class InstallerCreation():
                 logging.error(f"tar extraction failed: {tar_result.stderr.decode(errors='replace').strip()}")
                 return False
 
+        finally:
+            # Clean up the temp directory as root, since the files inside are root-owned
+            subprocess_wrapper.run_as_root(["/bin/rm", "-rf", work_dir])
+
         logging.info("InstallAssistant manually extracted to /Applications")
         return True
 
@@ -104,8 +109,9 @@ class InstallerCreation():
             bool: True if successful, False otherwise
         """
 
-        # Pre-flight: check free space. InstallAssistant extraction needs ~20 GB.
-        MIN_SPACE_BYTES = 20 * 1024 * 1024 * 1024
+        # Pre-flight: check free space. Manual extraction requires ~45 GB
+        # (14GB PKG + 14GB unpacked Payload + 14GB extracted App).
+        MIN_SPACE_BYTES = 45 * 1024 * 1024 * 1024
         try:
             import shutil
             free = shutil.disk_usage("/").free

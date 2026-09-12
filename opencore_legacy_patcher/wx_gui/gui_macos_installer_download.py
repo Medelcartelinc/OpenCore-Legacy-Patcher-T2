@@ -415,7 +415,7 @@ class macOSInstallerDownloadFrame(wx.Frame):
         if result is False:
             wx.MessageBox(
                 "Failed to extract the macOS installer. Common causes:\n\n"
-                "1. Not enough free disk space (at least 20 GB required).\n"
+                "1. Not enough free disk space (at least 45 GB required).\n"
                 "2. macOS restriction: you cannot install an InstallAssistant.pkg\n"
                 "   for the same version of macOS you are already running.\n"
                 "   Boot from a different volume or use a USB drive workflow instead.\n\n"
