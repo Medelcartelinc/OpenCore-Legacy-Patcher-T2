@@ -7,12 +7,12 @@ import wx.html2
 
 import logging
 import plistlib
-import requests
 import markdown2
 import subprocess
 import webbrowser
 import sys
 
+from packaging import version
 
 from ... import constants
 
@@ -66,86 +66,7 @@ class StartAutomaticPatching:
             logging.info("- Auto Patch option is not supported on TUI, please use GUI")
             return
 
-        dict = updates.CheckBinaryUpdates(self.constants).check_binary_updates()
-        if dict:
-            version = dict["Version"]
-            logging.info(f"- Found new version: {version}")
-
-            app = wx.App()
-            mainframe = wx.Frame(None, -1, "OpenCore Legacy Patcher")
-
-            ID_GITHUB = wx.NewId()
-            ID_UPDATE = wx.NewId()
-
-            url = "https://api.github.com/repos/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/latest"
-            response = requests.get(url).json()
-            try:
-                changelog = response["body"].split("## Asset Information")[0]
-            except: #if user constantly checks for updates, github will rate limit them
-                changelog = """## Unable to fetch changelog
-
-Please check the Github page for more information about this release."""
-
-            html_markdown = markdown2.markdown(changelog, extras=["tables"])
-            html_css = css_data.updater_css
-            frame = wx.Dialog(None, -1, title="", size=(650, 500))
-            frame.SetMinSize((650, 500))
-            frame.SetWindowStyle(wx.STAY_ON_TOP)
-            panel = wx.Panel(frame)
-            sizer = wx.BoxSizer(wx.VERTICAL)
-            sizer.AddSpacer(10)
-            self.title_text = wx.StaticText(panel, label="A new version of OpenCore Legacy Patcher T2 is available!")
-            self.description = wx.StaticText(panel, label=f"OpenCore Legacy Patcher T2 {version} is now available - You have {self.constants.patcher_version}{' (Nightly)' if not self.constants.commit_info[0].startswith('refs/tags') else ''}. Would you like to update?")
-            self.title_text.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
-            self.description.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
-            # Ohne Wrap() ragt der Text bei langen Versions-/Produktnamen über die feste Dialogbreite hinaus
-            # und wird dadurch abgeschnitten (z.B. "Would you like to update?" -> "Would you like to").
-            self.description.Wrap(600)
-            self.web_view = wx.html2.WebView.New(panel, style=wx.BORDER_SUNKEN)
-            html_code = f'''
-<html>
-    <head>
-        <style>
-            {html_css}
-        </style>
-    </head>
-    <body class="markdown-body">
-        {html_markdown.replace("<a href=", "<a target='_blank' href=")}
-    </body>
-</html>
-'''
-            self.web_view.SetPage(html_code, "")
-            self.web_view.Bind(wx.html2.EVT_WEBVIEW_NEWWINDOW, self._onWebviewNav)
-            self.web_view.EnableContextMenu(False)
-            self.close_button = wx.Button(panel, label="Ignore")
-            self.close_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(wx.ID_CANCEL))
-            self.view_button = wx.Button(panel, ID_GITHUB, label="View on GitHub")
-            self.view_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_GITHUB))
-            self.install_button = wx.Button(panel, label="Download and Install")
-            self.install_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_UPDATE))
-            self.install_button.SetDefault()
-
-            buttonsizer = wx.BoxSizer(wx.HORIZONTAL)
-            buttonsizer.Add(self.close_button, 0, wx.ALIGN_CENTRE | wx.RIGHT, 5)
-            buttonsizer.Add(self.view_button, 0, wx.ALIGN_CENTRE | wx.LEFT|wx.RIGHT, 5)
-            buttonsizer.Add(self.install_button, 0, wx.ALIGN_CENTRE | wx.LEFT, 5)
-            sizer = wx.BoxSizer(wx.VERTICAL)
-            sizer.Add(self.title_text, 0, wx.ALIGN_CENTRE | wx.TOP, 20)
-            sizer.Add(self.description, 0, wx.ALIGN_CENTRE | wx.BOTTOM, 20)
-            sizer.Add(self.web_view, 1, wx.EXPAND | wx.LEFT|wx.RIGHT, 10)
-            sizer.Add(buttonsizer, 0, wx.ALIGN_RIGHT | wx.ALL, 20)
-            panel.SetSizer(sizer)
-            frame.Centre()
-
-            result = frame.ShowModal()
-
-
-            if result == ID_GITHUB:
-                webbrowser.open(dict["Github Link"])
-            elif result == ID_UPDATE:
-                gui_entry.EntryPoint(self.constants).start(entry=gui_entry.SupportedEntryPoints.UPDATE_APP)
-
-
+        if self._check_for_updates() is True:
             return
 
         if utilities.check_seal() is True:
@@ -193,6 +114,187 @@ Please check the Github page for more information about this release."""
 
         if self._determine_if_versions_match():
             self._determine_if_boot_matches()
+
+
+    def _check_for_updates(self) -> bool:
+        """
+        Check whether a newer patcher build exists and prompt the user if so
+
+        Mirrors wx_gui/gui_main_menu.py's _check_for_updates():
+        - a failing update check can never abort auto patching
+        - the remote version is re-validated locally instead of being trusted
+        - every network call has a timeout
+
+        Returns:
+            bool: True if the user was prompted (caller stops), False to continue patching
+        """
+
+        try:
+            checker = updates.CheckBinaryUpdates(self.constants)
+            update_dict = checker.check_binary_updates()
+        except Exception as e:
+            # CheckBinaryUpdates() can raise before it ever returns a dict
+            # (InvalidVersion/AssertionError on an unparsable patcher_version,
+            # the privileged helper permission repair, ...). None of that may
+            # take the auto patcher down - its job is reinstalling root patches,
+            # not checking for updates. The "unable to verify releases" warning
+            # further down in start_auto_patch() already covers this case.
+            logging.error(f"- Update check failed: {e}")
+            logging.exception("Stack Trace:")
+            return False
+
+        if not update_dict:
+            logging.info(f"- No update available ({checker.last_error if checker.last_error else 'already on the latest version'})")
+            return False
+
+        remote_version_str = str(update_dict["Version"])
+        local_version_str  = self.constants.patcher_version
+
+        try:
+            if version.parse(remote_version_str) <= version.parse(local_version_str):
+                logging.info(f"- Already up to date (Local: {local_version_str}, Remote: {remote_version_str})")
+                return False
+        except version.InvalidVersion:
+            # "Version" is derived from a GitHub release tag, i.e. remote input.
+            # gui_main_menu.py still prompts here when the two strings differ;
+            # the auto patcher deliberately does not - offering a download based
+            # on a version we cannot even parse is the one case worth skipping.
+            logging.error(f"- Unparsable version (Local: {local_version_str}, Remote: {remote_version_str}), skipping update prompt")
+            return False
+
+        logging.info(f"- Found new version: {remote_version_str}")
+        self._show_update_dialog(update_dict, remote_version_str)
+        return True
+
+
+    def _fetch_changelog(self, remote_version_str: str) -> str:
+        """
+        Fetch the release notes for the version we are about to offer
+
+        Parameters:
+            remote_version_str (str): Version reported by the update check
+
+        Returns:
+            str: Markdown changelog, or a fallback notice on any failure
+        """
+
+        fallback = """## Unable to fetch changelog\n\nPlease check the Github page for more information about this release."""
+
+        # updates.py picks the highest version across /releases (pre-releases
+        # included), so /releases/latest can point at a different release than
+        # the one we are offering. Match the tag instead of assuming "latest".
+        api_url = self.constants.repo_link.replace("https://github.com/", "https://api.github.com/repos/").strip("/") + "/releases"
+
+        try:
+            response = network_handler.NetworkUtilities().get(
+                api_url,
+                headers={"User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0/OpenCoreLegacyPatcherT2/{self.constants.patcher_version}"},
+                timeout=10,
+            )
+            releases = response.json()
+        except Exception as e:
+            # Includes the JSON decode error from NetworkUtilities.get()'s empty
+            # Response() fallback, and GitHub's rate limit body.
+            logging.error(f"- Failed to fetch changelog: {e}")
+            return fallback
+
+        if not isinstance(releases, list):
+            return fallback
+
+        for release in releases:
+            tag = release.get("tag_name")
+            if not tag:
+                continue
+            try:
+                if version.parse(tag) != version.parse(remote_version_str):
+                    continue
+            except version.InvalidVersion:
+                continue
+
+            body = release.get("body") or ""
+            return body.split("## Asset Information")[0] if body else fallback
+
+        return fallback
+
+
+    def _show_update_dialog(self, update_dict: dict, remote_version_str: str) -> None:
+        """
+        Display the update prompt
+
+        Duplicate of gui_main_menu.py's on_update() - keep both in sync.
+        """
+
+        # Auto patching runs outside the GUI, so there is no wx.App yet. Keep a
+        # reference on self; letting it be collected takes the dialog with it.
+        if wx.GetApp() is None:
+            self._wx_app = wx.App()
+
+        ID_GITHUB = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
+        ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
+
+        html_markdown = markdown2.markdown(self._fetch_changelog(remote_version_str), extras=["tables"])
+        html_css = css_data.updater_css
+
+        frame = wx.Dialog(None, -1, title="", size=(650, 500))
+        try:
+            frame.SetMinSize((650, 500))
+            frame.SetWindowStyle(wx.STAY_ON_TOP)
+            panel = wx.Panel(frame)
+
+            title_text = wx.StaticText(panel, label=f"A new version of {self.constants.patcher_name} is available!")
+            description = wx.StaticText(panel, label=f"{self.constants.patcher_name} {remote_version_str} is now available - You have {self.constants.patcher_version_label}. Would you like to update?")
+            title_text.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
+            description.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+            # Ohne Wrap() ragt der Text bei langen Versions-/Produktnamen ueber die
+            # feste Dialogbreite hinaus und wird abgeschnitten (Commit 573d55e).
+            description.Wrap(600)
+
+            self.web_view = wx.html2.WebView.New(panel, style=wx.BORDER_SUNKEN)
+            html_code = f'''
+<html>
+    <head>
+        <style>
+            {html_css}
+        </style>
+    </head>
+    <body class="markdown-body">
+        {html_markdown.replace("<a href=", "<a target='_blank' href=")}
+    </body>
+</html>
+'''
+            self.web_view.SetPage(html_code, "")
+            self.web_view.Bind(wx.html2.EVT_WEBVIEW_NEWWINDOW, self._onWebviewNav)
+            self.web_view.EnableContextMenu(False)
+
+            close_button = wx.Button(panel, label="Update Later")
+            close_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(wx.ID_CANCEL))
+            view_button = wx.Button(panel, ID_GITHUB, label="View on GitHub")
+            view_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_GITHUB))
+            install_button = wx.Button(panel, label="Update Now")
+            install_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_UPDATE))
+            install_button.SetDefault()
+
+            buttonsizer = wx.BoxSizer(wx.HORIZONTAL)
+            buttonsizer.Add(close_button,   0, wx.ALIGN_CENTRE | wx.RIGHT, 5)
+            buttonsizer.Add(view_button,    0, wx.ALIGN_CENTRE | wx.LEFT | wx.RIGHT, 5)
+            buttonsizer.Add(install_button, 0, wx.ALIGN_CENTRE | wx.LEFT, 5)
+
+            sizer = wx.BoxSizer(wx.VERTICAL)
+            sizer.Add(title_text,  0, wx.ALIGN_CENTRE | wx.TOP, 20)
+            sizer.Add(description, 0, wx.ALIGN_CENTRE | wx.BOTTOM, 20)
+            sizer.Add(self.web_view, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+            sizer.Add(buttonsizer, 0, wx.ALIGN_RIGHT | wx.ALL, 20)
+            panel.SetSizer(sizer)
+            frame.Centre()
+
+            result = frame.ShowModal()
+        finally:
+            frame.Destroy()
+
+        if result == ID_GITHUB:
+            webbrowser.open(update_dict["Github Link"])
+        elif result == ID_UPDATE:
+            gui_entry.EntryPoint(self.constants).start(entry=gui_entry.SupportedEntryPoints.UPDATE_APP)
 
 
     def _onWebviewNav(self, event):
