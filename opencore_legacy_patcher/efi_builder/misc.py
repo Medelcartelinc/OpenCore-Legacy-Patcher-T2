@@ -119,9 +119,14 @@ class BuildMiscellaneous:
 
         if block_args:
             logging.info(f"- Setting RestrictEvents block arguments: {block_args}")
-            support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                "RestrictEvents.kext", self.constants.restrictevents_version, self.constants.restrictevents_path
-            )
+            if self._is_t2_mac():
+                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                    "RestrictEvents.kext", self.constants.restrictevents_t2_version, self.constants.restrictevents_t2_path
+                )
+            else:
+                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                    "RestrictEvents.kext", self.constants.restrictevents_version, self.constants.restrictevents_path
+                )
             self._set_nvram_value(OCLP_UUID, "revblock", block_args, overwrite=True)
 
         if block_args and not patch_args:
@@ -129,9 +134,14 @@ class BuildMiscellaneous:
 
         if patch_args:
             logging.info(f"- Setting RestrictEvents patch arguments: {patch_args}")
-            support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                "RestrictEvents.kext", self.constants.restrictevents_version, self.constants.restrictevents_path
-            )
+            if self._is_t2_mac():
+                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                    "RestrictEvents.kext", self.constants.restrictevents_t2_version, self.constants.restrictevents_t2_path
+                )
+            else:
+                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                    "RestrictEvents.kext", self.constants.restrictevents_version, self.constants.restrictevents_path
+                )
             self._set_nvram_value(OCLP_UUID, "revpatch", patch_args, overwrite=True)
 
         kext_obj = support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("RestrictEvents.kext")
