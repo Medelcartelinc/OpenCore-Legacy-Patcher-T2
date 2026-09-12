@@ -114,10 +114,12 @@ class InstallerCreation():
                     f"Not enough free disk space to extract InstallAssistant.pkg: "
                     f"{utilities.human_fmt(free)} available, "
                     f"{utilities.human_fmt(MIN_SPACE_BYTES)} required"
+                    f"Please free up some storage space and try again"
                 )
                 return False
         except Exception as e:
-            logging.warning(f"Could not check free disk space: {e}")
+            logging.error(f"Could not check free disk space: {e}")
+            sys.exit(3)
 
         logging.info("Extracting macOS installer from InstallAssistant.pkg")
         pkg_path = f"{Path(download_path)}/InstallAssistant.pkg"
