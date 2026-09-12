@@ -118,7 +118,7 @@ class BuildFirmware:
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("SimpleMSR.kext", self.constants.simplemsr_version, self.constants.simplemsr_path)
     def _block_acpi_smc_platform_plugin_tahoe(self) -> None:
         """
-        macOS 15/16 (Tahoe) Beta bug: Kernel loads both ACPI_SMC_PlatformPlugin and X86PlatformPlugin
+        macOS 26 (Tahoe) Beta bug: Kernel loads both ACPI_SMC_PlatformPlugin and X86PlatformPlugin
         on Intel Macs, causing a conflict that breaks thermal management (fans don't spin up).
         Block ACPI_SMC_PlatformPlugin on Macs that natively use X86PlatformPlugin (Ivy Bridge+).
         """
