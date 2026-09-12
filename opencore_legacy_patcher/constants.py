@@ -32,7 +32,6 @@ class Constants:
         self.url_patcher_support_pkg:         str = "https://github.com/albert-mueller/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://dortania.github.io/OpenCore-Legacy-Patcher/"
         self.repo_link:                       str = "https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/"
-        self.patcher_version:                 str = "4.0.0.18009.5"
         self.patcher_support_pkg_version:     str = "0.0.98"
         self.patcher_support_pkg_version_dev: str = "0.1.00"
 
