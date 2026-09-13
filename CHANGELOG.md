@@ -1,5 +1,114 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## Emergency update - 4.0.0.18009.3 - 4.0.0 alpha 18.9.3
+This release:
+- fixes a bug only on non-T2 Macs where RestrictEvents causes a kernel panic; on T2 Macs, @albert-mueller and @Medelcartelinc are actively investigating this bug in a PR and soon will be fixed: https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/pull/342 . Thx to @gandolf243 for fixing this bug on non-T2 Macs!
+- changes Reboot prompts to say Restart so people who don't speak much English can understand that it means Restart
+- when installing root patches, normally before proceeding to install root patches, it checks and notifies about OpenCore Legacy Patcher T2. However, only there, the logic was extremely buggy and easy to exploit:
+
+             def start_auto_patch(self):
+                    """
+                    Initiates automatic patching
+            
+                    Auto Patching's main purpose is to try and tell the user they're missing root patches
+                    New users may not realize OS updates remove our patches, so we try and run when nessasary
+            
+                    Conditions for running:
+                        - Verify running GUI (TUI users can write their own scripts)
+                        - Verify the Snapshot Seal is intact (if not, assume user is running patches)
+                        - Verify this model needs patching (if not, assume user upgraded hardware and OCLP was not removed)
+                        - Verify there are no updates for OCLP (ensure we have the latest patch sets)
+            
+                    If all these tests pass, start Root Patcher
+            
+                    """
+            
+                    logging.info("- Starting Automatic Patching")
+                    if self.constants.wxpython_variant is False:
+                        logging.info("- Auto Patch option is not supported on TUI, please use GUI")
+                        return
+            
+                    dict = updates.CheckBinaryUpdates(self.constants).check_binary_updates() # <- look at this! It's extremely buggy, and lacks the checks whether it is really the latest version. An attacker could claim that 0.9 is the latest version while the latest version is actually 4.0.0.18009.3 to trick the user into downloading a vulnerable version to exploit - or worse, change the API link to a malicious one that downloads malware
+                    if dict:
+                        version = dict["Version"]
+                        logging.info(f"- Found new version: {version}")
+            
+                        app = wx.App()
+                        mainframe = wx.Frame(None, -1, "OpenCore Legacy Patcher")
+            
+                        ID_GITHUB = wx.NewId()
+                        ID_UPDATE = wx.NewId()
+            
+                        url = "https://api.github.com/repos/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/latest"
+                        response = requests.get(url).json()
+                        try:
+                            changelog = response["body"].split("## Asset Information")[0]
+                        except: #if user constantly checks for updates, github will rate limit them
+                            changelog = """## Unable to fetch changelog
+            
+            Please check the Github page for more information about this release."""
+            
+                        html_markdown = markdown2.markdown(changelog, extras=["tables"])
+                        html_css = css_data.updater_css
+                        frame = wx.Dialog(None, -1, title="", size=(650, 500))
+                        frame.SetMinSize((650, 500))
+                        frame.SetWindowStyle(wx.STAY_ON_TOP)
+                        panel = wx.Panel(frame)
+                        sizer = wx.BoxSizer(wx.VERTICAL)
+                        sizer.AddSpacer(10)
+                        self.title_text = wx.StaticText(panel, label="A new version of OpenCore Legacy Patcher T2 is available!")
+                        self.description = wx.StaticText(panel, label=f"OpenCore Legacy Patcher T2 {version} is now available - You have {self.constants.patcher_version}{' (Nightly)' if not self.constants.commit_info[0].startswith('refs/tags') else ''}. Would you like to update?")
+                        self.title_text.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
+                        self.description.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+                        # Ohne Wrap() ragt der Text bei langen Versions-/Produktnamen über die feste Dialogbreite hinaus
+                        # und wird dadurch abgeschnitten (z.B. "Would you like to update?" -> "Would you like to").
+                        self.description.Wrap(600)
+                        self.web_view = wx.html2.WebView.New(panel, style=wx.BORDER_SUNKEN)
+                        html_code = f'''
+            <html>
+                <head>
+                    <style>
+                        {html_css}
+                    </style>
+                </head>
+                <body class="markdown-body">
+                    {html_markdown.replace("<a href=", "<a target='_blank' href=")}
+                </body>
+            </html>
+            '''
+                        self.web_view.SetPage(html_code, "")
+                        self.web_view.Bind(wx.html2.EVT_WEBVIEW_NEWWINDOW, self._onWebviewNav)
+                        self.web_view.EnableContextMenu(False)
+                        self.close_button = wx.Button(panel, label="Ignore")
+                        self.close_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(wx.ID_CANCEL))
+                        self.view_button = wx.Button(panel, ID_GITHUB, label="View on GitHub")
+                        self.view_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_GITHUB))
+                        self.install_button = wx.Button(panel, label="Download and Install")
+                        self.install_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_UPDATE))
+                        self.install_button.SetDefault()
+            
+                        buttonsizer = wx.BoxSizer(wx.HORIZONTAL)
+                        buttonsizer.Add(self.close_button, 0, wx.ALIGN_CENTRE | wx.RIGHT, 5)
+                        buttonsizer.Add(self.view_button, 0, wx.ALIGN_CENTRE | wx.LEFT|wx.RIGHT, 5)
+                        buttonsizer.Add(self.install_button, 0, wx.ALIGN_CENTRE | wx.LEFT, 5)
+                        sizer = wx.BoxSizer(wx.VERTICAL)
+                        sizer.Add(self.title_text, 0, wx.ALIGN_CENTRE | wx.TOP, 20)
+                        sizer.Add(self.description, 0, wx.ALIGN_CENTRE | wx.BOTTOM, 20)
+                        sizer.Add(self.web_view, 1, wx.EXPAND | wx.LEFT|wx.RIGHT, 10)
+                        sizer.Add(buttonsizer, 0, wx.ALIGN_RIGHT | wx.ALL, 20)
+                        panel.SetSizer(sizer)
+                        frame.Centre()
+            
+                        result = frame.ShowModal()
+            
+            
+                        if result == ID_GITHUB:
+                            webbrowser.open(dict["Github Link"])
+                        elif result == ID_UPDATE:
+                            gui_entry.EntryPoint(self.constants).start(entry=gui_entry.SupportedEntryPoints.UPDATE_APP)
+
+Impact: the logic was buggy so much so it could actually block root patching completely and crash the patcher. Also, it doesn't check whether it actually downloads the latest version or not. An attacker could exploit this to publish an older version in the GitHub repository that the attacker could exploit as the latest version and trick users into when installing root patches, to download malware instead - or worse - change the update API link to their own malicious one. This is fixed by modernizing and backporting the fixed version of the update check logic back from the main menu and costumizing it so it works here as well.
+
 ## 4.0.0.18009.2 - 4.0.0 alpha 18.9.2
 This release:
 - does not solve the issue where the costum version of RestrictEvents that this project uses causes a kernel panic yet, @Medelcartelinc is currently working on it. On non-T2 Macs, to solve this issue until the next version has been released, you can download RestrictEvents from Accidanthera's official repository here: https://github.com/acidanthera/RestrictEvents and replace the broken RestrictEvents with the working one. On T2 Macs, I recommend to wait until the next release fixes this issue, the official one creates even more issues on T2 Macs. I had to release urgently this update because this one fixes critical issues and vulnerabilities.
