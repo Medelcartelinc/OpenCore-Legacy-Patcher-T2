@@ -418,7 +418,8 @@ class BuildSecurity:
                 else:
                     if not self._is_t2_mac():
                         logging.info("- Using AMFIPass & Library Validation Enforcement Bypass for Apple Account compatibility")
-                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
+                        logging.info("  > Appending -revoff to prevent RestrictEvents panics on macOS Tahoe")
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0 -revoff")
     
                 if self.constants.secure_status is False:
                     logging.info("- Disabling SecureBootModel (non-T2)")
