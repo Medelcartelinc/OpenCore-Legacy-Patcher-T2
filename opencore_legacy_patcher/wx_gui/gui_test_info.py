@@ -134,15 +134,15 @@ OPENCORE BUILD LEVELS (PROFILES)
 
 ------------------------------------------------------------
 
-3. 🧪 [LEVEL-C] EXPERIMENTAL TAHOE (MacBookPro14,3):
+3. 🧪 [LEVEL-C] EXPERIMENTAL TAHOE (MacBookPro14,x):
    • Goal: Experimental support for macOS 26 (Tahoe) maintaining
      the native hardware identity of the MacBook Pro 2017 (T1).
    • Automatic Boot-args:
      - 'dart=0': Resolves IOMMU mapping and Wi-Fi/Bluetooth peripheral issues.
      - 'agdpmod=ignore': Bypasses Apple Graphics Device Policy and prevents
-       black screens on boot for MacBookPro14,3 (Polaris + Kaby Lake).
+       black screens on boot for MacBookPro14,x (Polaris + Kaby Lake).
      - 'cryptex=0 cs_allow_invalid=1': Allows kernel loading.
-   • SMBIOS: Native ('MacBookPro14,3'), without spoofing.
+   • SMBIOS: Native ('MacBookPro14,x'), without spoofing.
 
 ------------------------------------------------------------
 
@@ -158,19 +158,19 @@ OPENCORE BUILD LEVELS (PROFILES)
    • Purpose: COMPLETE profile with all patches active simultaneously.
    • Wi-Fi: Activates IOSkywalkFamily, IO80211FamilyLegacy, AirportBrcmFixup,
      blocks the native Skywalk driver, and uses boot-arg 'ipc_control_port_options=0 amfi=0x80'.
-   • Audio: Activates AppleALC.kext + 'alcid=13' (HDEF codec for MacBookPro14,3).
+   • Audio: Activates AppleALC.kext + 'alcid=13' (HDEF codec for MacBookPro14,x).
    • GPU: Dual-GPU Kaby Lake + Polaris with 'agdpmod=pikera' and 'dart=0'.
    • T1 Security: Secure login with password only + iCloud/Apple ID account support.
 """
 
     def _get_bootargs_text(self) -> str:
         return """============================================================
-SPECIFIC BOOT-ARGS EXPLANATION FOR MACBOOKPRO14,3
+SPECIFIC BOOT-ARGS EXPLANATION FOR MACBOOKPRO14,x
 ============================================================
 
 • dart=0
   Disables IOMMU / VT-d virtualization at the macOS kernel level.
-  Fundamental on MacBookPro14,3 and Mac 2017 to prevent crashes of the Broadcom Wi-Fi
+  Fundamental on MacBookPro14,x and Mac 2017 to prevent crashes of the Broadcom Wi-Fi
   driver (14E4:43BA), Bluetooth, and PCIe controllers on macOS Tahoe.
 
 • agdpmod=ignore (or agdpmod=pikera in LEVEL-D)
@@ -191,7 +191,7 @@ SPECIFIC BOOT-ARGS EXPLANATION FOR MACBOOKPRO14,3
 
 • alcid=13
   Injects Audio Layout ID 13 for AppleALC.kext, matching the analog codec
-  of MacBookPro14,3 (Realtek ALC / AppleHDA).
+  of MacBookPro14,x (Realtek ALC / AppleHDA).
 
 • cryptex=0 & cs_allow_invalid=1
   Disables the Cryptex cryptographic authentication requirement and allows
