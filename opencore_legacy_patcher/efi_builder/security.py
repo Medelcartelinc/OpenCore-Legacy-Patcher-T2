@@ -329,7 +329,7 @@ class BuildSecurity:
     
                 # 4. Scope graphics injection flags strictly to active valid targets
                 if self._requires_t2_graphics_injection():
-                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
+                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
     
                 # 5. Hard Structural Boundaries Pass
                 logging.info("- Final T2 verification pass (Enforcing absolute boundaries)")
