@@ -150,7 +150,7 @@ class BuildSecurity:
 
     def _t2_uses_amfipass(self) -> bool:
         """T2 builds enable AMFIPass in misc._t2_handling (runs after security)."""
-        return False # Temporarily disabled for testing AMFI installer stall
+        return True # Restored for Tahoe AMFI stall mitigation
 
     def _apply_t2_amfi_boot_args(self, apple_nvram_uuid: str) -> None:
         """Apply AMFI-related boot-args based on user path validation."""
