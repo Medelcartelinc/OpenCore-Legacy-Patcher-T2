@@ -21,7 +21,8 @@ from .. import constants
 
 from ..support import (
     global_settings,
-    updates
+    updates,
+    utilities
 )
 from ..datasets import (
     os_data,
@@ -345,7 +346,7 @@ class MainFrame(wx.Frame):
 
         checker = updates.CheckBinaryUpdates(self.constants)
         try:
-            update_dict = checker.check_binary_updates()
+            update_dict = checker.check_binary_updates(manual=manual)
         except Exception as e:
             logging.error(f"Update check failed: {e}")
             logging.exception("Stack Trace:")
@@ -388,11 +389,10 @@ class MainFrame(wx.Frame):
                 changelog = response["body"].split("## Asset Information")[0]
         except Exception as e:
             logging.error(f"Failed to fetch changelog text: {e}")
-            logging.error(f"Es hat fehlgeschlagen, den Changelog-Text anzuzeigen: {e}")
 
         if not getattr(self, 'exiting_app', False) and not gui_support.is_app_exiting():
             self._report_manual_check(manual, str(remote_version_str), None)
-            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog)
+            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, manual)
         
     def _report_manual_check(self, manual: bool, new_version, error) -> None:
         """
@@ -434,10 +434,28 @@ class MainFrame(wx.Frame):
             wx.OK | wx.ICON_INFORMATION, self
         )
 
-    def on_update(self, oclp_url: str, oclp_version: str, oclp_github_url: str, changelog_text: str):
+    def on_update(self, oclp_url: str, oclp_version: str, oclp_github_url: str, changelog_text: str, manual: bool = False):
         if not self or gui_support.is_app_exiting():
             return
-
+        host_space = utilities.get_free_space()
+        needed_space = 2
+        if host_space < needed_space:
+            logging.error(f"Insufficient space to download and extract: {utilities.human_fmt(host_space)} available vs {utilities.human_fmt(needed_space)} required")
+            dlg = wx.MessageDialog(self.frame_modal, f"You do not have enough free space to download this update. Please free up some space and try again\n\n{utilities.human_fmt(host_space)} available vs {utilities.human_fmt(needed_space)} required", "Insufficient Space", wx.OK | wx.ICON_WARNING)
+            dlg.ShowModal()
+            return
+        if manual is  False:
+            self.Hide()
+            gui_update.UpdateFrame(
+                parent=self,
+                title=self.title,
+                global_constants=self.constants,
+                screen_location=self.GetPosition(),
+                url=oclp_url,
+                version_label=oclp_version
+            )
+            return
+            
         ID_GITHUB = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
         ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
 

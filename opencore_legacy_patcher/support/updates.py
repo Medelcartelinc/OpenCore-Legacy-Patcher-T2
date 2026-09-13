@@ -10,9 +10,11 @@ import applescript
 
 from typing import Optional, Union
 from packaging import version
-
+from datetime import date
 from . import network_handler
 from . import subprocess_wrapper
+from . import global_settings
+
 
 from .. import constants
 
@@ -106,14 +108,27 @@ class CheckBinaryUpdates:
 
         return first_version > second_version
 
-    def check_binary_updates(self) -> Optional[dict]:
+    def check_binary_updates(self, manual: bool = False) -> Optional[dict]:
         """
-        Check if any updates are available for the OpenCore Legacy Patcher binary
-
-        Returns:
-            dict: Dictionary with Link and Version of the latest binary update if available
+        Check if any updates are available for the OpenCore Legacy Patcher binary.
+        Automatic checks respect the user's auto-update flag and snooze window.
+        Manual checks explicitly bypass those gates so the user can still force
+        a refresh when they choose to.
         """
+        if self.constants.auto_update is False and manual is False:
+            logging.info("Automatic updates are disabled in the settings.")
+            return None
 
+        if manual is False:
+            next_update_check = global_settings.GlobalEnviromentSettings().read_property("NextUpdateCheck")
+            if next_update_check is not None:
+                try:
+                    if date.fromisoformat(str(next_update_check)) > date.today():
+                        logging.info("Automatic updates are snoozed until %s.", next_update_check)
+                        return None
+                except ValueError:
+                    logging.warning("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
+        
         # Self-heal the Privileged Helper Tool's permissions before doing anything
         # network-related below. No-op (no prompt) unless a repair is actually needed.
         self._ensure_privileged_helper_permissions()

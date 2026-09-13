@@ -10,6 +10,7 @@ import time
 import subprocess
 import Security
 import threading
+from datetime import date, timedelta
 from pathlib import Path
 from .. import constants
 
@@ -151,7 +152,7 @@ class SettingsFrame(wx.Frame):
                     checkbox.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
                     event = lambda event, warning=setting_info["warning"] if "warning" in setting_info else "", override=bool(setting_info["override_function"]) if "override_function" in setting_info else False: self.on_checkbox(event, warning, override)
                     checkbox.Bind(wx.EVT_CHECKBOX, event)
-                    if "condition" in setting_info:
+                    if "condition" in setting_info and setting_info["condition"] is not None:
                         checkbox.Enable(setting_info["condition"])
                         if setting_info["condition"] is False:
                             checkbox.SetValue(False)
@@ -160,7 +161,14 @@ class SettingsFrame(wx.Frame):
                     # Add spinctrl, and description underneath
                     spinctrl = wx.SpinCtrl(panel, value=str(setting_info["value"]), pos=(width - 20, 10 + height), min=setting_info["min"], max=setting_info["max"], size = (45,-1))
                     spinctrl.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
-                    spinctrl.Bind(wx.EVT_TEXT, lambda event, variable=setting: self.on_spinctrl(event, variable))
+                    spinctrl.Bind(
+                        wx.EVT_TEXT,
+                        lambda event, variable=setting, override_func=setting_info.get("override_function"): (
+                            override_func(event, event.GetEventObject().GetValue())
+                            if override_func is not None
+                            else self.on_spinctrl(event, variable)
+                        ),
+                    )
                     # Add label next to spinctrl
                     label = wx.StaticText(panel, label=setting, pos=(spinctrl.GetSize()[0] + width - 16, spinctrl.GetPosition()[1]))
                     label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
@@ -184,7 +192,7 @@ class SettingsFrame(wx.Frame):
                     button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                     button.Bind(wx.EVT_BUTTON, lambda event, tab=tab, variable=setting: self.settings[tab][variable]["function"](event))
                     height += 10
-                    if "condition" in setting_info:
+                    if "condition" in setting_info and setting_info["condition"] is not None:
                         button.Enable(setting_info["condition"])
 
 
@@ -284,6 +292,17 @@ class SettingsFrame(wx.Frame):
                         "latest features and bug fixes."
                     ],
                 },
+                "Snooze Updates": {
+                    "type": "spinctrl",
+                    "variable": "SnoozeUpdates",
+                    "value": int(global_settings.GlobalEnviromentSettings().read_property("SnoozeUpdates") or 0),
+                    "min": 0,
+                    "max": 14,
+                    "description": [
+                        "Snooze updates for a number of days."
+                    ],
+                    "override_function": self.snooze_updates,
+                },
             },
             "Statistics": {
                 "Statistics": {
@@ -333,6 +352,16 @@ class SettingsFrame(wx.Frame):
                     "function": self._populate_oc_build_override,
                     "args": wx.Frame,
                     },
+                "Turn Off Auto Updates": {
+                    "type": "checkbox",
+                    "value": not self.constants.auto_update,
+                    "variable": "AllowAutoUpdates",
+                    "description": [
+                        "When enabled, the app will automatically check for updates.",
+                    ],
+                    "override_function": self.toggle_auto_updates,
+                    "warning": "Turning this off will make your system more vulnerable to security issues. You will need to manually check for updates on GitHub.",
+                },
                 "wrap_around 1": {
                     "type": "wrap_around",
                 },
@@ -480,7 +509,7 @@ Hardware Information:
                 self.constants.allow_building = False
 
 
-    def on_spinctrl(self, event: wx.Event, label: str) -> None:
+    def on_spinctrl(self, event: wx.Event, label: str,) -> None:
         """
         """
         value = event.GetEventObject().GetValue()
@@ -609,6 +638,49 @@ Hardware Information:
         self.constants.app_mode = "matteo" if value else "albert"
 
         self._restart_app(f"Developer Mode is now {'enabled' if value else 'disabled'}.")
+
+    def toggle_auto_updates(self, variable: str = None, value: bool = None, constants_variable: str = None) -> None:
+        """
+        Sets the auto-update setting and persists it to the global settings.
+        The GUI checkbox label is inverted ("Turn Off Auto Updates"), so the
+        actual stored value must be the logical opposite of the checkbox state.
+        """
+        if isinstance(variable, wx.Event):
+            value = bool(variable.GetEventObject().GetValue())
+            variable = "AllowAutoUpdates"
+
+        if value is None:
+            value = not self.constants.auto_update
+
+        self.constants.auto_update = not bool(value)
+        variable_name = variable or "AllowAutoUpdates"
+        global_settings.GlobalEnviromentSettings().write_property(variable_name, self.constants.auto_update)
+        logging.info(f"Auto-update setting set to: {self.constants.auto_update}")
+
+    def snooze_updates(self, event: wx.Event = None, value: int = None, *args, **kwargs) -> None:
+        """
+        Updates the snooze updates setting and persists it to the global settings.
+        """
+        if isinstance(event, wx.Event):
+            value = int(event.GetEventObject().GetValue())
+        elif value is None and args:
+            value = int(args[0])
+
+        if value is None:
+            logging.warning("Snooze updates setting not updated: no value provided")
+            return
+
+        value = max(0, int(value))
+        self.constants.snooze_updates = value
+        if value > 0:
+            self.constants.next_update_check = (date.today() + timedelta(days=value)).isoformat()
+            global_settings.GlobalEnviromentSettings().write_property("NextUpdateCheck", self.constants.next_update_check)
+        else:
+            self.constants.next_update_check = ""
+            global_settings.GlobalEnviromentSettings().delete_property("NextUpdateCheck")
+
+        global_settings.GlobalEnviromentSettings().write_property("SnoozeUpdates", self.constants.snooze_updates)
+        logging.info(f"Snooze updates setting updated to: {self.constants.snooze_updates} days")
 
 
     def _fix_developer_mode_marker_with_privileges(self, marker_path: Path, create: bool) -> bool:
@@ -740,6 +812,18 @@ Hardware Information:
         """
         Wipes the KDK cache and rebuilds it. This is useful if you have a broken KDK.
         """
+        pop_up = wx.MessageDialog(
+            self.parent,
+            "Are you sure you want to rebuild the KDK cache? This will remove all KDKs from your system and download the latest one. If you don't have a stable internet or no internet, you will be without a KDK, which is required for installing root patches.",
+            "Rebuild KDK Cache",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        )
+        response = pop_up.ShowModal()
+        pop_up.Destroy()
+        
+        if response != wx.ID_YES:
+            logging.info("Skipping rebuild KDK")
+            return
         logging.info("Rebuilding KDK cache...")
         subprocess_wrapper.run_as_root_and_verify(["/bin/rm", "-rf", "/Library/Developer/KDKs"])
         self.parent.Hide()

@@ -164,8 +164,20 @@ class GenerateDefaults:
             self.constants.build_profile = global_settings.GlobalEnviromentSettings().read_property("GUI:oc_build")
             if self.constants.build_profile is None or self.constants.build_profile == "":
                 logging.info(f"No OC Default config provided, you will be prompted for one at build")
+                stored_auto_update = global_settings.GlobalEnviromentSettings().read_property("AllowAutoUpdates")
+                if stored_auto_update is not None:
+                    self.constants.auto_update = bool(stored_auto_update)
+                else:
+                    self.constants.auto_update = True
             else:
                 logging.info(f"Setting the OC Default build to \"{self.constants.build_profile}\"")
+
+        stored_snooze_updates = global_settings.GlobalEnviromentSettings().read_property("SnoozeUpdates")
+        self.constants.snooze_updates = int(stored_snooze_updates) if stored_snooze_updates not in [None, "", "None"] else 0
+
+        stored_next_update_check = global_settings.GlobalEnviromentSettings().read_property("NextUpdateCheck")
+        self.constants.next_update_check = str(stored_next_update_check) if stored_next_update_check not in [None, "", "None"] else ""
+
 
 
     def _smbios_probe(self) -> None:
