@@ -268,8 +268,6 @@ class BuildSecurity:
                     gfx["framebuffer-con0-type"]    = binascii.unhexlify("00040000")  
                     logging.info(f"  > {self.model}: Standard physical connector mapping applied")
     
-                gfx["framebuffer-stolenmem"]    = binascii.unhexlify("00003001")  
-                gfx["framebuffer-fbmem"]        = binascii.unhexlify("00009000")  
                 logging.info("  > T2 iGPU configuration parameters applied successfully.")
                 
             except Exception as e:
