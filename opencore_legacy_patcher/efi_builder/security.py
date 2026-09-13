@@ -150,23 +150,6 @@ class BuildSecurity:
         """T2 builds enable AMFIPass in misc._t2_handling (runs after security)."""
         return self._is_t2_mac()
 
-    def _apply_t2_amfi_boot_args(self, apple_nvram_uuid: str) -> None:
-        """Apply AMFI-related boot-args based on user path validation."""
-        if self._t2_uses_amfipass():
-            logging.info("  > T2 target utilizes AMFIPass layer. Injecting validated Tahoe storage bypasses.")
-            self._update_nvram_string(apple_nvram_uuid, "boot-args", (
-                "-amfipassbeta cs_allow_invalid=1 cs_unrestricted_cs=1"
-            ))
-            return
-
-        # Fallback if AMFIPass pathing is completely stripped
-        existing = self._read_nvram_string(apple_nvram_uuid, "boot-args")
-        if "amfi=0x80" not in existing:
-            logging.warning("  > AMFIPass bypassed. Falling back to amfi=0x80 absolute drop.")
-            self._update_nvram_string(apple_nvram_uuid, "boot-args", (
-                "amfi=0x80 amfi_get_out_of_my_way=1"
-            ))
-
     # ------------------------------------------------------------------
     # Graphics injection helpers
     # ------------------------------------------------------------------
@@ -290,7 +273,6 @@ class BuildSecurity:
             self.config["Misc"]["Security"]["ApECID"]          = 0
     
             # FIX: Keyword-Typo korrigiert
-            self._apply_t2_amfi_boot_args(apple_nvram_uuid)
             self._update_nvram_string(apple_nvram_uuid, "boot-args", "ipc_control_port_options=0 -v keepsyms=1 nvme_shutdown_timestamp=0")
     
     # ------------------------------------------------------------------
