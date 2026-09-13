@@ -145,9 +145,6 @@ class BuildMiscellaneous:
             self._set_nvram_value(OCLP_UUID, "revpatch", patch_args, overwrite=True)
 
         kext_obj = support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("RestrictEvents.kext")
-        if self.model == "MacBookPro14,3" and self.constants.detected_os >= os_data.os_data.tahoe and kext_obj:
-            logging.info("- Disabling RestrictEvents.kext on MacBookPro14,3 for Tahoe to prevent kernel panic")
-            kext_obj["Enabled"] = False
 
         if kext_obj and kext_obj.get("Enabled") is False:
             support.BuildSupport(self.model, self.constants, self.config).enable_kext(
