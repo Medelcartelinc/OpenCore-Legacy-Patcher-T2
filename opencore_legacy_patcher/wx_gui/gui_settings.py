@@ -342,9 +342,11 @@ class SettingsFrame(wx.Frame):
                     "value": "💬 Ask Each Time",
                     "variable": "",
                     "description": [
-                        "Change the OpenCore build Config that will be used",
+                        "Change the OpenCore build Config that will",
+                        "be used",
                         "NOTE: setting this to anything other then",
-                        "\"Ask Each Time\" will remove the prompt for a config."
+                        "\"Ask Each Time\" will remove the prompt"
+                        "for a config."
                     ]
                 },
                 "Populate OpenCore Build Override": {
@@ -357,7 +359,9 @@ class SettingsFrame(wx.Frame):
                     "value": not self.constants.auto_update,
                     "variable": "AllowAutoUpdates",
                     "description": [
-                        "When enabled, the app will automatically check for updates.",
+                        "When enabled, the app will still automatically"
+                        "check for updates.",
+                        "but will not apply them automatically."
                     ],
                     "override_function": self.toggle_auto_updates,
                     "warning": "Turning this off will make your system more vulnerable to security issues. You will need to manually check for updates on GitHub.",
