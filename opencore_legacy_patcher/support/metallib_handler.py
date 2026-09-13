@@ -24,6 +24,7 @@ from ..datasets import os_data
 # recognised, avoiding an unnecessary re-download.
 METALLIB_INSTALL_PATH:        str  = "/Library/Application Support/Pyquick/MetallibSupportPkg"
 METALLIB_INSTALL_PATH_LEGACY: str  = "/Library/Application Support/Dortania/MetallibSupportPkg"
+METALLIB_INSTALL_PATH_HACKDOC:str  = "/Library/Application Support/Hackdoc/MetallibSupportPkg"
 METALLIB_API_LINK:            str  = "https://albert-mueller.github.io/MetallibSupportPkg/manifest.json"
 
 METALLIB_ASSET_LIST:   list = None
@@ -219,7 +220,7 @@ class MetalLibraryObject:
         if self.ignore_installed:
             return None
 
-        for install_path in (METALLIB_INSTALL_PATH, METALLIB_INSTALL_PATH_LEGACY):
+        for install_path in (METALLIB_INSTALL_PATH, METALLIB_INSTALL_PATH_LEGACY, METALLIB_INSTALL_PATH_HACKDOC):
             if not Path(install_path).exists():
                 continue
 
