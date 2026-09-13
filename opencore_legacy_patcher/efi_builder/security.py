@@ -150,7 +150,7 @@ class BuildSecurity:
 
     def _t2_uses_amfipass(self) -> bool:
         """T2 builds enable AMFIPass in misc._t2_handling (runs after security)."""
-        return self._is_t2_mac()
+        return False # Temporarily disabled for testing AMFI installer stall
 
     def _apply_t2_amfi_boot_args(self, apple_nvram_uuid: str) -> None:
         """Apply AMFI-related boot-args based on user path validation."""
@@ -314,8 +314,10 @@ class BuildSecurity:
         needs_amfipass = False
 
         if self._is_t2_mac():
-            if self.is_tahoe_target or smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe:
-                needs_amfipass = True
+            # Temporarily disabled AMFIPass for T2 Tahoe to test installer AMFI stall
+            # if self.is_tahoe_target or smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe:
+            #     needs_amfipass = True
+            pass
         else:
             if self.model in model_array.T2Macs:
                 logging.error(f"By accident, we executed logic for non-T2 Macs while {self.model} has the T2 chip. Aborting. Try reinstalling OpenCore Legacy Patcher T2.")
@@ -414,8 +416,9 @@ class BuildSecurity:
                     logging.info("- Disabling AMFI (non-T2 fallback)")
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "amfi=0x80")
                 else:
-                    logging.info("- Using AMFIPass & Library Validation Enforcement Bypass for Apple Account compatibility")
-                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
+                    if not self._is_t2_mac():
+                        logging.info("- Using AMFIPass & Library Validation Enforcement Bypass for Apple Account compatibility")
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
     
                 if self.constants.secure_status is False:
                     logging.info("- Disabling SecureBootModel (non-T2)")

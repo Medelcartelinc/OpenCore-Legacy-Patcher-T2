@@ -208,7 +208,7 @@ class BuildOpenCore:
                 scrubbed_args = " ".join([arg for arg in raw_args.split() if not arg.startswith("-lilu")])
                 
                 # Append required T2 args safely without compounding spaces
-                t2_args = "-ibtcompatbeta -amfipassbeta -revbeta revpatch=sbvmm"
+                t2_args = "-ibtcompatbeta -revbeta revpatch=sbvmm"
                 self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = f"{scrubbed_args} {t2_args}".strip()
                 
                 # Ensure RestrictEvents.kext is enabled for T2 VMM / TargetType spoofing
