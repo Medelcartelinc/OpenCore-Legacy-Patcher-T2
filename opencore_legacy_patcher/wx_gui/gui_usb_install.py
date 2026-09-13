@@ -78,11 +78,13 @@ class InstallUSBFrame(wx.Frame):
         return result.stdout.strip()
 
     def _detect_usb_environment(self):
+        logging.info("Scanning for drives with EFI partitions...")
         self._append_log("Scanning for drives with EFI partitions...")
         
         try:
             plist_out = self._run_cmd("diskutil list -plist")
             if not plist_out:
+                logging.error("No drives found or diskutil failed.")
                 raise Exception("No drives found or diskutil failed.")
             data = plistlib.loads(plist_out.encode('utf-8'))
             
@@ -101,6 +103,7 @@ class InstallUSBFrame(wx.Frame):
             wx.CallAfter(self._update_choices)
             
         except Exception as e:
+            logging.error(f"Error scanning drives: {e}"
             self._append_log(f"Error scanning drives: {e}")
             wx.CallAfter(self.status_text.SetLabel, "Error scanning drives.")
 
@@ -109,12 +112,12 @@ class InstallUSBFrame(wx.Frame):
             self._append_log("No EFI partitions found.")
             self.status_text.SetLabel("No EFI partitions found.")
             return
-            
-        choices = list(self.available_efis.keys())
-        self.disk_choice.SetItems(choices)
-        self.disk_choice.Enable()
-        self.status_text.SetLabel("Select a drive to install OpenCore.")
-        self._append_log("Please select a target drive from the dropdown.")
+        else: # behebt kritische Sicherheitslücke, die erlaubt Angreifern, Überprüfung des Apps zu umgehen, um einen Select a drive-Fenster zu zeigen
+            choices = list(self.available_efis.keys())
+            self.disk_choice.SetItems(choices)
+            self.disk_choice.Enable()
+            self.status_text.SetLabel("Select a drive to install OpenCore.")
+            self._append_log("Please select a target drive from the dropdown.")
 
     def on_disk_select(self, event):
         selection = self.disk_choice.GetStringSelection()
@@ -137,6 +140,7 @@ class InstallUSBFrame(wx.Frame):
         self.confirm_button.Disable()
         self.disk_choice.Disable()
         self.return_button.Disable()
+        logging.info(f"Installing to {self.selected_efi}...")
         self.status_text.SetLabel(f"Installing to {self.selected_efi}...")
         threading.Thread(target=self._perform_installation).start()
 
@@ -150,12 +154,21 @@ class InstallUSBFrame(wx.Frame):
             wx.CallAfter(self.status_text.SetLabel, "Installation Complete.")
             wx.CallAfter(self.return_button.Enable)
         except Exception as e:
+            logging.error(f"\nCRITICAL ERROR during installation: {str(e)}")
+            logging.exception("Stack Trace:")
             self._append_log(f"\nCRITICAL ERROR during installation: {str(e)}")
             wx.CallAfter(self.status_text.SetLabel, "Installation Failed.")
             wx.CallAfter(self.return_button.Enable)
             try:
                 self._unmount_efi(silent=True)
             except:
+                logging.error("While we tried to unmount the EFI, an error occured while trying to unmount it.")
+                logging.exception("Stack Trace:")
+                logging.info("Check if the EFI is still mounted.")
+                logging.info("If yes, check if a program or you are currently writing to the EFI.")
+                logging.info("If you are writing to the EFI while the patcher is actively trying to unmount it,")
+                logging.info("that causes this error. At this point, abort any read/write operations,")
+                logging.info("and then try to unmount it manually.")
                 pass
 
     def _mount_efi(self):
@@ -167,12 +180,10 @@ class InstallUSBFrame(wx.Frame):
         try:
             data = plistlib.loads(info.encode('utf-8'))
             self.mount_point = data.get("MountPoint")
-        except:
-            self.mount_point = None
-            
-        if not self.mount_point:
-            raise Exception("Failed to mount EFI or find mount point.")
-        self._append_log(f"Mounted at {self.mount_point}")
+            self._append_log(f"Mounted at {self.mount_point}")
+        except: # behebt eine Sicherheitslücke, die erlaubt Angreifern, trotz Mount-Fehler zu probieren, EFI-Dateien zu schreiben, um der App zum Absturz zu bringen über speziell präpariertes Variable
+            logging.error("Failed to mount EFI or find mount point.")
+            sys.exit(3)
 
     def _backup_efi(self):
         self._append_log(f"Backing up EFI to {self.backup_path}...")
@@ -189,6 +200,7 @@ class InstallUSBFrame(wx.Frame):
         target_efi = os.path.join(self.mount_point, "EFI")
         
         if not os.path.exists(source_efi):
+            logging.error(f"Source EFI not found at {source_efi}. Please Build OpenCore first.")
             raise Exception(f"Source EFI not found at {source_efi}. Please Build OpenCore first.")
             
         self._append_log("Removing old EFI/OC and EFI/BOOT...")

@@ -76,7 +76,7 @@ class OSUpdateFrame(wx.Frame):
     def _generate_ui(self):
         panel = wx.Panel(self)
         vbox = wx.BoxSizer(wx.VERTICAL)
-        self.label = wx.StaticText(panel, label="Vorbereitung läuft...", style=wx.ALIGN_CENTER)
+        self.label = wx.StaticText(panel, label="Preparing...", style=wx.ALIGN_CENTER)
         vbox.Add(self.label, 0, wx.ALL | wx.EXPAND, 15)
         self.progress = wx.Gauge(panel, range=100, size=(300, 25))
         vbox.Add(self.progress, 0, wx.ALL | wx.EXPAND, 15)
