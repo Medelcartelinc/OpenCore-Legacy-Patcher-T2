@@ -556,8 +556,9 @@ class BuildOpenCore:
                     if "alcid=" not in current_boot_args:
                         extra_args.append("alcid=13")
 
-                # AMD Polaris dGPU optimizations (MacBookPro14,3 only)
-                if "14,3" in real_model or "14,3" in self.model:
+                # AMD dGPU optimizations for Tahoe (agdpmod=pikera fixes yellow screen / DisplayPolicy panics)
+                has_amd_dgpu = self.computer and self.computer.dgpu and self.computer.dgpu.vendor_id == 0x1002
+                if has_amd_dgpu or "14,3" in real_model or "14,3" in self.model:
                     if "agdpmod=" not in current_boot_args:
                         extra_args.append("agdpmod=pikera")
                 
