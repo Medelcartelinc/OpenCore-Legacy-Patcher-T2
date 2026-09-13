@@ -458,50 +458,6 @@ class PatchSysVolume:
             return False
 
 
-    def _rebuild_dyld_shared_cache(self) -> None:
-        """
-        Rebuild the dyld shared cache.
-        
-        Only required on Mojave and older.
-        """
-        if self.constants.detected_os > os_data.os_data.catalina:
-            logging.info(f"You're running newer version than macOS 10.14 Mojave, so not compatible with dyld shared cache patches.")
-            return
-        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern zum Erzwingen von macOS Mojave-Patches auf moderne Systemen zu erzwingen, um die Betriebssystem unbrauchbar zu machen
-            logging.info("- Rebuilding dyld shared cache")
-            try:
-                subprocess_wrapper.run_as_root_and_verify(
-                    ["/usr/bin/update_dyld_shared_cache", "-root", f"{self.mount_location}/"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT
-                )
-            except Exception as e:
-                logging.error(f"- Failed to rebuild dyld shared cache: {e}")
-                logging.exception("Stack Trace:")
-
-
-    def _update_preboot_kernel_cache(self) -> None:
-        """
-        Update the preboot kernel cache.
-        
-        Only required on Catalina.
-        """
-        if self.constants.detected_os != os_data.os_data.catalina:
-            logging.info("You're not running macOS 10.15 Catalina. The patch for updating the preboot kernel cache is not compatible for your system.")
-            return
-        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Patches fürs Catalina zu injizieren
-            logging.info("- Rebuilding preboot kernel cache")
-            try:
-                subprocess_wrapper.run_as_root_and_verify(
-                    ["/usr/sbin/kcditto"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT
-                )
-            except Exception as e:
-                logging.error(f"- Failed to update preboot kernel cache: {e}")
-                logging.exception("Stack Trace:")
-
-
     def _clean_skylight_plugins(self) -> None:
         """
         Clean non-Metal's SkylightPlugins folder.
