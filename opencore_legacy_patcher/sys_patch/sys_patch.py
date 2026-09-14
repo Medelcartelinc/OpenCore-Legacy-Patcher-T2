@@ -381,8 +381,6 @@ class PatchSysVolume:
         Returns:
             bool: True if successful, False if not
         """
-        if not self._rebuild_kernel_cache():
-            return False
 
         if not self._create_new_apfs_snapshot():
             return False
