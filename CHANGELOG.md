@@ -1,6 +1,6 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
-## 4.0.0.18009.4 - 4.0.0 alpha 18.9.5
+## 4.0.0.18009.5 - 4.0.0 alpha 18.9.5
 This release fixes a bug where upon trying to update from the main menu, it says Failed to show changelog:
 <img width="762" height="612" alt="98792316-8743-4b22-ba7e-061869ff4b0e" src="https://github.com/user-attachments/assets/2856b53f-c388-4b83-9b10-34f74c5272ad" />
 
