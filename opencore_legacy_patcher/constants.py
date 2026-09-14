@@ -36,7 +36,7 @@ class Constants:
         self.patcher_support_pkg_version_dev: str = "0.1.00"
 
         self.custom_installer_url:            str = "https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2"
-        self.custom_installer_version:        str = "4.0.0.18004.0"
+        self.custom_installer_version=self.patcher_version
         self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
