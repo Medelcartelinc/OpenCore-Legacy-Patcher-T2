@@ -7,6 +7,7 @@ import logging
 import plistlib
 import subprocess
 import sys
+import tempfile
 
 from pathlib import Path
 
@@ -25,8 +26,73 @@ class InstallAutomaticPatchingServices:
     Install the auto patcher launch services
     """
 
+    # Where the persistent copy of the patcher lives, as installed by the PKG
+    # (see ci_tooling/build_modules/package.py)
+    _PATCHER_INSTALL_DIRECTORY: str = "/Library/Application Support/Dortania"
+
+
     def __init__(self, global_constants: constants.Constants):
         self.constants: constants.Constants = global_constants
+        self._staging_directory: Path = None
+
+
+    def _resolve_patcher_binary(self) -> str:
+        """
+        Resolve the patcher binary that the launch services should invoke
+
+        The app bundle was renamed to OpenCore-Patcher-T2.app with the T2 rebrand,
+        while the plists in payloads/Launch Services still referenced the old
+        OpenCore-Patcher.app path. launchd then had nothing to exec, so auto-patch,
+        macos-update and os-caching all silently did nothing on a PKG install.
+
+        Resolve against what is actually on disk instead of hardcoding either name,
+        so both the current PKG layout and the older ZIP layout keep working.
+        """
+        for bundle in ("OpenCore-Patcher-T2.app", "OpenCore-Patcher.app"):
+            binary = Path(self._PATCHER_INSTALL_DIRECTORY) / bundle / "Contents" / "MacOS" / "OpenCore-Patcher"
+            if binary.exists():
+                return str(binary)
+
+        # Nothing installed yet (ex. services written before the app is copied):
+        # fall back to the path the PKG will create.
+        return str(Path(self._PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher-T2.app" / "Contents" / "MacOS" / "OpenCore-Patcher")
+
+
+    def _stage_service(self, service: str) -> str:
+        """
+        Point a launch service at the patcher binary actually present on this host
+
+        Returns the path to use as the copy source: the original payload when no
+        change is needed, otherwise a rewritten copy in a temporary directory.
+        """
+        try:
+            service_plist = plistlib.load(open(service, "rb"))
+        except Exception as e:
+            logging.info(f"  - Failed to parse {Path(service).name}, using as-is: {e}")
+            return service
+
+        arguments = service_plist.get("ProgramArguments", [])
+        # Services that don't invoke the patcher (ex. the RSRMonitor's /bin/rm) are left alone
+        if not arguments or not str(arguments[0]).startswith(self._PATCHER_INSTALL_DIRECTORY):
+            return service
+
+        resolved_binary = self._resolve_patcher_binary()
+        if arguments[0] == resolved_binary:
+            return service
+
+        logging.info(f"  - Updating binary path: {resolved_binary}")
+        service_plist["ProgramArguments"][0] = resolved_binary
+
+        try:
+            if self._staging_directory is None:
+                self._staging_directory = Path(tempfile.mkdtemp(prefix="oclp-launch-services-"))
+            staged_service = self._staging_directory / Path(service).name
+            plistlib.dump(service_plist, staged_service.open("wb"))
+        except Exception as e:
+            logging.info(f"  - Failed to stage {Path(service).name}, using as-is: {e}")
+            return service
+
+        return str(staged_service)
 
 
     def install_auto_patcher_launch_agent(self, kdk_caching_needed: bool = False):
@@ -50,8 +116,9 @@ class InstallAutomaticPatchingServices:
         for service in services:
             name = Path(service).name
             logging.info(f"- Installing {name}")
+            source = self._stage_service(service)
             if Path(services[service]).exists():
-                if hashlib.sha256(open(service, "rb").read()).hexdigest() == hashlib.sha256(open(services[service], "rb").read()).hexdigest():
+                if hashlib.sha256(open(source, "rb").read()).hexdigest() == hashlib.sha256(open(services[service], "rb").read()).hexdigest():
                     logging.info(f"  - {name} checksums match, skipping")
                     continue
                 logging.info(f"  - Existing service found, removing")
@@ -60,7 +127,7 @@ class InstallAutomaticPatchingServices:
             if not Path(services[service]).parent.exists():
                 logging.info(f"  - Creating {Path(services[service]).parent} directory")
                 subprocess_wrapper.run_as_root_and_verify(["/bin/mkdir", "-p", Path(services[service]).parent], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            subprocess_wrapper.run_as_root_and_verify(generate_copy_arguments(service, services[service]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            subprocess_wrapper.run_as_root_and_verify(generate_copy_arguments(source, services[service]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
             # Set the permissions on the service
             subprocess_wrapper.run_as_root_and_verify(["/bin/chmod", "644", services[service]], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
