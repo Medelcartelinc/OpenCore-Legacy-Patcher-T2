@@ -26,32 +26,6 @@ This repository is the dedicated development fork led by **albert-mueller (Alber
 A Python-based project revolving around [Acidanthera's OpenCorePkg](https://github.com/acidanthera/OpenCorePkg) and [Lilu](https://github.com/acidanthera/Lilu) for both running and unlocking features in macOS on supported and unsupported Macs.
 Security researchers can report vulnerabilities in the app via GitHub Security advisories.
 
-⚠️ Attention! Macs with Intel Core i7 prior to 4th generation currently will be unable to boot macOS 26 due to missing AVX2 instructions. This means:
-- 2014 MacBook Pro or later
-- 2014 MacBook Air or later
-- 2015 MacBook or later
-- 2014 Mac mini or later
-- 2013 Mac Pro or later
-
-are currently able to boot into macOS 26 at this time.
-
-⚠️ Attention! Macs with Intel Core 2 Duos:
-
-- 2010 11 inch and 13 inch MacBook Air
-- 2010 MacBook Pro
-- 2010 Mac mini
-- 2010 MacBook
-- 2009 MacBook Pro
-- 2009 MacBook Air
-- 2009 MacBook
-- Mac mini 2009
-- Mac Pro 2008
-- MacBook Air 2008
-- MacBook Pro 2008
-- MacBook 2008
-
-are unable to boot into macOS 26 Tahoe at all at this moment due to a known limitation of AAAMouSSE and telemetrap causing kernel panics.
-
 > **⚠️ On T2 Macs only, this patcher disables SIP completely to be able to boot macOS properly** What is SIP? SIP, in short for System Integrity Protection, protects against attackers from tampering with core system files. However, on T2 Macs, SIP also causes thermal throttling and other issues when booting via OpenCorePkg, so it needs to be disabled. This doesn’t apply to non-T2 Macs, such as T1 or non-T Macs.
 
 
