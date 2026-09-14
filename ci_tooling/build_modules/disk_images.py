@@ -14,6 +14,10 @@ from opencore_legacy_patcher.support import subprocess_wrapper
 
 class GenerateDiskImages:
 
+    # Smallest size (bytes) a downloaded resource can plausibly have.
+    # Anything below this is an error page or a truncated transfer, not a disk image.
+    MINIMUM_RESOURCE_SIZE: int = 1024 * 1024  # 1 MB
+
     def __init__(self, reset_dmg_cache: bool = False) -> None:
         """
         Initialize
@@ -101,14 +105,18 @@ class GenerateDiskImages:
         Download required dependencies
         """
 
-        patcher_support_pkg_version = constants.Constants().patcher_support_pkg_version
+        oclp_constants = constants.Constants()
+        patcher_support_pkg_version = oclp_constants.patcher_support_pkg_version
+        base_url = oclp_constants.url_patcher_support_pkg.rstrip("/")
         required_resources = [
             "Universal-Binaries.dmg"
         ]
 
         rich.print("Downloading required resources...")
         for resource in required_resources:
-            if Path(f"./{resource}").exists():
+            resource_path = Path(f"./{resource}")
+
+            if resource_path.exists():
                 if self.reset_dmg_cache is True:
                     rich.print(f"  - Removing old {resource}")
                     assert resource, "Resource cannot be empty"
@@ -117,21 +125,33 @@ class GenerateDiskImages:
                         ["/bin/rm", "-rf", f"./{resource}"],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE
                     )
+                elif resource_path.stat().st_size < self.MINIMUM_RESOURCE_SIZE:
+                    # A previous run may have cached an HTTP error page under this name.
+                    # Never trust such a file, redownload instead of skipping.
+                    rich.print(f"  - Existing {resource} is only {resource_path.stat().st_size} bytes, discarding and redownloading")
+                    resource_path.unlink()
                 else:
                     rich.print(f"- {resource} already exists, skipping download")
                     continue
 
+            url = f"{base_url}/{patcher_support_pkg_version}/{resource}"
+            rich.print(f"- Fetching {url}")
+
             process = subprocess.Popen(
                 [
                     "curl",
-                    "-LO",
+                    "-L",
+                    "--fail",       # Exit non-zero on HTTP errors instead of writing the error page to disk
                     "--progress-bar",
-                    f"https://github.com/albert-mueller/PatcherSupportPkg/releases/download/{patcher_support_pkg_version}/{resource}",
+                    "-o", f"./{resource}",
+                    url,
                 ],
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
             )
+
+            error_output = []
 
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
@@ -148,17 +168,45 @@ class GenerateDiskImages:
                     # Extract the percentage from the output.
                     line = line.strip()
 
+                    if not line:
+                        continue
+
                     if line.endswith("%"):
                         try:
                             percent = float(line.split()[-1].rstrip("%"))
                             progress.update(task, completed=percent)
+                            continue
                         except ValueError:
                             pass
 
+                    # Anything that is not progress output is diagnostic, keep it for the error message
+                    error_output.append(line)
+
             process.wait()
-            if not Path(f"./{resource}").exists():
+
+            if process.returncode != 0:
+                # Remove whatever curl left behind, otherwise the next run caches a broken file
+                resource_path.unlink(missing_ok=True)
+                detail = " ".join(error_output[-3:]) or f"curl exited with code {process.returncode}"
+                rich.print(f"[bold red]Failed to download {resource}[/bold red]")
+                raise Exception(
+                    f"Failed to download {resource} from {url}: {detail}\n"
+                    f"Verify that release tag '{patcher_support_pkg_version}' exists and publishes {resource}."
+                )
+
+            if not resource_path.exists():
                 rich.print(f"[bold red] {resource} not found[/bold red]")
                 raise Exception(f"{resource} not found")
+
+            resource_size = resource_path.stat().st_size
+            if resource_size < self.MINIMUM_RESOURCE_SIZE:
+                resource_path.unlink(missing_ok=True)
+                raise Exception(
+                    f"{resource} downloaded from {url} is only {resource_size} bytes, this is not a valid disk image.\n"
+                    f"Verify that release tag '{patcher_support_pkg_version}' exists and publishes {resource}."
+                )
+
+            rich.print(f"[green]- Downloaded {resource} ({resource_size / (1024 * 1024):.1f} MB)[/green]")
 
     def generate(self) -> None:
         """
