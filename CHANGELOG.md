@@ -1,5 +1,44 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## 4.0.0.18009.4 - 4.0.0 alpha 18.9.4
+This release:
+- introduces auto updates, thx @gandolf243 
+- fixes a bug where when updating macOS, the patcher detects that an update is underway, it launches the patcher, but right after this it crashes again
+- removes root patches for macOS Catalina and Mojave - at this stage they are just a piece of legacy code remaining from OpenCore Legacy Patcher 0.x before Dortania dropped support for these releases
+- fixes 2 vulnerabilities:
+gui_usb_install.py:
+
+        if not self.available_efis:
+                    self._append_log("No EFI partitions found.")
+                    self.status_text.SetLabel("No EFI partitions found.")
+                    return
+                   # <- an attacker could disable the checks if an EFI partition is found to force to show Select a drive to install OpenCore
+                choices = list(self.available_efis.keys())
+                self.disk_choice.SetItems(choices)
+                self.disk_choice.Enable()
+                self.status_text.SetLabel("Select a drive to install OpenCore.")
+                self._append_log("Please select a target drive from the dropdown.")
+
+Impact: an attacker could try to show Select a drive to install OpenCore while there are no EFI or FAT32 formatted partitions, causing the patcher to crash. This vulnerability is fixed by ensuring that it only shows Select a drive to install OpenCore if there's an available EFI via an else condition.
+
+            def _mount_efi(self):
+                    self._append_log(f"Mounting {self.selected_efi}...")
+                    res = self._run_cmd(f"diskutil mount /dev/{self.selected_efi}")
+                    self._append_log(res)
+                    # Find mount point
+                    info = self._run_cmd(f"diskutil info -plist /dev/{self.selected_efi}")
+                    try:
+                        data = plistlib.loads(info.encode('utf-8'))
+                        self.mount_point = data.get("MountPoint")
+                    except:
+                        self.mount_point = None # <- an attacker could set a specially crafted value to cause an error outside if not self.mount_point
+                        
+                    if not self.mount_point:
+                        raise Exception("Failed to mount EFI or find mount point.")
+                    self._append_log(f"Mounted at {self.mount_point}")
+
+Impact: an attacker could set self.mount_point to a specially crafted value if an error occurs to trigger an error outside the if not self.mount_point condition to bypass the Failed to mount EFI or find mount point error to hard crash the patcher (=to cause DoS attack), or worse, execute arbitary code if the value includes code. This vulnerability is fixed by ensuring the error is triggered directly inside the except Exception loop instead of setting a variable that can be easily tricked into executing code.
+
 ## Emergency update - 4.0.0.18009.3 - 4.0.0 alpha 18.9.3
 This release:
 - fixes a bug only on non-T2 Macs where RestrictEvents causes a kernel panic; on T2 Macs, @albert-mueller and @Medelcartelinc are actively investigating this bug in a PR and soon will be fixed: https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/pull/342 . Thx to @gandolf243 for fixing this bug on non-T2 Macs!
