@@ -1,5 +1,27 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## 4.0.0.18009.13 - 4.0.0 alpha 18.9.13
+This release:
+- fixes a bug where when updating, if the user clicks Cancel, the app closes instead of returning to the main menu
+- fixes a bug where PatcherSupportPkg may not be downloaded at all
+- updates PatcherSupportPkg to 2.0.3 to fix broken symlinks in QuartzCore.framework, thx @Medelcartelinc 
+- fixes a bug where RestrictEvents causes a kernel panic on T2 Macs, thx @Medelcartelinc 
+- removes the cs_allow_invalid=1 cs_unrestricted_cs=1 boot arguments on T2 Macs to fix an issue where when these boot arguments are injected, it doesn't even boot at all and shows a kernel panic instead
+- removes the broken AppleKeyStore patch from T2 Macs completely to fix AppleKeyStore kernel panics, thx @Medelcartelinc 
+- Fixes GPU freeze on T2 Macs by removing stolenmem patches, thx @Medelcartelinc 
+- fixes a bug where the macOS 26 kernel may load both ACPI_SMC_PlatformPlugin and X86PlatformPlugin on Intel Macs, causing a conflict that breaks thermal management (fans don't spin up) on 2012+ Macs, thx @Medelcartelinc 
+- because currently there are known issues with AMD Legacy GCN patches, a safety guard is put in place for macOS 26 Tahoe and won't be injected until this issue is fixed, thx @Medelcartelinc .
+- fixes yellow screen on AMD Polaris and Dual AMD GCN, thx @Medelcartelinc 
+- fixes a bug where on some T1 Macs after the root patches have been successfully applied, it no longer boots and kernel panics instead, thx @Medelcartelinc 
+- Now when downloading the macOS installer, it will check how much available space is there before proceeding, thx @Medelcartelinc 
+- replaces generic 'corrupted installer' error dialog with a specific message listing the two real causes: insufficient disk space and the macOS restriction on installing an InstallAssistant.pkg matching the running OS version, thx @Medelcartelinc for improving the error handling!
+- Fixes PermissionError crash during manual installer extraction, thx @Medelcartelinc  
+- Fixes MetallibSupportPkg detection for Hackdoc path, thx @Medelcartelinc 
+
+Known issues:
+- On 2018 Mac mini and maybe other T2 Macs, there is an issue where when reaching the Select a language screen, when pressing ->, it freezes immediately. For this issue, I recommend to open up a new issue in this fork if isn't already: https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2/issues and document with logs or a video that also includes the entire boot process so @Medelcartelinc  can do a research and fix that issue.
+<img width="4032" height="3024" alt="651011248-eb655984-1d4d-4bc0-8b94-1708a4441e6c" src="https://github.com/user-attachments/assets/9fd8ebd2-220d-48e0-ae02-67f9b569e395" />
+
 ## 4.0.0.18009.5 - 4.0.0 alpha 18.9.5
 This release fixes a bug where upon trying to update from the main menu, it says Failed to show changelog:
 <img width="762" height="612" alt="98792316-8743-4b22-ba7e-061869ff4b0e" src="https://github.com/user-attachments/assets/2856b53f-c388-4b83-9b10-34f74c5272ad" />
