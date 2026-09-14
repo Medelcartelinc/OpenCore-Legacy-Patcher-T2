@@ -384,9 +384,6 @@ class PatchSysVolume:
         if not self._rebuild_kernel_cache():
             return False
 
-        self._update_preboot_kernel_cache()
-        self._rebuild_dyld_shared_cache()
-
         if not self._create_new_apfs_snapshot():
             return False
         try:
