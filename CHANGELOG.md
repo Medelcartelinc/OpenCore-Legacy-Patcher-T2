@@ -1,4 +1,10 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.180010 - 4.0.0 alpha 18.10
+This release fixes a bug where upon trying to root patch it may call an obsolete definition, triggering an IndexError when it's time to root patch.
+
+Known issues:
+- On 2018 Mac mini and maybe other T2 Macs, there is an issue where when reaching the Select a language screen, when pressing ->, it freezes immediately. For this issue, I recommend to open up a new issue in this fork if isn't already: https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2/issues and document with logs or a video that also includes the entire boot process so @Medelcartelinc  can do a research and fix that issue.
+<img width="4032" height="3024" alt="651011248-eb655984-1d4d-4bc0-8b94-1708a4441e6c" src="https://github.com/user-attachments/assets/9fd8ebd2-220d-48e0-ae02-67f9b569e395" />
 
 ## 4.0.0.18009.13 - 4.0.0 alpha 18.9.13
 This release:
