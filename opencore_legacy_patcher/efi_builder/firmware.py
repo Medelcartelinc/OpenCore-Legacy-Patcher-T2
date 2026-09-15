@@ -28,6 +28,25 @@ class BuildFirmware:
 
     Invoke from build.py
     """
+    
+    T2Macs = [
+    "MacBookAir8,1",
+    "MacBookAir8,2",
+    "MacBookAir9,1",
+    "MacBookPro15,1",
+    "MacBookPro15,2",
+    "MacBookPro15,3",
+    "MacBookPro15,4",
+    "MacBookPro16,1",
+    "MacBookPro16,2",
+    "MacBookPro16,3",
+    "MacBookPro16,4",
+    "MacPro9,1",
+    "Macmini8,1",
+    "iMac20,1",
+    "iMac20,2",
+    "iMacPro1,1",
+]
 
     def __init__(self, model: str, global_constants: constants.Constants, config: dict) -> None:
         self.model: str = model
@@ -122,7 +141,7 @@ class BuildFirmware:
         on Intel Macs, causing a conflict that breaks thermal management (fans don't spin up).
         Block ACPI_SMC_PlatformPlugin on Macs that natively use X86PlatformPlugin (Ivy Bridge+).
         """
-        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value:
+        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value and self.model not in T2Macs:
             if self.constants.detected_os >= os_data.os_data.tahoe:
                 logging.info("- Blocking ACPI_SMC_PlatformPlugin on Tahoe to fix thermal conflict")
                 self.config["Kernel"]["Block"].append({
@@ -369,20 +388,22 @@ class BuildFirmware:
         """
 
         if "Dual DisplayPort Display" not in smbios_data.smbios_dictionary[self.model]:
+            logging.info("Your Mac doesn't require 4K/5K Display patches.")
             return
-
-        logging.info("- Adding 4K/5K Display Patch")
-        # Set LauncherPath to '/boot.efi'
-        # This is to ensure that only the Mac's firmware presents the boot option, but not OpenCore
-        # https://github.com/acidanthera/OpenCorePkg/blob/0.7.6/Library/OcAppleBootPolicyLib/OcAppleBootPolicyLib.c#L50-L73
-        self.config["Misc"]["Boot"]["LauncherPath"] = "\\boot.efi"
-
-        # Setup diags.efi chainloading
-        Path(self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers")).mkdir(parents=True, exist_ok=True)
-        if self.constants.boot_efi is True:
-            path_oc_loader = self.constants.opencore_release_folder / Path("EFI/BOOT/BOOTx64.efi")
-        else:
-            path_oc_loader = self.constants.opencore_release_folder / Path("System/Library/CoreServices/boot.efi")
-        shutil.move(path_oc_loader, self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers/Product.efi"))
-        shutil.copy(self.constants.diags_launcher_path, self.constants.opencore_release_folder)
-        shutil.move(self.constants.opencore_release_folder / Path("diags.efi"), self.constants.opencore_release_folder / Path("boot.efi"))
+        else: # behebt einen Fehler, indem e4K/5K Display patches ohne Bedingung injiziert wurde. Einen Angreifer könnte davon ausnutzen, um 4K/5K Display-Patches auf die falsche Rechner zu injizieren, um DoS-Angriffe zu verursachen
+            logging.info("- Adding 4K/5K Display Patch")
+            # Set LauncherPath to '/boot.efi'
+            # This is to ensure that only the Mac's firmware presents the boot option, but not OpenCore
+            # https://github.com/acidanthera/OpenCorePkg/blob/0.7.6/Library/OcAppleBootPolicyLib/OcAppleBootPolicyLib.c#L50-L73
+            self.config["Misc"]["Boot"]["LauncherPath"] = "\\boot.efi"
+    
+            # Setup diags.efi chainloading
+            Path(self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers")).mkdir(parents=True, exist_ok=True)
+            if self.constants.boot_efi is True:
+                path_oc_loader = self.constants.opencore_release_folder / Path("EFI/BOOT/BOOTx64.efi")
+            else:
+                path_oc_loader = self.constants.opencore_release_folder / Path("System/Library/CoreServices/boot.efi")
+            shutil.move(path_oc_loader, self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers/Product.efi"))
+            shutil.copy(self.constants.diags_launcher_path, self.constants.opencore_release_folder)
+            shutil.move(self.constants.opencore_release_folder / Path("diags.efi"), self.constants.opencore_release_folder / Path("boot.efi"))
+    
