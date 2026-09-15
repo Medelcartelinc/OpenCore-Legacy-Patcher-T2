@@ -18,7 +18,8 @@ from ..detections import device_probe
 from ..datasets import (
     smbios_data,
     cpu_data,
-    os_data
+    os_data,
+    model_array
 )
 
 
@@ -29,24 +30,6 @@ class BuildFirmware:
     Invoke from build.py
     """
     
-    T2Macs = [
-    "MacBookAir8,1",
-    "MacBookAir8,2",
-    "MacBookAir9,1",
-    "MacBookPro15,1",
-    "MacBookPro15,2",
-    "MacBookPro15,3",
-    "MacBookPro15,4",
-    "MacBookPro16,1",
-    "MacBookPro16,2",
-    "MacBookPro16,3",
-    "MacBookPro16,4",
-    "MacPro9,1",
-    "Macmini8,1",
-    "iMac20,1",
-    "iMac20,2",
-    "iMacPro1,1",
-]
 
     def __init__(self, model: str, global_constants: constants.Constants, config: dict) -> None:
         self.model: str = model
@@ -141,7 +124,14 @@ class BuildFirmware:
         on Intel Macs, causing a conflict that breaks thermal management (fans don't spin up).
         Block ACPI_SMC_PlatformPlugin on Macs that natively use X86PlatformPlugin (Ivy Bridge+).
         """
-        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value and self.model not in T2Macs:
+        if self.model not in smbios_data.smbios_dictionary:
+            return
+        if "CPU Generation" not in smbios_data.smbios_dictionary[self.model]:
+            return
+        if self.model in model_array.T2Macs:
+            return
+
+        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value:
             if self.constants.detected_os >= os_data.os_data.tahoe:
                 logging.info("- Blocking ACPI_SMC_PlatformPlugin on Tahoe to fix thermal conflict")
                 self.config["Kernel"]["Block"].append({
