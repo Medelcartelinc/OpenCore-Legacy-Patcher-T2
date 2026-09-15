@@ -1,4 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.180010.1 - 4.0.0 alpha 18.10.1
+This release fixes a bug where upon trying to inject OpenCore for MacBookPro14,1 (MacBook Pro 2017 without T1 chip) causes to display the error AttributeError: 'BuildOpenCore' object has no attribute 'computer'.
+
 ## 4.0.0.180010 - 4.0.0 alpha 18.10
 This release fixes a bug where upon trying to root patch it may call an obsolete definition, triggering an IndexError when it's time to root patch.
 
