@@ -1,4 +1,31 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.180010.2 - alpha 18.10.2
+This release:
+- fixes a bug where on T2 Macs ACPI_SMC_PlatformPlugin gets blocked due to a measure required for non-T2 Macs to boot, which on T2 Macs causes the sepOS to panic
+- fixes 1 vulnerability:
+
+        if "Dual DisplayPort Display" not in smbios_data.smbios_dictionary[self.model]:
+                    logging.info("Your Mac doesn't require 4K/5K Display patches.")
+                    return
+        
+                logging.info("- Adding 4K/5K Display Patch") # <- an attacker could delete the  if "Dual DisplayPort Display" not in smbios_data.smbios_dictionary[self.model] to bypass the Dual DisplayPort Display
+                # Set LauncherPath to '/boot.efi'
+                # This is to ensure that only the Mac's firmware presents the boot option, but not OpenCore
+                # https://github.com/acidanthera/OpenCorePkg/blob/0.7.6/Library/OcAppleBootPolicyLib/OcAppleBootPolicyLib.c#L50-L73
+                self.config["Misc"]["Boot"]["LauncherPath"] = "\\boot.efi"
+        
+                # Setup diags.efi chainloading
+                Path(self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers")).mkdir(parents=True, exist_ok=True)
+                if self.constants.boot_efi is True:
+                    path_oc_loader = self.constants.opencore_release_folder / Path("EFI/BOOT/BOOTx64.efi")
+                else:
+                    path_oc_loader = self.constants.opencore_release_folder / Path("System/Library/CoreServices/boot.efi")
+                shutil.move(path_oc_loader, self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers/Product.efi"))
+                shutil.copy(self.constants.diags_launcher_path, self.constants.opencore_release_folder)
+                shutil.move(self.constants.opencore_release_folder / Path("diags.efi"), self.constants.opencore_release_folder / Path("boot.efi"))
+
+Impact: an attacker could bypass the Dual DisplayPort Display check by simply deleting it to inject this patch unexpectedly on machines that don't require this patch to cause a denial of service attack. This is fixed by placing the DisplayPort patch under an else condition to ensure it only ever gets injected on the intended target.
+
 ## 4.0.0.180010.1 - 4.0.0 alpha 18.10.1
 This release fixes a bug where upon trying to inject OpenCore for MacBookPro14,1 (MacBook Pro 2017 without T1 chip) causes to display the error AttributeError: 'BuildOpenCore' object has no attribute 'computer'.
 
