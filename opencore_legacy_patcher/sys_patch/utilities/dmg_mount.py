@@ -153,9 +153,13 @@ class PatcherSupportPkgMount:
             except OSError as error:
                 logging.error(f"- Could not remove incomplete Universal-Binaries.dmg: {error}")
                 return False
+            except Exception as e:
+                logging.error(f"- Could not remove incomplete Universal-Binaries.dmg due to an unexpected error {error}.")
+                logging.exception("Stack Trace:")
+                return False
 
         url = f"{self.constants.url_patcher_support_pkg.rstrip('/')}/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
-        logging.info("- Universal-Binaries.dmg not found next to the sources (running from source)")
+        logging.info("- Universal-Binaries.dmg not found, redownloading")
         logging.info(f"- Downloading PatcherSupportPkg {self.constants.patcher_support_pkg_version}: {url}")
 
         # Download under a temporary name and only rename once complete, so an
@@ -265,6 +269,10 @@ class PatcherSupportPkgMount:
             # Unreadable (e.g. root-owned) - treat as unusable rather than assuming
             logging.error(f"- Could not inspect existing Universal-Binaries directory: {error}")
             return False
+        except Exception as e:
+            logging.error("The file is unreadable due to a critical error.")
+            logging.exception("Stack Trace:")
+            sys.exit(3)
 
         logging.info("- Ignoring empty leftover Universal-Binaries directory, remounting")
         return False
