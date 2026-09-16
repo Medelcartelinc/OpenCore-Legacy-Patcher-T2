@@ -5,6 +5,7 @@ snapshot.py: Handling APFS snapshots
 import logging
 import platform
 import subprocess
+import sys
 
 from ...datasets import os_data
 from ...support  import subprocess_wrapper

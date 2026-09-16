@@ -1,4 +1,90 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+
+## 4.0.0.180010.3 - 4.0.0 alpha 18.10.3
+This release contains only application bug fixes and mitigation against critical security vulnerabilities. This release:
+- reduces the number of prompts for passwords
+- fixes broken animation where the message Fetching patches for the host appears on non-Metal capable Macs; and for Metal capable Macs, there are also some bugs fixed in regards to this
+- Fixes a bug where upon trying to create/revert APFS snapshots, it appears NameError: name 'sys' is not defined due to missing sys import
+- Now, if Universal-Binaries.dmg is broken, it will repair the Universal-Binaries.dmg instead of throwing Patcher likely corrupted error
+- fixes a couple of critical vulnerabilities in the update engine:
+Here are fixed 3 critical security vulnerabilities that allow attackers to execute arbitary code as root:
+
+            def __init__(self, global_constants: constants.Constants) -> None:
+                    self.constants: constants.Constants = global_constants
+                    try:
+                        logging.info("Checking if the version is valid")
+                        self.binary_version = version.parse(self.constants.patcher_version)
+                    except version.InvalidVersion:
+                        logging.error("Since the version is not valid, we will not install any automatic updates.")
+                        logging.exception("Stack Trace:")
+                        logging.info("Please check for updates in GitHub manually.")
+                        assert self.constants.special_build is True, "Invalid version number for binary"
+                        # Special builds will not have a proper version number
+                        self.binary_version = version.parse("0.0.0")
+          # <- exactly here is a critical security vulnerability - there is no error handling if an unexpected exception occured.
+Impact: an attacker could trigger an error outside version.InvalidVersion. And since the updater at this stage has already escalated privileges via the Priveleged Helper Tool, they can execute arbitary code as root, which is extremely dangerous. An attacker like this could theoretically take control over the victim's computer if they ever get hacked via this vulnerability. This vulnerability is fixed by adding an error handling if an unexpected error has happened.
+
+          def _check_if_build_newer(self, first_version: Union[str, version.Version], second_version: Union[str, version.Version]) -> bool:
+                  """
+                  Check if the first version is newer than the second version
+          
+                  Parameters:
+                      first_version (str): First version to compare against (usually the one you want to test)
+                      second_version (str): Second version to compare against (usually the baseline)
+          
+                  Returns:
+                      bool: True if first version is newer, False if not
+                  """
+          
+                  if not isinstance(first_version, version.Version):
+                      try:
+                          first_version = version.parse(first_version)
+                      except version.InvalidVersion:
+                          # Special build > release build: assume special build is newer
+                          logging.error("There is a problem to update. Please search for updates manually.")
+                          logging.exception("Stack Trace:")
+                          return True
+           
+                  if not isinstance(second_version, version.Version):
+                      try:
+                          second_version = version.parse(second_version)
+                      except version.InvalidVersion:
+                          # Release build > special build: assume special build is newer
+                          logging.error("There is a problem to update. Please search for updates manually.")
+                          logging.exception("Stack Trace:")
+                          return False
+              # <- an attacker could trigger an error outside the version.InvalidVersion 
+Impact: an attacker could trigger an error outside version.InvalidVersion to execute arbitary code as root. This vulnerability is fixed by adding error handling if an unexpected error occurs.
+          
+                  if first_version == second_version:
+                      logging.info("You are on the latest version available already.")
+          
+                  return first_version > second_version
+          
+              def check_binary_updates(self, manual: bool = False) -> Optional[dict]:
+                  """
+                  Check if any updates are available for the OpenCore Legacy Patcher binary.
+                  Automatic checks respect the user's auto-update flag and snooze window.
+                  Manual checks explicitly bypass those gates so the user can still force
+                  a refresh when they choose to.
+                  """
+                  if self.constants.auto_update is False and manual is False:
+                      logging.info("Automatic updates are disabled in the settings.")
+                      return None
+          
+                  if manual is False:
+                      next_update_check = global_settings.GlobalEnviromentSettings().read_property("NextUpdateCheck")
+                      if next_update_check is not None:
+                          try:
+                              if date.fromisoformat(str(next_update_check)) > date.today():
+                                  logging.info("Automatic updates are snoozed until %s.", next_update_check)
+                                  return None
+                          except ValueError:
+                              logging.warning("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
+                              logging.error("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
+                     # <- an attacker could trigger an error outside ValueError
+Impact: an attacker could trigger an error outside ValueError to execute arbitary code as root. This vulnerability is fixed by adding error handling if an unexpected error occurs.
+
 ## 4.0.0.180010.2 - alpha 18.10.2
 This release:
 - fixes a bug where on T2 Macs ACPI_SMC_PlatformPlugin gets blocked due to a measure required for non-T2 Macs to boot, which on T2 Macs causes the sepOS to panic
