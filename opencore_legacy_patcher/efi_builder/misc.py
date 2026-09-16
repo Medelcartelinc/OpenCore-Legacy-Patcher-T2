@@ -145,6 +145,7 @@ class BuildMiscellaneous:
             self._set_nvram_value(OCLP_UUID, "revpatch", patch_args, overwrite=True)
 
         kext_obj = support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("RestrictEvents.kext")
+
         if kext_obj and kext_obj.get("Enabled") is False:
             support.BuildSupport(self.model, self.constants, self.config).enable_kext(
                 "EFICheckDisabler.kext", "", self.constants.efi_disabler_path

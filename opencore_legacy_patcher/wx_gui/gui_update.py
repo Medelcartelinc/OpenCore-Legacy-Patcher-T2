@@ -103,6 +103,14 @@ class UpdateFrame(wx.Frame):
         self.exit_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_exit_timer_tick, self.exit_timer)
 
+        # Wait for payloads to mount if they haven't already
+        # Without this, if the GUI starts before the background unpack thread finishes,
+        # self.constants.payload_path will still point to the read-only DMG inside the app bundle
+        # instead of the writable /var/folders/... overlay.
+        while gui_support.PayloadMount(self.constants, self).is_unpack_finished() is False:
+            wx.Yield()
+            time.sleep(self.constants.thread_sleep_interval)
+
         file_name = "OpenCore-Patcher.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg"
         download_obj = network_handler.DownloadObject(self.url, self.constants.payload_path / file_name)
         gui_download.DownloadFrame(

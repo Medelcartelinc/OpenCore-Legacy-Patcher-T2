@@ -6,7 +6,7 @@ token = lines.get("password")
 
 repo = "Medelcartelinc/OpenCore-Legacy-Patcher-T2"
 url = f"https://api.github.com/repos/{repo}/releases"
-tag_name = "4.0.0.18009.8"
+tag_name = "4.0.0.18009.12"
 
 # Find existing release
 req_get = urllib.request.Request(url, headers={
