@@ -11,6 +11,7 @@ import plistlib
 import threading
 import subprocess
 import os
+import functools
 import webbrowser
 import applescript
 import packaging.version
@@ -245,6 +246,16 @@ def detach_text_box_log_handlers() -> None:
 _active_pulses: set = set()
 
 
+@functools.lru_cache(maxsize=1)
+def _host_has_metal_device() -> bool:
+    try:
+        import Metal
+        return Metal.MTLCreateSystemDefaultDevice() is not None
+    except Exception as error:
+        logging.debug(f"Could not query Metal device, assuming Metal is available: {error}")
+        return True
+
+
 def stop_all_pulses() -> None:
     """
     Stops every currently-running gauge pulse thread. Called from
@@ -312,10 +323,34 @@ class GaugePulseCallback:
 
         self.max_value: int = gauge.GetRange()
 
-        self.non_metal_alternative: bool = CheckProperties(global_constants).host_is_non_metal()
-        if self.non_metal_alternative is True:
-            if CheckProperties(global_constants).host_psp_version() >= packaging.version.Version("1.1.2"):
-                self.non_metal_alternative = False
+        self.non_metal_alternative: bool = self._needs_manual_animation(global_constants)
+
+
+    @staticmethod
+    def _needs_manual_animation(global_constants: constants.Constants) -> bool:
+        """
+        Whether the native indeterminate animation (wx.Gauge.Pulse()) stays frozen on this host.
+
+        Two cases:
+        - Root-patched non-Metal Macs (SkyLightOld present): only broken with
+          PatcherSupportPkg older than 1.1.2, newer stubs animate natively.
+        - Hosts without any Metal device that were never non-Metal patched, most
+          notably VMware VMs: host_is_non_metal() keys off SkyLightOld and so never
+          fired there, Pulse() was used and the "Fetching patches" bar sat still.
+          host_is_non_metal() itself is left untouched, since other UI (patch
+          options) relies on it meaning "non-Metal root patches are installed".
+        """
+        properties = CheckProperties(global_constants)
+        if properties.host_is_non_metal():
+            return properties.host_psp_version() < packaging.version.Version("1.1.2")
+
+        if global_constants.detected_os < os_data.os_data.monterey:
+            return False
+
+        if global_constants.host_is_vmware_vm is True:
+            return True
+
+        return not properties.host_has_metal_device()
 
 
     def start_pulse(self) -> None:
@@ -497,6 +532,13 @@ class CheckProperties:
             return False
 
         return True
+
+    def host_has_metal_device(self) -> bool:
+        """
+        Whether macOS exposes a Metal device on this host (result cached per process).
+        Fails open (True) if Metal cannot be queried, keeping the native animation.
+        """
+        return _host_has_metal_device()
 
     def host_is_solarium(self) -> bool:
         """
