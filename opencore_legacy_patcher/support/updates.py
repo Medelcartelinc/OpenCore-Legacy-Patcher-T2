@@ -35,7 +35,14 @@ class CheckBinaryUpdates:
             assert self.constants.special_build is True, "Invalid version number for binary"
             # Special builds will not have a proper version number
             self.binary_version = version.parse("0.0.0")
-
+        except Exception as e: # behebt eine Sicherheitslücke, die erlaubt einen Angreifer davon auszunutzen, Fehler außen version.InvalidError zu auslösen, um beliebiges Code auszuführen
+            logging.error("An unexpected error occured while validating the version, so this version is considered invalid.")
+            logging.exception("Stack Trace:")
+            logging.info("Please check for updates in GitHub manually.")
+            assert self.constants.special_build is True, "Invalid version number for binary"
+            # Special builds will not have a proper version number
+            self.binary_version = version.parse("0.0.0")
+        
         self.latest_details = None
         self.last_error: Optional[str] = None
 
