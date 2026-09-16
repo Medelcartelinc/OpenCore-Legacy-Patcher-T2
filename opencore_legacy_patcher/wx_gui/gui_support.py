@@ -355,6 +355,7 @@ class GaugePulseCallback:
 
     def start_pulse(self) -> None:
         if self.non_metal_alternative is False:
+            _enable_threaded_gauge_animation(self.gauge)
             self.gauge.Pulse()
             return
         self.pulse_thread_active = True
@@ -700,16 +701,74 @@ class ThreadHandler(logging.Handler):
         logging.getLogger().removeHandler(self)
 
 
+def _enable_threaded_gauge_animation(gauge: wx.Gauge) -> None:
+    """
+    Let AppKit animate the native indeterminate bar off the main thread.
+
+    wxOSX never sets usesThreadedAnimation on its NSProgressIndicator, so the
+    Pulse() animation is driven by a main-thread run loop timer. While a worker
+    runs, the main thread sits in wait_for_thread() and that timer barely fires,
+    so the bar stuttered or stood still even on Metal GPUs. Best effort only:
+    any failure leaves the default behaviour in place.
+    """
+    try:
+        import objc
+        handle = gauge.GetHandle()
+        if not handle:
+            return
+        view = objc.objc_object(c_void_p=handle)
+        if view.respondsToSelector_("setUsesThreadedAnimation:"):
+            view.setUsesThreadedAnimation_(True)
+    except Exception as error:
+        logging.debug(f"Could not enable threaded gauge animation: {error}")
+
+
+def _spin_cocoa_run_loop(thread: threading.Thread, interval: float) -> bool:
+    """
+    Run the main NSRunLoop for up to 'interval' seconds, returning early once 'thread' ends.
+
+    Unlike thread.join(), this keeps run loop timers and Core Animation commits
+    (native progress bar animation, among others) going while we wait.
+    Returns False if the run loop can't be used, so the caller can fall back.
+    """
+    try:
+        from Foundation import NSRunLoop, NSDate, NSDefaultRunLoopMode  # type: ignore # pylint: disable=no-name-in-module
+    except Exception:
+        return False
+
+    run_loop = NSRunLoop.currentRunLoop()
+    deadline = time.monotonic() + interval
+    while thread.is_alive():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        # Short slices so a finished worker is noticed promptly; returns early
+        # whenever a source fires. False means no input sources are attached,
+        # in which case it would return immediately and busy-loop.
+        slice_length = min(remaining, 0.02)
+        if not run_loop.runMode_beforeDate_(NSDefaultRunLoopMode, NSDate.dateWithTimeIntervalSinceNow_(slice_length)):
+            return False
+    return True
+
+
 def wait_for_thread(thread: threading.Thread, sleep_interval=None):
     """
     Waits for a thread to finish while processing UI events at regular intervals
     to prevent UI freezing and excessive CPU usage.
+
+    Between wx.Yield() calls the main run loop keeps running (see
+    _spin_cocoa_run_loop()) instead of blocking in thread.join(), otherwise
+    native animations such as wx.Gauge.Pulse() freeze while the worker runs.
     """
     # Use the passed sleep_interval, or get from global_constants
     interval = sleep_interval if sleep_interval is not None else constants.Constants().thread_sleep_interval
 
+    use_run_loop = wx.IsMainThread()
     while thread.is_alive():
         wx.Yield()
+        if use_run_loop and _spin_cocoa_run_loop(thread, interval):
+            continue
+        use_run_loop = False
         thread.join(timeout=interval)
 
 
