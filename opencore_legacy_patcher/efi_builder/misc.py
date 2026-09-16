@@ -556,7 +556,7 @@ class BuildMiscellaneous:
                 _agdpmod = "pikera" if self.computer.dgpu else "vit9696"
                 self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args",
                     f"-v rddelay=10 igfxfw=2 igfxonln=1 -disable_ext_panics -no_compat_check -revbeta "
-                    f"agdpmod={_agdpmod} forceRenderStandby=0 revpatch=sbvmm ipc_control_port_options=0 AMFIPass=0x1")
+                    f"agdpmod={_agdpmod} forceRenderStandby=0 revpatch=sbvmm ipc_control_port_options=0 AMFIPass=0x1 amfi=0x80")
             except Exception as e:
                 logging.error("Injecting T2 specific boot arguments failed due to the following error:")
                 logging.exception("Stack Trace:")
