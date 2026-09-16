@@ -701,6 +701,10 @@ class ThreadHandler(logging.Handler):
         logging.getLogger().removeHandler(self)
 
 
+# GIL switch interval used while the main thread waits on a worker (see wait_for_thread()).
+WAIT_SWITCH_INTERVAL = 0.0005
+
+
 def _enable_threaded_gauge_animation(gauge: wx.Gauge) -> None:
     """
     Let AppKit animate the native indeterminate bar off the main thread.
@@ -764,12 +768,26 @@ def wait_for_thread(thread: threading.Thread, sleep_interval=None):
     interval = sleep_interval if sleep_interval is not None else constants.Constants().thread_sleep_interval
 
     use_run_loop = wx.IsMainThread()
-    while thread.is_alive():
-        wx.Yield()
-        if use_run_loop and _spin_cocoa_run_loop(thread, interval):
-            continue
-        use_run_loop = False
-        thread.join(timeout=interval)
+
+    # Every time the main thread comes back from native code (run loop slice,
+    # wx.Yield(), wx's idle observer calling into Python) it has to win the GIL
+    # back from the worker. With CPython's default 5 ms switch interval that is
+    # ~5 ms per hand-off, which is enough to drop animation frames: the progress
+    # bar ran, but visibly stuttered. A shorter interval while we wait keeps the
+    # hand-off well below a frame; the previous value is restored afterwards
+    # (nested waits restore in reverse order).
+    previous_switch_interval = sys.getswitchinterval()
+    if use_run_loop:
+        sys.setswitchinterval(min(previous_switch_interval, WAIT_SWITCH_INTERVAL))
+    try:
+        while thread.is_alive():
+            wx.Yield()
+            if use_run_loop and _spin_cocoa_run_loop(thread, interval):
+                continue
+            use_run_loop = False
+            thread.join(timeout=interval)
+    finally:
+        sys.setswitchinterval(previous_switch_interval)
 
 
 class RestartHost:
