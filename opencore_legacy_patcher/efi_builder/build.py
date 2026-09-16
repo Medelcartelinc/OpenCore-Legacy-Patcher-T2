@@ -556,8 +556,19 @@ class BuildOpenCore:
                     if "alcid=" not in current_boot_args:
                         extra_args.append("alcid=13")
 
-                # AMD Polaris dGPU optimizations (MacBookPro14,3 only)
-                if "14,3" in real_model or "14,3" in self.model:
+                # AMD dGPU optimizations for Tahoe (agdpmod=pikera fixes yellow screen / DisplayPolicy panics)
+                # BuildOpenCore has no 'computer' attribute of its own (unlike the sub-builders in
+                # graphics_audio.py etc.) - the host probe lives on constants. It is None when no
+                # probe ran, and it describes the *host*, so it must not be trusted when building
+                # for a custom model.
+                host_computer = getattr(self.constants, "computer", None)
+                has_amd_dgpu = (
+                    not self.constants.custom_model
+                    and host_computer is not None
+                    and getattr(host_computer, "dgpu", None) is not None
+                    and host_computer.dgpu.vendor_id == 0x1002  # AMD
+                )
+                if has_amd_dgpu or "14,3" in real_model or "14,3" in self.model:
                     if "agdpmod=" not in current_boot_args:
                         extra_args.append("agdpmod=pikera")
                 

@@ -10,6 +10,8 @@ import logging
 import subprocess
 import Security
 import os
+import atexit
+import threading
 
 from pathlib import Path
 from typing import Callable, Optional
@@ -17,6 +19,39 @@ from typing import Callable, Optional
 
 OCLP_PRIVILEGED_HELPER = "/Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper"
 OCLP_PRIVILEGED_HELPER_EXPECTED_MODE = 0o4755
+
+ADMIN_PASSWORD_PROMPT_MESSAGE = (
+    "OpenCore Legacy Patcher needs your administrator password to apply root patches. "
+    "You will only be asked once - it is kept in memory until the app quits."
+)
+ADMIN_PASSWORD_RETRY_MESSAGE = "Incorrect password, please try again. " + ADMIN_PASSWORD_PROMPT_MESSAGE
+ADMIN_PASSWORD_MAX_ATTEMPTS = 3
+
+# Session-wide administrator credential cache (Issue #356).
+#
+# Without it every privileged operation that could not go through the Privileged Helper
+# Tool - which is every one of them on an unsigned/ad-hoc build, since the helper refuses
+# callers without a matching certificate chain - spawned its own
+# 'osascript ... with administrator privileges'. AppleScript only caches that
+# authorization inside the process that asked for it, and each osascript call is a new
+# process, so root patching asked for the password again for nearly every command, plus
+# once more for the disk image mounts.
+#
+# The password is kept in process memory only, never written anywhere, never logged,
+# and dropped at exit. Python strings cannot be reliably wiped, so this is a
+# convenience/exposure trade-off, not a secure-memory guarantee; the process already
+# held the password transiently for the sudo-based DMG mounts before this change.
+_admin_session_lock = threading.RLock()
+_cached_admin_password: Optional[str] = None
+_admin_prompt_icon_path = None
+# Set once the helper has reported a non-transient failure (signing/certificates), so we
+# stop invoking it for every single command of the session.
+_privileged_helper_unusable = False
+# True when the last password request was cancelled by the user
+_admin_password_cancelled = False
+# True once sudo rejected every attempt (e.g. the account is not an administrator);
+# later commands then go straight to osascript instead of re-running the dialog loop.
+_sudo_elevation_failed = False
 
 
 class PrivilegedHelperErrorCodes(enum.IntEnum):
@@ -37,6 +72,15 @@ class PrivilegedHelperErrorCodes(enum.IntEnum):
     OCLP_PHT_ERROR_COMMAND_MISSING             = 168
     OCLP_PHT_ERROR_COMMAND_FAILED              = 169
     OCLP_PHT_ERROR_CATCH_ALL                   = 170
+
+
+# Errors that will not go away by retrying within this session: the helper (or the app
+# calling it) simply is not signed in a way the helper accepts.
+_HELPER_PERMANENT_ERRORS = (
+    PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_SIGNING_INFORMATION_MISSING.value,
+    PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_INVALID_TEAM_ID.value,
+    PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_INVALID_CERTIFICATES.value,
+)
 
 
 def _helper_path_is_safe_to_repair() -> bool:
@@ -286,7 +330,9 @@ def run_as_root(*args, **kwargs) -> subprocess.CompletedProcess:
     if os.geteuid() == 0:
         return subprocess.run(_command, **kwargs)
 
-    if Path(OCLP_PRIVILEGED_HELPER).exists():
+    global _privileged_helper_unusable
+
+    if Path(OCLP_PRIVILEGED_HELPER).exists() and not _privileged_helper_unusable:
         if privileged_helper_needs_setuid_repair():
             if not repair_privileged_helper_permissions():
                 logging.error("Privileged Helper Tool permissions could not be repaired, cannot complete request.")
@@ -308,13 +354,149 @@ def run_as_root(*args, **kwargs) -> subprocess.CompletedProcess:
         # just returned as-is: retrying that via osascript wouldn't fix a genuine command failure,
         # and would only cost an extra administrator-password prompt for nothing.
         _helper_error = __resolve_privileged_helper_errors(result.returncode)
-        if _helper_error is not None:
-            logging.error(f"Privileged Helper Tool failed ({_helper_error}). Falling back to osascript.")
-            return osascript(_command, **kwargs)
-        return result
-    else:
-        logging.warning(f"Privileged Helper Tool not found at {OCLP_PRIVILEGED_HELPER}. Falling back to osascript.")
-        return osascript(_command, **kwargs)
+        if _helper_error is None:
+            return result
+        if result.returncode in _HELPER_PERMANENT_ERRORS:
+            _privileged_helper_unusable = True
+            logging.error(f"Privileged Helper Tool rejected this build ({_helper_error}), not using it for the rest of this session.")
+        else:
+            logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
+    elif not Path(OCLP_PRIVILEGED_HELPER).exists():
+        logging.warning(f"Privileged Helper Tool not found at {OCLP_PRIVILEGED_HELPER}.")
+
+    return _run_elevated_without_helper(_command, **kwargs)
+
+
+def _run_elevated_without_helper(command: list, **kwargs) -> subprocess.CompletedProcess:
+    """
+    Elevate a command when the Privileged Helper Tool cannot be used.
+
+    Prefers sudo fed from the session credential cache, so the user is asked for the
+    administrator password once per session rather than once per command (Issue #356).
+    Only if no usable password could be obtained that way - e.g. the account is not in
+    sudoers, or the plain password dialog could not be shown - does it fall back to
+    osascript, whose native prompt also accepts a different administrator's name.
+    """
+    password = obtain_admin_password()
+    if password is None:
+        if _admin_password_cancelled:
+            logging.info("Administrator password prompt cancelled, not running privileged command")
+            return subprocess.CompletedProcess(args=command, returncode=1, stdout=b"", stderr=b"User cancelled administrator authentication")
+        logging.warning("No usable administrator password for sudo, falling back to osascript")
+        return osascript(command, **kwargs)
+    return _run_with_sudo(command, password, **kwargs)
+
+
+def _run_with_sudo(command: list, password: str, **kwargs) -> subprocess.CompletedProcess:
+    """
+    Run 'command' through 'sudo -S', supplying the cached password on stdin.
+
+    '-k' makes sudo ignore any timestamp, so it always consumes exactly the one password
+    line we send (or none, when sudoers says NOPASSWD and 'password' is ""), and '-p ""'
+    keeps its prompt out of the command's stderr. The command itself then sees EOF on
+    stdin, which matches what it got from the helper/osascript paths.
+    """
+    if "input" in kwargs or "stdin" in kwargs:
+        # Would collide with the password line; no current caller does this.
+        raise ValueError("run_as_root() does not support stdin/input when elevating via sudo")
+
+    payload = (password + "\n") if password else ""
+    text_mode = bool(kwargs.get("text") or kwargs.get("universal_newlines") or kwargs.get("encoding") or kwargs.get("errors"))
+    sudo_input = payload if text_mode else payload.encode()
+
+    result = subprocess.run(
+        ["/usr/bin/sudo", "-S", "-k", "-p", "", "--"] + [str(arg) for arg in command],
+        input=sudo_input,
+        **kwargs
+    )
+    # Report the command as the caller wrote it, not the sudo wrapper (keeps logs readable
+    # and never includes anything password-related).
+    result.args = command
+    return result
+
+
+def _admin_password_is_valid(password: str) -> bool:
+    """Check a password against sudo without running anything ('sudo -v')."""
+    try:
+        result = subprocess.run(
+            ["/usr/bin/sudo", "-S", "-k", "-p", "", "-v"],
+            input=(password + "\n").encode(),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
+        )
+    except Exception as error:
+        logging.error(f"Could not validate administrator password: {error}")
+        return False
+    return result.returncode == 0
+
+
+def set_admin_prompt_icon(icon_path) -> None:
+    """Icon used by the session's administrator password dialog."""
+    global _admin_prompt_icon_path
+    if icon_path:
+        _admin_prompt_icon_path = icon_path
+
+
+def obtain_admin_password(admin_password_prompt: Optional[Callable[..., str]] = None) -> Optional[str]:
+    """
+    Return an administrator password usable with 'sudo -S', asking at most once per session.
+
+    Returns:
+        str:  the validated password, or "" if sudo does not need one (NOPASSWD).
+        None: none available - the user cancelled (see _admin_password_cancelled) or
+              every attempt failed validation / the dialog could not be shown.
+
+    'admin_password_prompt' lets callers supply their own dialog; it is called with a
+    'message' keyword argument and returns the entered password ("" on cancel). Only a password sudo accepted is cached, so a
+    typo is re-asked right away instead of failing every later command.
+    """
+    global _cached_admin_password, _admin_password_cancelled, _sudo_elevation_failed
+
+    with _admin_session_lock:
+        if _cached_admin_password is not None:
+            return _cached_admin_password
+
+        if _sudo_elevation_failed:
+            _admin_password_cancelled = False
+            return None
+
+        if not _sudo_will_prompt():
+            _cached_admin_password = ""
+            return _cached_admin_password
+
+        for attempt in range(ADMIN_PASSWORD_MAX_ATTEMPTS):
+            message = ADMIN_PASSWORD_PROMPT_MESSAGE if attempt == 0 else ADMIN_PASSWORD_RETRY_MESSAGE
+            if admin_password_prompt is None:
+                password = request_admin_password(_admin_prompt_icon_path, message=message)
+            else:
+                password = admin_password_prompt(message=message)
+
+            if not password:
+                _admin_password_cancelled = True
+                return None
+
+            if _admin_password_is_valid(password):
+                _admin_password_cancelled = False
+                _cached_admin_password = password
+                logging.info("Administrator password accepted, reusing it for this session")
+                return _cached_admin_password
+
+            logging.info(f"Administrator password rejected by sudo (attempt {attempt + 1}/{ADMIN_PASSWORD_MAX_ATTEMPTS})")
+
+        _admin_password_cancelled = False
+        _sudo_elevation_failed = True
+        return None
+
+
+def clear_cached_admin_password() -> None:
+    """Forget the session's administrator password."""
+    global _cached_admin_password, _admin_password_cancelled, _sudo_elevation_failed
+    with _admin_session_lock:
+        _cached_admin_password = None
+        _admin_password_cancelled = False
+        _sudo_elevation_failed = False
+
+
+atexit.register(clear_cached_admin_password)
 
 
 def osascript(cmd_args, **kwargs) -> subprocess.CompletedProcess:
@@ -410,7 +592,7 @@ def applescript_icon_clause(icon_path) -> str:
     return f' with icon POSIX file "{path}"'
 
 
-def request_admin_password(icon_path=None, message: str = "OpenCore Legacy Patcher requires administrator access to mount patch resources.") -> str:
+def request_admin_password(icon_path=None, message: str = ADMIN_PASSWORD_PROMPT_MESSAGE) -> str:
     """
     Prompt for the local administrator password via a plain dialog.
 
@@ -435,7 +617,7 @@ def request_admin_password(icon_path=None, message: str = "OpenCore Legacy Patch
     import applescript
 
     script = (
-        f'set theResult to display dialog "{message}" default answer "" with hidden answer '
+        f'set theResult to display dialog "{applescript_quote(message)}" default answer "" with hidden answer '
         f'with title "OpenCore Legacy Patcher"{applescript_icon_clause(icon_path)}\n'
         'return the text returned of theResult'
     )
@@ -552,13 +734,12 @@ def mount_dmg(
 
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
 
-    _needs_admin_password = _sudo_will_prompt()
-    admin_password = ""
-    if _needs_admin_password:
-        admin_password = admin_password_prompt()
-        if not admin_password:
-            logging.info("- Elevated hdiutil attach cancelled (no administrator password provided)")
-            return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
+    # Shared with run_as_root(): the user is asked once per session, not once per image.
+    admin_password = obtain_admin_password(admin_password_prompt)
+    if admin_password is None:
+        logging.info("- Elevated hdiutil attach cancelled (no administrator password provided)")
+        return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
+    _needs_admin_password = admin_password != ""
 
     # Clear com.apple.quarantine before attaching: a quarantined disk image (e.g. a
     # freshly rebuilt/re-extracted payload) can trip hdiutil's authentication gate
@@ -575,7 +756,7 @@ def mount_dmg(
     # session cannot silently change how much of stdin sudo consumes. It does NOT
     # force a prompt where sudoers says NOPASSWD - that case is handled by asking
     # sudo up front (_sudo_will_prompt) and sending no password line at all.
-    elevated_cmd = ["/usr/bin/sudo", "-S", "-k", "/bin/sh", "-c", elevated_shell]
+    elevated_cmd = ["/usr/bin/sudo", "-S", "-k", "-p", "", "/bin/sh", "-c", elevated_shell]
 
     elevated_process = subprocess.Popen(elevated_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     # sudo -S reads exactly one line from stdin for its own password, then hands the

@@ -35,7 +35,14 @@ class CheckBinaryUpdates:
             assert self.constants.special_build is True, "Invalid version number for binary"
             # Special builds will not have a proper version number
             self.binary_version = version.parse("0.0.0")
-
+        except Exception as e: # behebt eine Sicherheitslücke, die erlaubt einen Angreifer davon auszunutzen, Fehler außen version.InvalidError zu auslösen, um beliebiges Code auszuführen
+            logging.error("An unexpected error occured while validating the version, so this version is considered invalid.")
+            logging.exception("Stack Trace:")
+            logging.info("Please check for updates in GitHub manually.")
+            assert self.constants.special_build is True, "Invalid version number for binary"
+            # Special builds will not have a proper version number
+            self.binary_version = version.parse("0.0.0")
+        
         self.latest_details = None
         self.last_error: Optional[str] = None
 
@@ -93,6 +100,10 @@ class CheckBinaryUpdates:
                 logging.error("There is a problem to update. Please search for updates manually.")
                 logging.exception("Stack Trace:")
                 return True
+            except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Fehler außerhalb except version.InvalidVersion auszulösen, um beliebiges Code auszuführen
+                logging.error("There is an unexpected problem to update. Please search for updates manually.")
+                logging.exception("Stack Trace:")
+                return True
 
         if not isinstance(second_version, version.Version):
             try:
@@ -127,7 +138,9 @@ class CheckBinaryUpdates:
                         logging.info("Automatic updates are snoozed until %s.", next_update_check)
                         return None
                 except ValueError:
-                    logging.warning("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
+                    logging.error("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
+                except Exception as e: # behebt eine Sicherheitslücke, indem einen Angreifer könnte Fehler außerhalb ValueError verursachen, um beliebiges Code auszuführen
+                    logging.error("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
         
         # Self-heal the Privileged Helper Tool's permissions before doing anything
         # network-related below. No-op (no prompt) unless a repair is actually needed.
@@ -199,7 +212,6 @@ class CheckBinaryUpdates:
             logging.info("If this meessage appears even if it's not up to date, you should report this issue.")
             logging.info("For most pre-alpha versions, this behavior is normal because various versions are marked as pre-release.")
             return None
-
         for asset in data_set["assets"]:
             logging.info("A new version is available")
             logging.info(f"Found asset: {asset['name']}")

@@ -1,4 +1,106 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.180010.2 - alpha 18.10.2
+This release:
+- fixes a bug where on T2 Macs ACPI_SMC_PlatformPlugin gets blocked due to a measure required for non-T2 Macs to boot, which on T2 Macs causes the sepOS to panic
+- fixes 1 vulnerability:
+
+        if "Dual DisplayPort Display" not in smbios_data.smbios_dictionary[self.model]:
+                    logging.info("Your Mac doesn't require 4K/5K Display patches.")
+                    return
+        
+                logging.info("- Adding 4K/5K Display Patch") # <- an attacker could delete the  if "Dual DisplayPort Display" not in smbios_data.smbios_dictionary[self.model] to bypass the Dual DisplayPort Display
+                # Set LauncherPath to '/boot.efi'
+                # This is to ensure that only the Mac's firmware presents the boot option, but not OpenCore
+                # https://github.com/acidanthera/OpenCorePkg/blob/0.7.6/Library/OcAppleBootPolicyLib/OcAppleBootPolicyLib.c#L50-L73
+                self.config["Misc"]["Boot"]["LauncherPath"] = "\\boot.efi"
+        
+                # Setup diags.efi chainloading
+                Path(self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers")).mkdir(parents=True, exist_ok=True)
+                if self.constants.boot_efi is True:
+                    path_oc_loader = self.constants.opencore_release_folder / Path("EFI/BOOT/BOOTx64.efi")
+                else:
+                    path_oc_loader = self.constants.opencore_release_folder / Path("System/Library/CoreServices/boot.efi")
+                shutil.move(path_oc_loader, self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers/Product.efi"))
+                shutil.copy(self.constants.diags_launcher_path, self.constants.opencore_release_folder)
+                shutil.move(self.constants.opencore_release_folder / Path("diags.efi"), self.constants.opencore_release_folder / Path("boot.efi"))
+
+Impact: an attacker could bypass the Dual DisplayPort Display check by simply deleting it to inject this patch unexpectedly on machines that don't require this patch to cause a denial of service attack. This is fixed by placing the DisplayPort patch under an else condition to ensure it only ever gets injected on the intended target.
+
+## 4.0.0.180010.1 - 4.0.0 alpha 18.10.1
+This release fixes a bug where upon trying to inject OpenCore for MacBookPro14,1 (MacBook Pro 2017 without T1 chip) causes to display the error AttributeError: 'BuildOpenCore' object has no attribute 'computer'.
+
+## 4.0.0.180010 - 4.0.0 alpha 18.10
+This release fixes a bug where upon trying to root patch it may call an obsolete definition, triggering an IndexError when it's time to root patch.
+
+Known issues:
+- On 2018 Mac mini and maybe other T2 Macs, there is an issue where when reaching the Select a language screen, when pressing ->, it freezes immediately. For this issue, I recommend to open up a new issue in this fork if isn't already: https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2/issues and document with logs or a video that also includes the entire boot process so @Medelcartelinc  can do a research and fix that issue.
+<img width="4032" height="3024" alt="651011248-eb655984-1d4d-4bc0-8b94-1708a4441e6c" src="https://github.com/user-attachments/assets/9fd8ebd2-220d-48e0-ae02-67f9b569e395" />
+
+## 4.0.0.18009.13 - 4.0.0 alpha 18.9.13
+This release:
+- fixes a bug where when updating, if the user clicks Cancel, the app closes instead of returning to the main menu
+- fixes a bug where PatcherSupportPkg may not be downloaded at all
+- updates PatcherSupportPkg to 2.0.3 to fix broken symlinks in QuartzCore.framework, thx @Medelcartelinc 
+- fixes a bug where RestrictEvents causes a kernel panic on T2 Macs, thx @Medelcartelinc 
+- removes the cs_allow_invalid=1 cs_unrestricted_cs=1 boot arguments on T2 Macs to fix an issue where when these boot arguments are injected, it doesn't even boot at all and shows a kernel panic instead
+- removes the broken AppleKeyStore patch from T2 Macs completely to fix AppleKeyStore kernel panics, thx @Medelcartelinc 
+- Fixes GPU freeze on T2 Macs by removing stolenmem patches, thx @Medelcartelinc 
+- fixes a bug where the macOS 26 kernel may load both ACPI_SMC_PlatformPlugin and X86PlatformPlugin on Intel Macs, causing a conflict that breaks thermal management (fans don't spin up) on 2012+ Macs, thx @Medelcartelinc 
+- because currently there are known issues with AMD Legacy GCN patches, a safety guard is put in place for macOS 26 Tahoe and won't be injected until this issue is fixed, thx @Medelcartelinc .
+- fixes yellow screen on AMD Polaris and Dual AMD GCN, thx @Medelcartelinc 
+- fixes a bug where on some T1 Macs after the root patches have been successfully applied, it no longer boots and kernel panics instead, thx @Medelcartelinc 
+- Now when downloading the macOS installer, it will check how much available space is there before proceeding, thx @Medelcartelinc 
+- replaces generic 'corrupted installer' error dialog with a specific message listing the two real causes: insufficient disk space and the macOS restriction on installing an InstallAssistant.pkg matching the running OS version, thx @Medelcartelinc for improving the error handling!
+- Fixes PermissionError crash during manual installer extraction, thx @Medelcartelinc  
+- Fixes MetallibSupportPkg detection for Hackdoc path, thx @Medelcartelinc 
+
+Known issues:
+- On 2018 Mac mini and maybe other T2 Macs, there is an issue where when reaching the Select a language screen, when pressing ->, it freezes immediately. For this issue, I recommend to open up a new issue in this fork if isn't already: https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2/issues and document with logs or a video that also includes the entire boot process so @Medelcartelinc  can do a research and fix that issue.
+<img width="4032" height="3024" alt="651011248-eb655984-1d4d-4bc0-8b94-1708a4441e6c" src="https://github.com/user-attachments/assets/9fd8ebd2-220d-48e0-ae02-67f9b569e395" />
+
+## 4.0.0.18009.5 - 4.0.0 alpha 18.9.5
+This release fixes a bug where upon trying to update from the main menu, it says Failed to show changelog:
+<img width="762" height="612" alt="98792316-8743-4b22-ba7e-061869ff4b0e" src="https://github.com/user-attachments/assets/2856b53f-c388-4b83-9b10-34f74c5272ad" />
+
+
+## 4.0.0.18009.4 - 4.0.0 alpha 18.9.4
+This release:
+- introduces auto updates, thx @gandolf243 
+- fixes a bug where when updating macOS, the patcher detects that an update is underway, it launches the patcher, but right after this it crashes again
+- removes root patches for macOS Catalina and Mojave - at this stage they are just a piece of legacy code remaining from OpenCore Legacy Patcher 0.x before Dortania dropped support for these releases
+- fixes 2 vulnerabilities:
+gui_usb_install.py:
+
+        if not self.available_efis:
+                    self._append_log("No EFI partitions found.")
+                    self.status_text.SetLabel("No EFI partitions found.")
+                    return
+                   # <- an attacker could disable the checks if an EFI partition is found to force to show Select a drive to install OpenCore
+                choices = list(self.available_efis.keys())
+                self.disk_choice.SetItems(choices)
+                self.disk_choice.Enable()
+                self.status_text.SetLabel("Select a drive to install OpenCore.")
+                self._append_log("Please select a target drive from the dropdown.")
+
+Impact: an attacker could try to show Select a drive to install OpenCore while there are no EFI or FAT32 formatted partitions, causing the patcher to crash. This vulnerability is fixed by ensuring that it only shows Select a drive to install OpenCore if there's an available EFI via an else condition.
+
+            def _mount_efi(self):
+                    self._append_log(f"Mounting {self.selected_efi}...")
+                    res = self._run_cmd(f"diskutil mount /dev/{self.selected_efi}")
+                    self._append_log(res)
+                    # Find mount point
+                    info = self._run_cmd(f"diskutil info -plist /dev/{self.selected_efi}")
+                    try:
+                        data = plistlib.loads(info.encode('utf-8'))
+                        self.mount_point = data.get("MountPoint")
+                    except:
+                        self.mount_point = None # <- an attacker could set a specially crafted value to cause an error outside if not self.mount_point
+                        
+                    if not self.mount_point:
+                        raise Exception("Failed to mount EFI or find mount point.")
+                    self._append_log(f"Mounted at {self.mount_point}")
+
+Impact: an attacker could set self.mount_point to a specially crafted value if an error occurs to trigger an error outside the if not self.mount_point condition to bypass the Failed to mount EFI or find mount point error to hard crash the patcher (=to cause DoS attack), or worse, execute arbitary code if the value includes code. This vulnerability is fixed by ensuring the error is triggered directly inside the except Exception loop instead of setting a variable that can be easily tricked into executing code.
 
 ## Emergency update - 4.0.0.18009.3 - 4.0.0 alpha 18.9.3
 This release:

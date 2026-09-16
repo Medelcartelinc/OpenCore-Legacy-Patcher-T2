@@ -18,7 +18,8 @@ from ..detections import device_probe
 from ..datasets import (
     smbios_data,
     cpu_data,
-    os_data
+    os_data,
+    model_array
 )
 
 
@@ -28,6 +29,7 @@ class BuildFirmware:
 
     Invoke from build.py
     """
+    
 
     def __init__(self, model: str, global_constants: constants.Constants, config: dict) -> None:
         self.model: str = model
@@ -44,6 +46,7 @@ class BuildFirmware:
         """
 
         self._cpu_compatibility_handling()
+        self._block_acpi_smc_platform_plugin_tahoe()
         self._power_management_handling()
         self._acpi_handling()
         self._firmware_driver_handling()
@@ -115,6 +118,31 @@ class BuildFirmware:
             logging.info("- Disabling Firmware Throttling")
             # Nehalem and newer systems force firmware throttling via MSR_POWER_CTL
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("SimpleMSR.kext", self.constants.simplemsr_version, self.constants.simplemsr_path)
+    def _block_acpi_smc_platform_plugin_tahoe(self) -> None:
+        """
+        macOS 26 (Tahoe) Beta bug: Kernel loads both ACPI_SMC_PlatformPlugin and X86PlatformPlugin
+        on Intel Macs, causing a conflict that breaks thermal management (fans don't spin up).
+        Block ACPI_SMC_PlatformPlugin on Macs that natively use X86PlatformPlugin (Ivy Bridge+).
+        """
+        if self.model not in smbios_data.smbios_dictionary:
+            return
+        if "CPU Generation" not in smbios_data.smbios_dictionary[self.model]:
+            return
+        if self.model in model_array.T2Macs:
+            return
+
+        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value:
+            if self.constants.detected_os >= os_data.os_data.tahoe:
+                logging.info("- Blocking ACPI_SMC_PlatformPlugin on Tahoe to fix thermal conflict")
+                self.config["Kernel"]["Block"].append({
+                    "Arch": "x86_64",
+                    "Comment": "Tahoe: Block ACPI_SMC_PlatformPlugin to fix X86PlatformPlugin conflict",
+                    "Enabled": True,
+                    "Identifier": "com.apple.driver.ACPI_SMC_PlatformPlugin",
+                    "MaxKernel": "",
+                    "MinKernel": "25.0.0",
+                    "Strategy": "Disable"
+                })
 
 
     def _acpi_handling(self) -> None:
@@ -350,20 +378,22 @@ class BuildFirmware:
         """
 
         if "Dual DisplayPort Display" not in smbios_data.smbios_dictionary[self.model]:
+            logging.info("Your Mac doesn't require 4K/5K Display patches.")
             return
-
-        logging.info("- Adding 4K/5K Display Patch")
-        # Set LauncherPath to '/boot.efi'
-        # This is to ensure that only the Mac's firmware presents the boot option, but not OpenCore
-        # https://github.com/acidanthera/OpenCorePkg/blob/0.7.6/Library/OcAppleBootPolicyLib/OcAppleBootPolicyLib.c#L50-L73
-        self.config["Misc"]["Boot"]["LauncherPath"] = "\\boot.efi"
-
-        # Setup diags.efi chainloading
-        Path(self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers")).mkdir(parents=True, exist_ok=True)
-        if self.constants.boot_efi is True:
-            path_oc_loader = self.constants.opencore_release_folder / Path("EFI/BOOT/BOOTx64.efi")
-        else:
-            path_oc_loader = self.constants.opencore_release_folder / Path("System/Library/CoreServices/boot.efi")
-        shutil.move(path_oc_loader, self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers/Product.efi"))
-        shutil.copy(self.constants.diags_launcher_path, self.constants.opencore_release_folder)
-        shutil.move(self.constants.opencore_release_folder / Path("diags.efi"), self.constants.opencore_release_folder / Path("boot.efi"))
+        else: # behebt einen Fehler, indem e4K/5K Display patches ohne Bedingung injiziert wurde. Einen Angreifer könnte davon ausnutzen, um 4K/5K Display-Patches auf die falsche Rechner zu injizieren, um DoS-Angriffe zu verursachen
+            logging.info("- Adding 4K/5K Display Patch")
+            # Set LauncherPath to '/boot.efi'
+            # This is to ensure that only the Mac's firmware presents the boot option, but not OpenCore
+            # https://github.com/acidanthera/OpenCorePkg/blob/0.7.6/Library/OcAppleBootPolicyLib/OcAppleBootPolicyLib.c#L50-L73
+            self.config["Misc"]["Boot"]["LauncherPath"] = "\\boot.efi"
+    
+            # Setup diags.efi chainloading
+            Path(self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers")).mkdir(parents=True, exist_ok=True)
+            if self.constants.boot_efi is True:
+                path_oc_loader = self.constants.opencore_release_folder / Path("EFI/BOOT/BOOTx64.efi")
+            else:
+                path_oc_loader = self.constants.opencore_release_folder / Path("System/Library/CoreServices/boot.efi")
+            shutil.move(path_oc_loader, self.constants.opencore_release_folder / Path("System/Library/CoreServices/.diagnostics/Drivers/HardwareDrivers/Product.efi"))
+            shutil.copy(self.constants.diags_launcher_path, self.constants.opencore_release_folder)
+            shutil.move(self.constants.opencore_release_folder / Path("diags.efi"), self.constants.opencore_release_folder / Path("boot.efi"))
+    

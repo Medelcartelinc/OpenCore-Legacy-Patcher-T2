@@ -24,12 +24,17 @@ class RoutePayloadDiskImage:
         # POSIX path - see subprocess_wrapper.applescript_icon_clause() for why the
         # previous HFS conversion never resolved.
         self.icon_path = self.constants.app_icon_path
+        subprocess_wrapper.set_admin_prompt_icon(self.icon_path)
 
         self._setup_tmp_disk_image()
 
-    def _request_admin_password(self) -> str:
-        """Prompt for the local administrator password. See subprocess_wrapper.request_admin_password()."""
-        return subprocess_wrapper.request_admin_password(self.icon_path)
+    def _request_admin_password(self, message: str = subprocess_wrapper.ADMIN_PASSWORD_PROMPT_MESSAGE) -> str:
+        """Prompt for the local administrator password. See subprocess_wrapper.request_admin_password().
+
+        Only reached when the session has no cached password yet - subprocess_wrapper
+        asks once and reuses the answer for every later privileged step (Issue #356).
+        """
+        return subprocess_wrapper.request_admin_password(self.icon_path, message=message)
 
 
     def _setup_tmp_disk_image(self) -> None:

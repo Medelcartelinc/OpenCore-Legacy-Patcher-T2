@@ -34,10 +34,14 @@ class UpdateFrame(wx.Frame):
         logging.info("Initializing Update Frame")
         
         # Handle the parent/child UI logic after the super-class is initialized
+        self.parent: wx.Frame = parent
+        # Remember which children were actually visible before hiding them, so a
+        # cancelled update restores exactly that state instead of un-hiding widgets
+        # that were deliberately hidden by the caller.
+        self._hidden_children: list = []
         if parent:
-            self.parent: wx.Frame = parent
-
-            for child in self.parent.GetChildren():
+            self._hidden_children = [child for child in parent.GetChildren() if child.IsShown()]
+            for child in self._hidden_children:
                 child.Hide()
             parent.Hide()
         else:
@@ -113,7 +117,7 @@ class UpdateFrame(wx.Frame):
 
         file_name = "OpenCore-Patcher.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg"
         download_obj = network_handler.DownloadObject(self.url, self.constants.payload_path / file_name)
-        gui_download.DownloadFrame(
+        download_frame = gui_download.DownloadFrame(
             self.frame,
             title=self.title,
             global_constants=self.constants,
@@ -123,7 +127,16 @@ class UpdateFrame(wx.Frame):
         )
 
         if download_obj.download_complete is not True:
-            logging.error("It failed to download the update")
+            # Neither a cancelled nor a failed download is a reason to quit: nothing
+            # has been changed on disk, so hand control back to the window we came
+            # from. DownloadFrame already reported genuine errors to the user.
+            if download_frame.user_cancelled:
+                logging.info("User cancelled the update download, returning")
+            else:
+                logging.error("It failed to download the update")
+            if self._return_to_parent():
+                return
+            # Parentless updater (auto patcher path): nothing to return to.
             sys.exit(3)
 
         self.frame.Centre()
@@ -172,6 +185,39 @@ class UpdateFrame(wx.Frame):
     # ATOMIC MAIN-THREAD UI MUTATORS (Prevents race conditions / split events)
     # =========================================================================
 
+    def _return_to_parent(self) -> bool:
+        """
+        Tear the updater down and restore the window it was launched from.
+
+        Returns False if there is nothing to go back to (updater started without a
+        parent frame); the caller then has to handle termination itself.
+        """
+        if not self.parent:
+            return False
+
+        try:
+            self.progress_bar_animation.stop_pulse()
+        except RuntimeError:
+            pass
+        if self.exit_timer.IsRunning():
+            self.exit_timer.Stop()
+
+        for child in self._hidden_children:
+            try:
+                child.Show()
+            except RuntimeError:
+                continue
+        try:
+            self.parent.Show()
+            self.parent.Raise()
+        except RuntimeError:
+            # Parent went away while we were updating - nothing left to return to.
+            return False
+
+        wx.CallAfter(self.frame.Destroy)
+        wx.CallAfter(self.Destroy)
+        return True
+
     def _update_status_label(self, message: str) -> None:
         """Safely alters text components atomically on the main thread."""
         self.title_label.SetLabel(message)
@@ -190,6 +236,13 @@ class UpdateFrame(wx.Frame):
         self.progress_bar_animation.stop_pulse()
         self.progress_bar.Hide()
             
+        # A cancelled install (user dismissed the admin prompt) leaves the system
+        # untouched, so return to the main menu instead of taking the app down.
+        if is_cancelled and self._return_to_parent():
+            logging.info("Aktualisierung abgebrochen, zurueck zum Hauptmenue")
+            logging.info("Update cancelled, returning to the main menu")
+            return
+
         logging.info("Die App wird geschlossen")
         logging.info("Closing the app")
         sys.exit(3)

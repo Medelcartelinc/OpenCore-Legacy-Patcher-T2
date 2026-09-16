@@ -64,7 +64,7 @@ class BuildSecurity:
         self.computer: device_probe.Computer = self.constants.computer
         
         # ── Global Hardware & OS Targets Scopes ───────────────────────
-        self.is_tahoe_target: bool = False
+        self.is_tahoe_target: bool = (self.constants.detected_os >= os_data.os_data.tahoe)
         self.is_ice_lake: bool = (self.model == "MacBookAir9,1")
         self.is_mac_mini: bool = (self.model == "Macmini8,1")
 
@@ -136,9 +136,7 @@ class BuildSecurity:
 
     def _is_t2_mac(self) -> bool:
         """Return True if the current model has a T2 security chip."""
-        if self.model in model_array.T2Macs:
-            return True
-        return "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
+        return utilities.is_t2_mac(self.model, self.constants)
 
     def _requires_t2_graphics_injection(self) -> bool:
         """Return True if this T2 model needs Intel graphics injection."""
@@ -151,23 +149,6 @@ class BuildSecurity:
     def _t2_uses_amfipass(self) -> bool:
         """T2 builds enable AMFIPass in misc._t2_handling (runs after security)."""
         return True # Restored for Tahoe AMFI stall mitigation
-
-    def _apply_t2_amfi_boot_args(self, apple_nvram_uuid: str) -> None:
-        """Apply AMFI-related boot-args based on user path validation."""
-        if self._t2_uses_amfipass():
-            logging.info("  > T2 target utilizes AMFIPass layer. Injecting validated Tahoe storage bypasses.")
-            self._update_nvram_string(apple_nvram_uuid, "boot-args", (
-                "-amfipassbeta cs_allow_invalid=1 cs_unrestricted_cs=1 cs_debug=1 io=0xffffffff"
-            ))
-            return
-
-        # Fallback if AMFIPass pathing is completely stripped
-        existing = self._read_nvram_string(apple_nvram_uuid, "boot-args")
-        if "amfi=0x80" not in existing:
-            logging.warning("  > AMFIPass bypassed. Falling back to amfi=0x80 absolute drop.")
-            self._update_nvram_string(apple_nvram_uuid, "boot-args", (
-                "amfi=0x80 amfi_get_out_of_my_way=1 cs_debug=1 io=0xffffffff"
-            ))
 
     # ------------------------------------------------------------------
     # Graphics injection helpers
@@ -238,9 +219,14 @@ class BuildSecurity:
                 logging.info("  > Appended LP display sync flags safely.")
     
             elif self.model in _T2_UHD630_MODELS:
-                logging.info(f"- {self.model}: Injecting connector-less UHD630 DeviceProperties (Tahoe fix)")
-                gfx["AAPL,ig-platform-id"] = binascii.unhexlify("06009B3E")  # 0x3E9B0006 LE
-                gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
+                if self.is_mac_mini:
+                    logging.info(f"- {self.model}: Injecting desktop UHD630 DeviceProperties (Tahoe fix)")
+                    gfx["AAPL,ig-platform-id"] = binascii.unhexlify("07009B3E")  # 0x3E9B0007 LE
+                    gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
+                else:
+                    logging.info(f"- {self.model}: Injecting connector-less UHD630 DeviceProperties (Tahoe fix)")
+                    gfx["AAPL,ig-platform-id"] = binascii.unhexlify("06009B3E")  # 0x3E9B0006 LE
+                    gfx["device-id"]           = binascii.unhexlify("9B3E0000")  # 0x3E9B0000 LE
             else:
                 logging.error(f"FATAL: Model {self.model} lacks specific GPU patch data.")
                 sys.exit(3)
@@ -249,10 +235,10 @@ class BuildSecurity:
             try:
                 gfx["framebuffer-patch-enable"] = binascii.unhexlify("01000000")
                 
-                if self.model in _T2_UHD630_MODELS:
+                if self.model in _T2_UHD630_MODELS and not self.is_mac_mini:
                     # Connector-less ig-platform-id (0x3E9B0006) has no connectors defined,
                     # so con0 must stay in headless isolation for ALL UHD630 T2 models —
-                    # this includes Macmini8,1 (no dGPU) as well as the MBP15/16 models (dGPU present).
+                    # this includes the MBP15/16 models (dGPU present).
                     gfx["framebuffer-con0-enable"]  = binascii.unhexlify("01000000")
                     gfx["framebuffer-con0-type"]    = binascii.unhexlify("00000000")  
                     logging.info(f"  > {self.model}: Enforced strict headless isolation structure on con0 (connector-less platform-id)")
@@ -265,8 +251,6 @@ class BuildSecurity:
                     gfx["framebuffer-con0-type"]    = binascii.unhexlify("00040000")  
                     logging.info(f"  > {self.model}: Standard physical connector mapping applied")
     
-                gfx["framebuffer-stolenmem"]    = binascii.unhexlify("00003001")  
-                gfx["framebuffer-fbmem"]        = binascii.unhexlify("00009000")  
                 logging.info("  > T2 iGPU configuration parameters applied successfully.")
                 
             except Exception as e:
@@ -289,7 +273,6 @@ class BuildSecurity:
             self.config["Misc"]["Security"]["ApECID"]          = 0
     
             # FIX: Keyword-Typo korrigiert
-            self._apply_t2_amfi_boot_args(apple_nvram_uuid)
             self._update_nvram_string(apple_nvram_uuid, "boot-args", "ipc_control_port_options=0 -v keepsyms=1 nvme_shutdown_timestamp=0")
     
     # ------------------------------------------------------------------
@@ -348,7 +331,7 @@ class BuildSecurity:
     
                 # 4. Scope graphics injection flags strictly to active valid targets
                 if self._requires_t2_graphics_injection():
-                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
+                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
     
                 # 5. Hard Structural Boundaries Pass
                 logging.info("- Final T2 verification pass (Enforcing absolute boundaries)")

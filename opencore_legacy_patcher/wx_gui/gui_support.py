@@ -11,6 +11,7 @@ import plistlib
 import threading
 import subprocess
 import os
+import functools
 import webbrowser
 import applescript
 import packaging.version
@@ -245,6 +246,16 @@ def detach_text_box_log_handlers() -> None:
 _active_pulses: set = set()
 
 
+@functools.lru_cache(maxsize=1)
+def _host_has_metal_device() -> bool:
+    try:
+        import Metal
+        return Metal.MTLCreateSystemDefaultDevice() is not None
+    except Exception as error:
+        logging.debug(f"Could not query Metal device, assuming Metal is available: {error}")
+        return True
+
+
 def stop_all_pulses() -> None:
     """
     Stops every currently-running gauge pulse thread. Called from
@@ -312,14 +323,39 @@ class GaugePulseCallback:
 
         self.max_value: int = gauge.GetRange()
 
-        self.non_metal_alternative: bool = CheckProperties(global_constants).host_is_non_metal()
-        if self.non_metal_alternative is True:
-            if CheckProperties(global_constants).host_psp_version() >= packaging.version.Version("1.1.2"):
-                self.non_metal_alternative = False
+        self.non_metal_alternative: bool = self._needs_manual_animation(global_constants)
+
+
+    @staticmethod
+    def _needs_manual_animation(global_constants: constants.Constants) -> bool:
+        """
+        Whether the native indeterminate animation (wx.Gauge.Pulse()) stays frozen on this host.
+
+        Two cases:
+        - Root-patched non-Metal Macs (SkyLightOld present): only broken with
+          PatcherSupportPkg older than 1.1.2, newer stubs animate natively.
+        - Hosts without any Metal device that were never non-Metal patched, most
+          notably VMware VMs: host_is_non_metal() keys off SkyLightOld and so never
+          fired there, Pulse() was used and the "Fetching patches" bar sat still.
+          host_is_non_metal() itself is left untouched, since other UI (patch
+          options) relies on it meaning "non-Metal root patches are installed".
+        """
+        properties = CheckProperties(global_constants)
+        if properties.host_is_non_metal():
+            return properties.host_psp_version() < packaging.version.Version("1.1.2")
+
+        if global_constants.detected_os < os_data.os_data.monterey:
+            return False
+
+        if global_constants.host_is_vmware_vm is True:
+            return True
+
+        return not properties.host_has_metal_device()
 
 
     def start_pulse(self) -> None:
         if self.non_metal_alternative is False:
+            _enable_threaded_gauge_animation(self.gauge)
             self.gauge.Pulse()
             return
         self.pulse_thread_active = True
@@ -498,6 +534,13 @@ class CheckProperties:
 
         return True
 
+    def host_has_metal_device(self) -> bool:
+        """
+        Whether macOS exposes a Metal device on this host (result cached per process).
+        Fails open (True) if Metal cannot be queried, keeping the native animation.
+        """
+        return _host_has_metal_device()
+
     def host_is_solarium(self) -> bool:
         """
         Check if running on macOS 26, and if Solarium refresh is enabled
@@ -658,17 +701,93 @@ class ThreadHandler(logging.Handler):
         logging.getLogger().removeHandler(self)
 
 
+# GIL switch interval used while the main thread waits on a worker (see wait_for_thread()).
+WAIT_SWITCH_INTERVAL = 0.0005
+
+
+def _enable_threaded_gauge_animation(gauge: wx.Gauge) -> None:
+    """
+    Let AppKit animate the native indeterminate bar off the main thread.
+
+    wxOSX never sets usesThreadedAnimation on its NSProgressIndicator, so the
+    Pulse() animation is driven by a main-thread run loop timer. While a worker
+    runs, the main thread sits in wait_for_thread() and that timer barely fires,
+    so the bar stuttered or stood still even on Metal GPUs. Best effort only:
+    any failure leaves the default behaviour in place.
+    """
+    try:
+        import objc
+        handle = gauge.GetHandle()
+        if not handle:
+            return
+        view = objc.objc_object(c_void_p=handle)
+        if view.respondsToSelector_("setUsesThreadedAnimation:"):
+            view.setUsesThreadedAnimation_(True)
+    except Exception as error:
+        logging.debug(f"Could not enable threaded gauge animation: {error}")
+
+
+def _spin_cocoa_run_loop(thread: threading.Thread, interval: float) -> bool:
+    """
+    Run the main NSRunLoop for up to 'interval' seconds, returning early once 'thread' ends.
+
+    Unlike thread.join(), this keeps run loop timers and Core Animation commits
+    (native progress bar animation, among others) going while we wait.
+    Returns False if the run loop can't be used, so the caller can fall back.
+    """
+    try:
+        from Foundation import NSRunLoop, NSDate, NSDefaultRunLoopMode  # type: ignore # pylint: disable=no-name-in-module
+    except Exception:
+        return False
+
+    run_loop = NSRunLoop.currentRunLoop()
+    deadline = time.monotonic() + interval
+    while thread.is_alive():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        # Short slices so a finished worker is noticed promptly; returns early
+        # whenever a source fires. False means no input sources are attached,
+        # in which case it would return immediately and busy-loop.
+        slice_length = min(remaining, 0.02)
+        if not run_loop.runMode_beforeDate_(NSDefaultRunLoopMode, NSDate.dateWithTimeIntervalSinceNow_(slice_length)):
+            return False
+    return True
+
+
 def wait_for_thread(thread: threading.Thread, sleep_interval=None):
     """
     Waits for a thread to finish while processing UI events at regular intervals
     to prevent UI freezing and excessive CPU usage.
+
+    Between wx.Yield() calls the main run loop keeps running (see
+    _spin_cocoa_run_loop()) instead of blocking in thread.join(), otherwise
+    native animations such as wx.Gauge.Pulse() freeze while the worker runs.
     """
     # Use the passed sleep_interval, or get from global_constants
     interval = sleep_interval if sleep_interval is not None else constants.Constants().thread_sleep_interval
 
-    while thread.is_alive():
-        wx.Yield()
-        thread.join(timeout=interval)
+    use_run_loop = wx.IsMainThread()
+
+    # Every time the main thread comes back from native code (run loop slice,
+    # wx.Yield(), wx's idle observer calling into Python) it has to win the GIL
+    # back from the worker. With CPython's default 5 ms switch interval that is
+    # ~5 ms per hand-off, which is enough to drop animation frames: the progress
+    # bar ran, but visibly stuttered. A shorter interval while we wait keeps the
+    # hand-off well below a frame; the previous value is restored afterwards
+    # (nested waits restore in reverse order).
+    previous_switch_interval = sys.getswitchinterval()
+    if use_run_loop:
+        sys.setswitchinterval(min(previous_switch_interval, WAIT_SWITCH_INTERVAL))
+    try:
+        while thread.is_alive():
+            wx.Yield()
+            if use_run_loop and _spin_cocoa_run_loop(thread, interval):
+                continue
+            use_run_loop = False
+            thread.join(timeout=interval)
+    finally:
+        sys.setswitchinterval(previous_switch_interval)
 
 
 class RestartHost:

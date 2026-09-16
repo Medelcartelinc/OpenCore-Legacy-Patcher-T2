@@ -186,7 +186,7 @@ class PatcherValidation:
         shadow_path = self.constants.payload_path / "Universal-Binaries_overlay"
 
         if not dmg_path.exists():
-            url = f"https://github.com/albert-mueller/PatcherSupportPkg/download/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
+            url = f"{self.constants.url_patcher_support_pkg}{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
             dl_obj = network_handler.DownloadObject(url, str(dmg_path))
             dl_obj.download(spawn_thread=False)
             if not dl_obj.download_complete:
