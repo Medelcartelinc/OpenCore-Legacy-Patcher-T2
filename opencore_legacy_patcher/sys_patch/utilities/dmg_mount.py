@@ -26,10 +26,15 @@ class PatcherSupportPkgMount:
         # AppleScript reads as a volume name, so it never resolved - see
         # subprocess_wrapper.applescript_icon_clause().
         self.icon_path = self.constants.app_icon_path
+        subprocess_wrapper.set_admin_prompt_icon(self.icon_path)
 
-    def _request_admin_password(self) -> str:
-        """Prompt for the local administrator password. See subprocess_wrapper.request_admin_password()."""
-        return subprocess_wrapper.request_admin_password(self.icon_path)
+    def _request_admin_password(self, message: str = subprocess_wrapper.ADMIN_PASSWORD_PROMPT_MESSAGE) -> str:
+        """Prompt for the local administrator password. See subprocess_wrapper.request_admin_password().
+
+        Only reached when the session has no cached password yet - subprocess_wrapper
+        asks once and reuses the answer for every later privileged step (Issue #356).
+        """
+        return subprocess_wrapper.request_admin_password(self.icon_path, message=message)
 
     def _run_hdiutil(self, dmg_path: Path, mount_point: Path, shadow_path: Path = None, password: str = None, retry_on_auth_error: bool = False) -> subprocess.CompletedProcess:
         """Helper to standardize hdiutil execution using -stdinpass, with elevation on failure"""
