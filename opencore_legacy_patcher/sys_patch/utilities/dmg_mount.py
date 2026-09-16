@@ -9,13 +9,17 @@ import applescript
 import sys
 from pathlib import Path
 from ... import constants
-from ...support import subprocess_wrapper
+from ...support import subprocess_wrapper, network_handler
 
 
 # Fixed passphrase Universal-Binaries.dmg is built with. Not a secret: it ships with
 # the image and only keeps the payload opaque to Finder/Spotlight, so feeding it to
 # hdiutil ourselves loses nothing and spares the user an unexplained system prompt.
 UNIVERSAL_BINARIES_PASSPHRASE = "password"
+
+# Anything smaller cannot be the real image (~750 MB) - typically an HTTP error
+# page or a download that was interrupted before the rename below.
+MINIMUM_UNIVERSAL_BINARIES_SIZE = 1024 * 1024
 
 class PatcherSupportPkgMount:
 
@@ -84,8 +88,7 @@ class PatcherSupportPkgMount:
     def _mount_universal_binaries_dmg(self) -> bool:
         """Mount PatcherSupportPkg's Universal-Binaries.dmg"""
         dmg_path = Path(self.constants.payload_local_binaries_root_path_dmg)
-        if not dmg_path.exists():
-            logging.error("- PatcherSupportPkg resources missing, Patcher likely corrupted!!!")
+        if not self._ensure_universal_binaries_dmg(dmg_path):
             return False
 
         mount_point = Path(self.constants.payload_path / "Universal-Binaries")
@@ -118,6 +121,62 @@ class PatcherSupportPkgMount:
                 return False
 
         logging.info("- Mounted Universal-Binaries.dmg")
+        return True
+
+    def _ensure_universal_binaries_dmg(self, dmg_path: Path) -> bool:
+        """Make sure Universal-Binaries.dmg is present before trying to mount it.
+
+        The image is not tracked in git (see .gitignore) - it only lands next to the
+        sources when Build-Project.command runs its asset step. A plain clone started
+        via OpenCore-Patcher-GUI.command therefore never has it, and root patching
+        used to abort with "Patcher likely corrupted", which is misleading for a
+        source run. Fetch it on demand in that case, from the same release the build
+        script uses.
+
+        Packaged builds are left alone: there the image ships inside the signed app
+        bundle, writing into the bundle would break its signature, and a missing
+        image really does mean a damaged install.
+        """
+        if dmg_path.exists() and dmg_path.stat().st_size >= MINIMUM_UNIVERSAL_BINARIES_SIZE:
+            return True
+
+        if not self.constants.launcher_script:
+            logging.error("- PatcherSupportPkg resources missing, Patcher likely corrupted!!!")
+            logging.error(f"- Expected Universal-Binaries.dmg at: {dmg_path}")
+            logging.error("- Please re-download OpenCore Legacy Patcher T2 and try again.")
+            return False
+
+        if dmg_path.exists():
+            logging.info(f"- Discarding incomplete Universal-Binaries.dmg ({dmg_path.stat().st_size} bytes)")
+            try:
+                dmg_path.unlink()
+            except OSError as error:
+                logging.error(f"- Could not remove incomplete Universal-Binaries.dmg: {error}")
+                return False
+
+        url = f"{self.constants.url_patcher_support_pkg.rstrip('/')}/{self.constants.patcher_support_pkg_version}/Universal-Binaries.dmg"
+        logging.info("- Universal-Binaries.dmg not found next to the sources (running from source)")
+        logging.info(f"- Downloading PatcherSupportPkg {self.constants.patcher_support_pkg_version}: {url}")
+
+        # Download under a temporary name and only rename once complete, so an
+        # aborted run never leaves a truncated image that looks valid next time.
+        partial_path = dmg_path.with_name(dmg_path.name + ".partial")
+        download = network_handler.DownloadObject(url, str(partial_path))
+        if not download.has_network:
+            logging.error("- No network connection, cannot download Universal-Binaries.dmg")
+            logging.error("- Connect to the internet, or run './Build-Project.command --run-as-individual-steps --prepare-assets' once, then try again.")
+            return False
+
+        download.download(spawn_thread=False)
+
+        if not download.download_complete or not partial_path.exists() \
+           or partial_path.stat().st_size < MINIMUM_UNIVERSAL_BINARIES_SIZE:
+            logging.error(f"- Failed to download Universal-Binaries.dmg: {download.error_msg or 'incomplete download'}")
+            partial_path.unlink(missing_ok=True)
+            return False
+
+        partial_path.replace(dmg_path)
+        logging.info("- Downloaded Universal-Binaries.dmg")
         return True
 
     def _mount_dortania_internal_resources_dmg(self) -> bool:
