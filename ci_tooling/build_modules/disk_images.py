@@ -24,6 +24,52 @@ class GenerateDiskImages:
         """
         self.reset_dmg_cache = reset_dmg_cache
 
+    def _detach_mounts_under(self, path: Path) -> None:
+        """
+        Detach any volume mounted at or below `path`.
+
+        If a previous build (or a crashed/interrupted run) left a disk image such as
+        Universal-Binaries.dmg attached inside payloads/, `rm -rf` fails with
+        "Resource busy" because macOS refuses to remove an active mount point.
+        """
+        target = str(path.resolve())
+        result = subprocess.run(["/sbin/mount"], capture_output=True, text=True)
+
+        mount_points = []
+        for line in result.stdout.splitlines():
+            # Format: /dev/disk4s1 on /path/to/mount (apfs, local, nodev, ...)
+            if " on " not in line or " (" not in line:
+                continue
+            mount_point = line.split(" on ", 1)[1].rsplit(" (", 1)[0]
+            if mount_point == target or mount_point.startswith(target + os.sep):
+                mount_points.append(mount_point)
+
+        # Fallback in case `mount` output could not be parsed
+        if not mount_points and os.path.ismount(target):
+            mount_points.append(target)
+
+        # Deepest mounts first, so nested volumes are released before their parents
+        for mount_point in sorted(set(mount_points), key=len, reverse=True):
+            rich.print(f"  - Detaching volume mounted at {mount_point}")
+            detach = subprocess.run(
+                ["/usr/bin/hdiutil", "detach", mount_point],
+                capture_output=True, text=True
+            )
+            if detach.returncode == 0:
+                continue
+
+            # Finder/Spotlight may still hold the volume open, force it
+            detach = subprocess.run(
+                ["/usr/bin/hdiutil", "detach", mount_point, "-force"],
+                capture_output=True, text=True
+            )
+            if detach.returncode != 0:
+                raise Exception(
+                    f"Failed to detach {mount_point}, cannot delete {path}: "
+                    f"{(detach.stderr or detach.stdout).strip()}\n"
+                    f"Detach it manually with: sudo hdiutil detach \"{mount_point}\" -force"
+                )
+
     def _delete_extra_binaries(self):
         """
         Delete extra binaries from payloads directory
@@ -48,6 +94,7 @@ class GenerateDiskImages:
                 if file.name in whitelist_folders:
                     continue
                 rich.print(f"- Deleting {file.name}")
+                self._detach_mounts_under(file)
                 subprocess_wrapper.run_and_verify(["/bin/rm", "-rf", file])
             else:
                 if file.name in whitelist_files:

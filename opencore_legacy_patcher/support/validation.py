@@ -2,6 +2,7 @@
 validation.py: Validation class for the patcher
 """
 
+import os
 import logging
 import subprocess
 import shutil
@@ -173,12 +174,21 @@ class PatcherValidation:
         overlay_path = self.constants.payload_path / "Universal-Binaries_overlay"
         mount_path = self.constants.payload_path / "Universal-Binaries"
 
-        # SECURITY: pathlib.unlink is safer than subprocess rm
-        if overlay_path.exists():
-            overlay_path.unlink(missing_ok=True)
+        # Detach BEFORE removing the shadow file: the shadow is still in use by the
+        # attached image. A failed detach was previously ignored silently, leaving
+        # payloads/Universal-Binaries mounted, which later broke the build with
+        # "rm: payloads/Universal-Binaries: Resource busy".
+        if os.path.ismount(mount_path):
+            result = subprocess.run(["/usr/bin/hdiutil", "detach", str(mount_path)], capture_output=True, check=False)
+            if result.returncode != 0:
+                result = subprocess.run(["/usr/bin/hdiutil", "detach", str(mount_path), "-force"], capture_output=True, check=False)
+            if result.returncode != 0:
+                subprocess_wrapper.log(result)
+                logging.error(f"Failed to detach {mount_path}, it is still mounted. Run: sudo hdiutil detach \"{mount_path}\" -force")
 
-        if mount_path.exists():
-            subprocess.run(["/usr/bin/hdiutil", "detach", str(mount_path), "-force"], capture_output=True, check=False)
+        # SECURITY: pathlib.unlink is safer than subprocess rm
+        if overlay_path.exists() and not os.path.ismount(mount_path):
+            overlay_path.unlink(missing_ok=True)
 
     def _validate_sys_patch(self) -> None:
         dmg_path = Path(self.constants.payload_local_binaries_root_path_dmg)
