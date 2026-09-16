@@ -36,7 +36,7 @@ class APFSSnapshot:
             return True
 
         args = ["/usr/sbin/bless"]
-        if platform.machine() == "arm64" or self._rosetta_status() is True:
+        if platform.machine() == "arm64" or self._rosetta_status() is True or self.xnu_major >= os_data.os_data.sequoia.value:
             args += ["--mount", self.mount_path, "--create-snapshot"]
         else:
             args += ["--folder", f"{self.mount_path}/System/Library/CoreServices", "--bootefi", "--create-snapshot"]
