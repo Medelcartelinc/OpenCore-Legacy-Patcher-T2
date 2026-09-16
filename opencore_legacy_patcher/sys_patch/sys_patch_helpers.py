@@ -105,6 +105,51 @@ class SysPatchHelpers:
             raise Exception(f"Failed to patch AppleIntelSNBGraphicsFB.kext: {e}")
 
 
+    def tahoe_applehda_patch(self, mount_location: str):
+        """
+        Patch AppleHDAController.kext already installed on the system volume to replace
+        the removed `ml_cpu_int_event_time` symbol with `mach_absolute_time`, then
+        re-sign it ad-hoc so kmutil can include it in the Boot/System kernel collection.
+
+        Parameters:
+            mount_location (str): Mount point of the patched system volume (e.g. /System/Volumes/Update/mnt1)
+        """
+        installed_path = Path(mount_location) / Path("System/Library/Extensions/AppleHDA.kext/Contents/PlugIns/AppleHDAController.kext/Contents/MacOS/AppleHDAController")
+
+        if not installed_path.exists():
+            logging.info("- AppleHDA Tahoe patch: AppleHDAController not found on system volume, skipping")
+            return
+
+        data = installed_path.read_bytes()
+        if b"_ml_cpu_int_event_time\0" not in data:
+            logging.info("- AppleHDA Tahoe patch: symbol already patched or not present, skipping")
+            return
+
+        logging.info("- Applying macOS Tahoe AppleHDAController binary patch (ml_cpu_int_event_time -> mach_absolute_time)")
+        try:
+            patched = data.replace(b"_ml_cpu_int_event_time\0", b"_mach_absolute_time\0\0\0\0")
+            installed_path.write_bytes(patched)
+        except (OSError, IOError) as e:
+            logging.error(f"- Failed to patch AppleHDAController binary: {e}")
+            logging.exception("Stack Trace:")
+            raise Exception(f"Failed to patch AppleHDAController.kext: {e}")
+
+        # Re-sign the kext ad-hoc so kmutil does not reject it during kernel cache rebuild
+        kext_bundle = installed_path.parent.parent.parent
+        logging.info(f"- Re-signing {kext_bundle.name} with ad-hoc signature")
+        try:
+            result = subprocess_wrapper.run_as_root(
+                ["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none", str(kext_bundle)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+            if result.returncode != 0:
+                output = result.stdout.decode(errors="replace").strip() if result.stdout else ""
+                logging.warning(f"- codesign returned non-zero ({result.returncode}): {output}")
+        except Exception as e:
+            logging.warning(f"- codesign failed (non-fatal): {e}")
+
+
+
     def generate_patchset_plist(self, patchset: dict, file_name: str, kdk_used: Path, metallib_used: Path):
         """
         Generate patchset file for user reference
