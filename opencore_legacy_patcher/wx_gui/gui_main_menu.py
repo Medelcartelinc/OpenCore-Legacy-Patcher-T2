@@ -328,12 +328,15 @@ class MainFrame(wx.Frame):
             # would put us right back into the dead-frame callback problem.
             return
 
-        # Automatic update checks at startup are disabled in this fork
-        # to prevent overwriting T1 experimental features with upstream generic builds.
-        # self.update_thread = threading.Thread(target=self._check_for_updates)
-        # self.update_thread.daemon = True
-        # self.update_thread.start()
-        # self.constants.update_thread = self.update_thread
+        self.update_thread = threading.Thread(target=self._check_for_updates)
+        self.update_thread.daemon = True
+        self.update_thread.start()
+        # Also tracked on constants (not just this frame) so PatcherApp.OnExit()
+        # can join it at quit the same way it already does for unpack_thread/
+        # analytics_thread - this frame instance itself may already be gone by
+        # then (the app keeps destroying and recreating MainFrame as the user
+        # navigates), but constants persists for the whole process lifetime.
+        self.constants.update_thread = self.update_thread
 
     def _check_for_updates(self, manual: bool = False):
         if manual is False and self.constants.has_checked_updates is True:
