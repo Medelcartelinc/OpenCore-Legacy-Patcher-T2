@@ -89,7 +89,7 @@ class StartAutomaticPatching:
                 logging.info("- No new binaries found on Github, proceeding with patching")
 
                 warning_str = ""
-                if network_handler.NetworkUtilities("https://api.github.com/repos/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/latest").verify_network_connection() is False:
+                if network_handler.NetworkUtilities(self.constants.update_releases_api_url).verify_network_connection() is False:
                     warning_str = f"""\n\nWARNING: We're unable to verify whether there are any new releases of OpenCore Legacy Patcher T2 on Github. Be aware that you may be using an outdated version for this OS. If you're unsure, verify on Github that OpenCore Legacy Patcher T2 {subprocess_wrapper.applescript_quote(self.constants.patcher_version)} is the latest official release"""
 
                 args = [
@@ -183,7 +183,7 @@ class StartAutomaticPatching:
         # updates.py picks the highest version across /releases (pre-releases
         # included), so /releases/latest can point at a different release than
         # the one we are offering. Match the tag instead of assuming "latest".
-        api_url = self.constants.repo_link.replace("https://github.com/", "https://api.github.com/repos/").strip("/") + "/releases"
+        api_url = self.constants.update_releases_api_url
 
         try:
             response = network_handler.NetworkUtilities().get(

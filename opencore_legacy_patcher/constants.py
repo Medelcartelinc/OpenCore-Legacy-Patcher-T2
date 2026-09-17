@@ -33,6 +33,26 @@ class Constants:
         self.guide_link:                      str = "https://dortania.github.io/OpenCore-Legacy-Patcher/"
         self.repo_link:                       str = "https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/"
 
+        # Update channels (Settings > App > "Update Channel")
+        # Decide which GitHub repository the in-app updater pulls releases from.
+        # repo_link above stays the official project link (issues, discussions,
+        # installer pkg); only the updater follows update_repo_link.
+        # The channel key is persisted in the settings plist, which is user-writable
+        # - anything that is not a key of this dict falls back to "official", so the
+        # plist can never point the updater at an arbitrary URL.
+        self.update_channels: dict = {
+            "official": {
+                "label": "Official (T2)",
+                "repo":  "https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/",
+            },
+            "medelcartelinc": {
+                "label": "Medelcartelinc (Fork)",
+                "repo":  "https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2/",
+            },
+        }
+        self.update_channel:           str = "official"  # Channel selected in the GUI
+        self.installed_update_channel: str = "official"  # Channel the installed build was last updated from
+
         self.custom_installer_url:            str = "https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2"
         self.custom_installer_version=self.patcher_version
         self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
@@ -961,6 +981,39 @@ class Constants:
     @property
     def patcher_name(self) -> str: # sollte hier niemals T1 returnen, sonst es würde den Patcher selbst verwirren
         return "OpenCore Legacy Patcher T2"
+
+    @property
+    def update_repo_link(self) -> str:
+        """
+        GitHub repository of the currently selected update channel
+        (unknown channel keys fall back to the official repository)
+        """
+        channel = self.update_channels.get(self.update_channel) or self.update_channels["official"]
+        return channel["repo"]
+
+    @property
+    def update_releases_api_url(self) -> str:
+        """
+        GitHub API /releases endpoint of the selected update channel
+        """
+        return self.update_repo_link.replace("https://github.com/", "https://api.github.com/repos/").strip("/") + "/releases"
+
+    @property
+    def update_channel_label(self) -> str:
+        channel = self.update_channels.get(self.update_channel) or self.update_channels["official"]
+        return channel["label"]
+
+    @property
+    def update_channel_switch_pending(self) -> bool:
+        """
+        True when the user picked a different channel than the one the
+        installed build came from. Version numbers of two different
+        repositories are not comparable, so the updater then offers the
+        channel's newest release even if its version number is lower.
+        """
+        selected  = self.update_channel if self.update_channel in self.update_channels else "official"
+        installed = self.installed_update_channel if self.installed_update_channel in self.update_channels else "official"
+        return selected != installed
 
     @property
     def patcher_full_name(self) -> str:

@@ -19,7 +19,8 @@ from ..wx_gui import (
 from ..support import (
     network_handler,
     updates,
-    subprocess_wrapper
+    subprocess_wrapper,
+    global_settings
 )
 
 
@@ -329,6 +330,14 @@ class UpdateFrame(wx.Frame):
                 wx.CallAfter(self._handle_fatal_failure, fallback_msg, "Critical Error!")
             
             sys.exit(1)
+
+        # Installed successfully - the running build now belongs to the selected
+        # update channel, so later checks compare versions normally again.
+        try:
+            self.constants.installed_update_channel = self.constants.update_channel
+            global_settings.GlobalEnviromentSettings().write_property("UpdateChannelInstalled", self.constants.update_channel)
+        except Exception as e:
+            logging.error(f"Failed to store installed update channel: {e}")
 
     def _launch_update(self) -> None:
         # Same reasoning as pkg_download_path above: an upstream Dortania nightly
