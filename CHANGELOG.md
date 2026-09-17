@@ -1,5 +1,10 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## 4.0.0.180010.4 - 4.0.0 alpha 18.10.4
+This version introduces the option to change the update channel to Matteo's fork instead for the users who are using their fork, or simply want to switch to that fork and try out:
+<img width="1080" height="1920" alt="Untitled - 17  September 2026 um 20 16 58" src="https://github.com/user-attachments/assets/f2f83c7a-1904-4e5d-aa39-746da7664e6e" />
+However, by default it will be always the main project.
+
 ## 4.0.0.180010.3 - 4.0.0 alpha 18.10.3
 This release contains only application bug fixes and mitigation against critical security vulnerabilities. This release:
 - reduces the number of prompts for passwords
