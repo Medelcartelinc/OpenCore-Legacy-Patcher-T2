@@ -41,8 +41,20 @@ class UpdateFrame(wx.Frame):
         # that were deliberately hidden by the caller.
         self._hidden_children: list = []
         if parent:
-            self._hidden_children = [child for child in parent.GetChildren() if child.IsShown()]
-            for child in self._hidden_children:
+            visible_children = [child for child in parent.GetChildren() if child.IsShown()]
+            # Only plain widgets get hidden and restored later. Top-level windows owned
+            # by the parent (e.g. the Settings sheet the manual "Check for updates"
+            # came from) must not be re-shown with Show(): a window-modal sheet comes
+            # back as a detached window behind the main menu. The user left them by
+            # choosing to update, so close them for good - a cancelled update returns
+            # to the main menu, not to Settings.
+            for child in visible_children:
+                if isinstance(child, wx.TopLevelWindow):
+                    logging.info(f"Closing {child.__class__.__name__} '{child.GetTitle()}' before updating")
+                    child.Hide()
+                    wx.CallAfter(self._destroy_window, child)
+                    continue
+                self._hidden_children.append(child)
                 child.Hide()
             parent.Hide()
         else:
@@ -177,6 +189,14 @@ class UpdateFrame(wx.Frame):
     # =========================================================================
     # ATOMIC MAIN-THREAD UI MUTATORS (Prevents race conditions / split events)
     # =========================================================================
+
+    @staticmethod
+    def _destroy_window(window: wx.Window) -> None:
+        try:
+            window.Destroy()
+        except RuntimeError:
+            # Already gone (e.g. closed by its own code in the meantime)
+            pass
 
     def _return_to_parent(self) -> bool:
         """
