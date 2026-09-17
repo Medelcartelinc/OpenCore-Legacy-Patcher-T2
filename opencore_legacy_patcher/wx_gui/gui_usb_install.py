@@ -103,7 +103,7 @@ class InstallUSBFrame(wx.Frame):
             wx.CallAfter(self._update_choices)
             
         except Exception as e:
-            logging.error(f"Error scanning drives: {e}"
+            logging.error(f"Error scanning drives: {e}")
             self._append_log(f"Error scanning drives: {e}")
             wx.CallAfter(self.status_text.SetLabel, "Error scanning drives.")
 
