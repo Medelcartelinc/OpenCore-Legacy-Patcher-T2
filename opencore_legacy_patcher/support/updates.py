@@ -212,16 +212,17 @@ class CheckBinaryUpdates:
             logging.info("If this meessage appears even if it's not up to date, you should report this issue.")
             logging.info("For most pre-alpha versions, this behavior is normal because various versions are marked as pre-release.")
             return None
-        for asset in data_set["assets"]:
-            logging.info("A new version is available")
-            logging.info(f"Found asset: {asset['name']}")
-            if asset["name"] == "OpenCore-Patcher-T2.pkg":
-                self.latest_details = {
-                    "Name": asset["name"],
-                    "Version": latest_remote_version,
-                    "Link": asset["browser_download_url"],
-                    "Github Link": f"https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/{latest_remote_version}",
-                }
-                return self.latest_details
+        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Downgrade-Angriffen in Hintergrund ohne das Wissen von Benutzer zu starten
+            for asset in data_set["assets"]:
+                logging.info("A new version is available")
+                logging.info(f"Found asset: {asset['name']}")
+                if asset["name"] == "OpenCore-Patcher-T2.pkg":
+                    self.latest_details = {
+                        "Name": asset["name"],
+                        "Version": latest_remote_version,
+                        "Link": asset["browser_download_url"],
+                        "Github Link": f"https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/{latest_remote_version}",
+                    }
+                    return self.latest_details
 
         return None
