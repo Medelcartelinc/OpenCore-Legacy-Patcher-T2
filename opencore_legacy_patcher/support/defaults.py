@@ -164,13 +164,26 @@ class GenerateDefaults:
             self.constants.build_profile = global_settings.GlobalEnviromentSettings().read_property("GUI:oc_build")
             if self.constants.build_profile is None or self.constants.build_profile == "":
                 logging.info(f"No OC Default config provided, you will be prompted for one at build")
-                stored_auto_update = global_settings.GlobalEnviromentSettings().read_property("AllowAutoUpdates")
-                if stored_auto_update is not None:
-                    self.constants.auto_update = bool(stored_auto_update)
-                else:
-                    self.constants.auto_update = True
             else:
                 logging.info(f"Setting the OC Default build to \"{self.constants.build_profile}\"")
+
+        # "Turn Off Auto Updates" is visible to every user (Settings > Advanced),
+        # so its stored value must be restored independently of Developer Mode.
+        # Previously this was only read inside the Experimental_Features branch
+        # above, so the checkbox silently reset to "on" for everyone else.
+        stored_auto_update = global_settings.GlobalEnviromentSettings().read_property("AllowAutoUpdates")
+        self.constants.auto_update = bool(stored_auto_update) if stored_auto_update is not None else True
+
+        # Update channel - only known keys are accepted (see constants.update_channels)
+        for key, attribute in [("UpdateChannel", "update_channel"), ("UpdateChannelInstalled", "installed_update_channel")]:
+            stored_channel = global_settings.GlobalEnviromentSettings().read_property(key)
+            if stored_channel in [None, "", "None"]:
+                continue
+            if isinstance(stored_channel, str) and stored_channel in self.constants.update_channels:
+                setattr(self.constants, attribute, stored_channel)
+            else:
+                logging.error(f"Ignoring invalid {key} value in settings: {stored_channel!r}")
+        logging.info(f"Update channel: {self.constants.update_channel} (installed build from: {self.constants.installed_update_channel})")
 
         stored_snooze_updates = global_settings.GlobalEnviromentSettings().read_property("SnoozeUpdates")
         self.constants.snooze_updates = int(stored_snooze_updates) if stored_snooze_updates not in [None, "", "None"] else 0

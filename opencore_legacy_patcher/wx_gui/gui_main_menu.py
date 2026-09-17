@@ -356,40 +356,43 @@ class MainFrame(wx.Frame):
     
         remote_version_str = update_dict["Version"]
         local_version_str = self.constants.patcher_version
-    
-        try:
-            remote_v = version.parse(str(remote_version_str))
-            local_v = version.parse(local_version_str)
-    
-            if remote_v <= local_v:
-                logging.info(f"{self.constants.patcher_name} is up to date. (Local: {local_v} >= Remote: {remote_v})")
-                self._report_manual_check(manual, None, None)
-                return
-    
-        except version.InvalidVersion:
-            logging.info("The version is invalid, you'll not receive any further updates.")
-            if remote_version_str == local_version_str:
-                self._report_manual_check(manual, None, None)
-                return
-    
+        channel_switch = bool(update_dict.get("ChannelSwitch", False))
+
+        # A channel switch skips this comparison: versions of different repositories
+        # are not comparable, updates.py already made sure it's a different build.
+        if not channel_switch:
+            try:
+                remote_v = version.parse(str(remote_version_str))
+                local_v = version.parse(local_version_str)
+
+                if remote_v <= local_v:
+                    logging.info(f"{self.constants.patcher_name} is up to date. (Local: {local_v} >= Remote: {remote_v})")
+                    self._report_manual_check(manual, None, None)
+                    return
+
+            except version.InvalidVersion:
+                logging.info("The version is invalid, you'll not receive any further updates.")
+                if remote_version_str == local_version_str:
+                    self._report_manual_check(manual, None, None)
+                    return
+
         if getattr(self, 'exiting_app', False) or gui_support.is_app_exiting():
             return
         
         logging.info(f"Newer version detected: {remote_version_str}")
         
-        url = "https://api.github.com/repos/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/latest"
         changelog = """## Unable to fetch changelog\n\nPlease check the Github page for more information."""
-        # User-Agent auf Edge gesetzt statt einfach OpenCore-Legacy-Patcher-T2, um die API sicher zu laden und MitM-Angriffe zu vermeiden
-        try:
-            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0/OpenCoreLegacyPatcherT2"}, timeout=10).json()
-            if "body" in response:
-                changelog = response["body"].split("## Asset Information")[0]
-        except Exception as e:
-            logging.error(f"Failed to fetch changelog text: {e}")
+        # The release notes come from the same release (and the same update channel)
+        # updates.py picked - /releases/latest of the official repo could describe a
+        # completely different build than the one being offered.
+        if update_dict.get("Changelog"):
+            changelog = str(update_dict["Changelog"]).split("## Asset Information")[0]
 
         if not getattr(self, 'exiting_app', False) and not gui_support.is_app_exiting():
             self._report_manual_check(manual, str(remote_version_str), None)
-            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, manual)
+            # A channel switch can install a build with a lower version number, so it
+            # always goes through the confirmation dialog, never the silent auto-update.
+            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, manual or channel_switch, channel_switch)
         
     def _report_manual_check(self, manual: bool, new_version, error) -> None:
         """
@@ -431,7 +434,7 @@ class MainFrame(wx.Frame):
             wx.OK | wx.ICON_INFORMATION, self
         )
 
-    def on_update(self, oclp_url: str, oclp_version: str, oclp_github_url: str, changelog_text: str, manual: bool = False):
+    def on_update(self, oclp_url: str, oclp_version: str, oclp_github_url: str, changelog_text: str, manual: bool = False, channel_switch: bool = False):
         if not self or gui_support.is_app_exiting():
             return
         host_space = utilities.get_free_space()
@@ -465,8 +468,12 @@ class MainFrame(wx.Frame):
         frame.SetWindowStyle(wx.STAY_ON_TOP)
         panel = wx.Panel(frame)
         
-        self.title_text = wx.StaticText(panel, label=f"A new version of {self.constants.patcher_name} is available!")
-        self.description = wx.StaticText(panel, label=f"{self.constants.patcher_name} {oclp_version} is now available - You have {self.constants.patcher_version_label}. Would you like to update?")
+        if channel_switch:
+            self.title_text = wx.StaticText(panel, label=f"Switch to the {self.constants.update_channel_label} channel?")
+            self.description = wx.StaticText(panel, label=f"The newest build of the {self.constants.update_channel_label} channel is {oclp_version} - You have {self.constants.patcher_version_label}. Builds from different channels are not directly comparable, this may install a lower version number. Would you like to switch?")
+        else:
+            self.title_text = wx.StaticText(panel, label=f"A new version of {self.constants.patcher_name} is available!")
+            self.description = wx.StaticText(panel, label=f"{self.constants.patcher_name} {oclp_version} is now available - You have {self.constants.patcher_version_label}. Would you like to update?")
         self.title_text.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
         self.description.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         # Ohne Wrap() ragt der Text bei langen Versions-/Produktnamen über die feste Dialogbreite hinaus
@@ -496,7 +503,7 @@ class MainFrame(wx.Frame):
         self.close_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(wx.ID_CANCEL))
         self.view_button = wx.Button(panel, ID_GITHUB, label="View on GitHub")
         self.view_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_GITHUB))
-        self.install_button = wx.Button(panel, label="Update Now")
+        self.install_button = wx.Button(panel, label="Switch Now" if channel_switch else "Update Now")
         self.install_button.Bind(wx.EVT_BUTTON, lambda event: frame.EndModal(ID_UPDATE))
         self.install_button.SetDefault()
 

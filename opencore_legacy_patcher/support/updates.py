@@ -8,6 +8,8 @@ Returns dict with Link and Version of the latest binary update if available
 import logging
 import applescript
 
+from urllib.parse import quote
+
 from typing import Optional, Union
 from packaging import version
 from datetime import date
@@ -19,7 +21,8 @@ from . import global_settings
 from .. import constants
 
 
-# REPO_LATEST_RELEASE_URL is now dynamically generated from constants.repo_link
+# The releases URL is generated from constants.update_repo_link, i.e. from the
+# update channel selected in Settings (official T2 repository or a fork).
 
 
 class CheckBinaryUpdates:
@@ -158,10 +161,13 @@ class CheckBinaryUpdates:
             # We already checked
             return self.latest_details
 
-        # Dynamically generate the API URL from constants.repo_link
-        repo_api_url = self.constants.repo_link.replace("https://github.com/", "https://api.github.com/repos/").strip("/")
+        # API URL of the selected update channel
         # Use /releases instead of /releases/latest to ensure we fetch pre-releases (alphas/betas) as well
-        repo_latest_release_url = f"{repo_api_url}/releases"
+        repo_latest_release_url = self.constants.update_releases_api_url
+        channel_switch = self.constants.update_channel_switch_pending
+        logging.info(f"Update channel: {self.constants.update_channel} ({self.constants.update_repo_link})")
+        if channel_switch:
+            logging.info(f"Channel switch pending: {self.constants.installed_update_channel} -> {self.constants.update_channel}")
 
         if not network_handler.NetworkUtilities(repo_latest_release_url).verify_network_connection():
             logging.error("It failed to connect with the GitHub page")
@@ -205,24 +211,48 @@ class CheckBinaryUpdates:
         latest_remote_version = highest_version
         logging.info("Checking if the version is valid")
 
+        if channel_switch:
+            # Version numbers of two different repositories are not comparable
+            # (e.g. a fork's 4.0.0.18009.x vs. the official 4.0.0.180010.x), so a
+            # channel switch offers the channel's newest release as long as it is
+            # a different build. Callers must always ask before installing it.
+            if latest_remote_version == self.binary_version:
+                logging.info("Already running the newest build of the selected channel, marking channel as installed")
+                self._mark_channel_installed()
+                return None
+            logging.info(f"Offering {latest_remote_version} from the {self.constants.update_channel} channel (channel switch)")
         # Fixed: Swap the parameters so that the remote version is tested against the local one properly.
         # Alternatively, you can also just pass (self.binary_version, latest_remote_version)
-        if not self._check_if_build_newer(latest_remote_version, self.binary_version):
+        elif not self._check_if_build_newer(latest_remote_version, self.binary_version):
             logging.info("You are already on the latest version.")
             logging.info("If this meessage appears even if it's not up to date, you should report this issue.")
             logging.info("For most pre-alpha versions, this behavior is normal because various versions are marked as pre-release.")
             return None
-        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Downgrade-Angriffen in Hintergrund ohne das Wissen von Benutzer zu starten
-            for asset in data_set["assets"]:
-                logging.info("A new version is available")
-                logging.info(f"Found asset: {asset['name']}")
-                if asset["name"] == "OpenCore-Patcher-T2.pkg":
-                    self.latest_details = {
-                        "Name": asset["name"],
-                        "Version": latest_remote_version,
-                        "Link": asset["browser_download_url"],
-                        "Github Link": f"https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/releases/{latest_remote_version}",
-                    }
-                    return self.latest_details
 
+        # Only reached for a newer build, or for an explicitly selected channel switch
+        # (behebt eine Sicherheitslücke, die erlaubt Angreifern, Downgrade-Angriffen in Hintergrund ohne das Wissen von Benutzer zu starten)
+        for asset in data_set["assets"]:
+            logging.info("A new version is available")
+            logging.info(f"Found asset: {asset['name']}")
+            if asset["name"] == "OpenCore-Patcher-T2.pkg":
+                self.latest_details = {
+                    "Name": asset["name"],
+                    "Version": latest_remote_version,
+                    "Link": asset["browser_download_url"],
+                    "Github Link": f"{self.constants.update_repo_link.rstrip('/')}/releases/tag/{quote(str(data_set['tag_name']), safe='')}",
+                    "Changelog": data_set.get("body") or "",
+                    "Channel": self.constants.update_channel,
+                    "ChannelSwitch": channel_switch,
+                }
+                return self.latest_details
+
+        if channel_switch:
+            self.last_error = f"The newest release of the {self.constants.update_channel_label} channel has no OpenCore-Patcher-T2.pkg asset."
         return None
+
+    def _mark_channel_installed(self) -> None:
+        """
+        Remember that the running build belongs to the selected update channel
+        """
+        self.constants.installed_update_channel = self.constants.update_channel
+        global_settings.GlobalEnviromentSettings().write_property("UpdateChannelInstalled", self.constants.update_channel)

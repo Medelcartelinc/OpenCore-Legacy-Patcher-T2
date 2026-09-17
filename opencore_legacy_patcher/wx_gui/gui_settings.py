@@ -179,7 +179,7 @@ class SettingsFrame(wx.Frame):
                     height += title.GetSize()[1] + 10
 
                     # Add combobox, and description underneath
-                    choice = wx.Choice(panel, pos=(width + 25, 10 + height), choices=setting_info["choices"], size = (150,-1))
+                    choice = wx.Choice(panel, pos=(width + 25, 10 + height), choices=setting_info["choices"], size = (setting_info.get("width", 150),-1))
                     choice.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                     choice.SetSelection(choice.FindString(setting_info["value"]))
                     if "override_function" in setting_info:
@@ -295,6 +295,18 @@ class SettingsFrame(wx.Frame):
                         "no RestrictEvents kext is injected on T2."
                     ],
                     "condition": self.constants.True_Developer_Mode
+                },
+                "Update Channel": {
+                    "type": "choice",
+                    "choices": [channel["label"] for channel in self.constants.update_channels.values()],
+                    "value": self.constants.update_channel_label,
+                    "variable": "UpdateChannel",
+                    "width": 200,
+                    "override_function": self.on_update_channel,
+                    "description": [
+                        "Choose which GitHub repository updates",
+                        "are downloaded from.",
+                    ],
                 },
                 "Check for updates": {
                     "type": "button",
@@ -673,6 +685,37 @@ Hardware Information:
         variable_name = variable or "AllowAutoUpdates"
         global_settings.GlobalEnviromentSettings().write_property(variable_name, self.constants.auto_update)
         logging.info(f"Auto-update setting set to: {self.constants.auto_update}")
+
+    def on_update_channel(self, event: wx.Event) -> None:
+        """
+        Switch the update channel (official T2 repository or a fork).
+        Only the updater follows the channel - issues/discussion links stay official.
+        """
+        label = event.GetEventObject().GetStringSelection()
+        new_channel = next((key for key, channel in self.constants.update_channels.items() if channel["label"] == label), None)
+        if new_channel is None:
+            logging.error(f"Unknown update channel selected: {label!r}")
+            return
+        if new_channel == self.constants.update_channel:
+            return
+
+        previous_channel = self.constants.update_channel
+        self.constants.update_channel = new_channel
+        global_settings.GlobalEnviromentSettings().write_property("UpdateChannel", new_channel)
+        # Forget the result of an earlier check - it belongs to the old repository
+        self.constants.has_checked_updates = False
+        logging.info(f"Update channel changed: {previous_channel} -> {new_channel} ({self.constants.update_repo_link})")
+
+        if self.constants.update_channel_switch_pending:
+            message = (
+                f"Updates will now be downloaded from:\n{self.constants.update_repo_link}\n\n"
+                "Use \"Check for updates\" to switch to the newest build of this channel. "
+                "You will always be asked before a build from another channel is installed, "
+                "since it may have a lower version number than the one you are running."
+            )
+        else:
+            message = f"Updates will now be downloaded from:\n{self.constants.update_repo_link}"
+        wx.MessageDialog(self.frame_modal, message, "Update Channel Changed", wx.OK | wx.ICON_INFORMATION).ShowModal()
 
     def snooze_updates(self, event: wx.Event = None, value: int = None, *args, **kwargs) -> None:
         """
