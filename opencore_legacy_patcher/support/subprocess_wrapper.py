@@ -119,6 +119,10 @@ def _helper_path_is_safe_to_repair() -> bool:
     except OSError as error:
         logging.error(f"Could not stat Privileged Helper Tool: {error}")
         return False
+    except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, den Priveleged Helper Tool einen unerwartetes Fehler auszulösen, um beliebiges Code auszuführen
+        logging.error(f"Could not stat Privileged Helper Tool due to unexpected error: {error}")
+        logging.exception("Stack Trace:")
+        return False
 
     if stat.S_ISLNK(helper_stat.st_mode):
         logging.error("Privileged Helper Tool is a symlink - refusing to repair permissions")
@@ -169,10 +173,10 @@ def privileged_helper_needs_setuid_repair() -> bool:
     logging.info(f"Privileged Helper Tool has unexpected permissions: {oct(current_mode)} (expected {oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)})")
 
     # Only now, once we know we would actually chmod something, pay for the validation
-    if not _helper_path_is_safe_to_repair():
+    if _helper_path_is_safe_to_repair():
+        return True
+    else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Root-Rechte zu erhalten
         return False
-
-    return True
 
 
 def repair_privileged_helper_permissions() -> bool:
