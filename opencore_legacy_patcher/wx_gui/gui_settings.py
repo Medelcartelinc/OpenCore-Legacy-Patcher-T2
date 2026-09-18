@@ -35,6 +35,14 @@ class SettingsFrame(wx.Frame):
     """
     Modal-based Settings Frame
     """
+
+    # Layout geometry for the two column settings pages.
+    # Controls are placed with absolute coordinates, so the page has to be wide
+    # enough for the widest label - see '_column_width()'.
+    STOCK_WIDTH:          int = 20   # Left margin, also the origin of the first column
+    COLUMN_GUTTER:        int = 20   # Gap between the first and the second column
+    MINIMUM_COLUMN_WIDTH: int = 280  # Never build columns narrower than this
+
     def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: tuple = None):
         logging.info("Initializing Settings Frame")
         self.constants: constants.Constants = global_constants
@@ -49,12 +57,51 @@ class SettingsFrame(wx.Frame):
         self._generate_elements(self.frame_modal)
         self.frame_modal.ShowWindowModal()
 
+    def _column_width(self, frame: wx.Frame) -> int:
+        """
+        Determines how wide a single settings column has to be.
+
+        wx.CheckBox (and wx.StaticText) labels are never wrapped by wx, so any label
+        wider than the space left in its column is silently clipped at the edge of the
+        page. The pages only scroll vertically, so clipped text is unreachable.
+        Measure every label once up front and let the widest one size the columns.
+        """
+        probe = wx.StaticText(frame, label="")
+        probe.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
+
+        widest = 0
+        for tab in self.settings.values():
+            for label, setting_info in tab.items():
+                if setting_info.get("type") not in ["checkbox", "spinctrl", "choice", "button"]:
+                    continue
+                probe.SetLabel(label)
+                widest = max(widest, probe.GetSize()[0])
+        probe.Destroy()
+
+        # Add room for the checkbox indicator and the padding towards the next column
+        return max(self.MINIMUM_COLUMN_WIDTH, widest + 45)
+
+
     def _generate_elements(self, frame: wx.Frame = None) -> None:
         """
         Generates elements for the Settings Frame
         Uses wx.Notebook to implement a tabbed interface
         and relies on 'self._settings()' for populating
         """
+
+        # Size the dialog around its content before anything is placed, otherwise
+        # long labels and descriptions get cut off at the right edge of the page.
+        column_width    = self._column_width(frame)
+        second_column_x = self.STOCK_WIDTH + column_width + self.COLUMN_GUTTER
+        page_width      = second_column_x + column_width
+
+        scrollbar_width = wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X, frame)
+        if scrollbar_width < 0:
+            scrollbar_width = 16
+
+        required_width = page_width + scrollbar_width + 40  # Sizer border + notebook border
+        if required_width > frame.GetSize()[0]:
+            frame.SetSize((required_width, frame.GetSize()[1]))
 
         notebook = wx.Notebook(frame)
         notebook.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
@@ -79,6 +126,7 @@ class SettingsFrame(wx.Frame):
         sizer.Add(return_button, 0, wx.ALIGN_CENTER | wx.ALL, 10)
 
         frame.SetSizer(sizer)
+        frame.Layout()
 
         horizontal_center = frame.GetSize()[0] / 2
         for tab in tabs:
@@ -86,7 +134,7 @@ class SettingsFrame(wx.Frame):
                 continue
 
             stock_height = 0
-            stock_width = 20
+            stock_width = self.STOCK_WIDTH
 
             height = stock_height
             width = stock_width
@@ -103,6 +151,13 @@ class SettingsFrame(wx.Frame):
                         setting_info["function"](panel)
                     else:
                         raise Exception("Invalid populate function")
+
+                    # Populate functions place their own controls and never touch 'height',
+                    # so sample the panel afterwards to keep the page height correct
+                    for child in panel.GetChildren():
+                        bottom = child.GetPosition()[1] + child.GetSize()[1]
+                        if bottom > lowest_height_reached:
+                            lowest_height_reached = bottom
                     continue
 
                 if setting_info["type"] == "title":
@@ -133,12 +188,12 @@ class SettingsFrame(wx.Frame):
 
                 if setting_info["type"] == "wrap_around":
                     height = highest_height_reached
-                    width = 300 if width is stock_width else stock_width
+                    width = second_column_x if width == stock_width else stock_width
                     continue
 
                 if setting_info["type"] == "checkbox":
                     # Add checkbox, and description underneath
-                    checkbox = wx.CheckBox(panel, label=setting, pos=(10 + width, 10 + height), size = (300,-1))
+                    checkbox = wx.CheckBox(panel, label=setting, pos=(10 + width, 10 + height), size = (column_width,-1))
 
                     value = False
                     if "value" in setting_info:
@@ -202,13 +257,15 @@ class SettingsFrame(wx.Frame):
                 lines = '\n'.join(setting_info["description"])
                 description = wx.StaticText(panel, label=lines, pos=(30 + width, 10 + height + 20))
                 description.SetFont(gui_support.font_factory(11, wx.FONTWEIGHT_NORMAL))
+                description.Wrap(column_width - 20)
                 height += 40
                 if "condition" in setting_info:
                     if setting_info["condition"] is False:
                         description.SetForegroundColour((128, 128, 128))
 
                 # Check number of lines in description, and adjust spacer accordingly
-                for i, line in enumerate(lines.split('\n')):
+                # Wrap() rewrites the label, so count the resulting lines, not the source ones
+                for i, line in enumerate(description.GetLabel().split('\n')):
                     if line == "":
                         continue
                     if i == 0:
@@ -218,6 +275,16 @@ class SettingsFrame(wx.Frame):
 
                 if height > lowest_height_reached:
                     lowest_height_reached = height
+
+            # wx.ScrolledWindow only scrolls once its virtual size exceeds the client
+            # size; the pages have no sizer, so it has to be set explicitly.
+            panel.SetVirtualSize((page_width, lowest_height_reached + 50))
+
+        # Only the visible page is resized on layout, so recalculate on tab change
+        notebook.Bind(
+            wx.EVT_NOTEBOOK_PAGE_CHANGED,
+            lambda event: (notebook.GetPage(event.GetSelection()).AdjustScrollbars(), event.Skip())
+        )
 
 
     def _settings(self) -> dict:
