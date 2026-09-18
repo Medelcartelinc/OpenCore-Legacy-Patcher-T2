@@ -52,6 +52,9 @@ class SettingsFrame(wx.Frame):
         self.hyperlink_colour = (25, 179, 231)
 
         self.settings = self._settings()
+        # Buttons are created as locals in '_generate_elements()'; keep a handle on
+        # them here so handlers can reach their own button (e.g. to show progress)
+        self._buttons: dict = {}
 
         self.frame_modal = wx.Dialog(parent, title=title, size=(600, 685))
         self._generate_elements(self.frame_modal)
@@ -150,6 +153,7 @@ class SettingsFrame(wx.Frame):
                     if setting_info["args"] == wx.Frame:
                         setting_info["function"](panel)
                     else:
+                        logging.error("Invalid populate function")
                         raise Exception("Invalid populate function")
 
                     # Populate functions place their own controls and never touch 'height',
@@ -246,6 +250,7 @@ class SettingsFrame(wx.Frame):
                     button = wx.Button(panel, label=setting, pos=(width + 25, 10 + height), size = (200,-1))
                     button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                     button.Bind(wx.EVT_BUTTON, lambda event, tab=tab, variable=setting: self.settings[tab][variable]["function"](event))
+                    self._buttons[setting] = button
                     height += 10
                     if "condition" in setting_info and setting_info["condition"] is not None:
                         button.Enable(setting_info["condition"])
@@ -303,10 +308,6 @@ class SettingsFrame(wx.Frame):
             }
         }
         """
-
-        models = [model for model in smbios_data.smbios_dictionary if "_" not in model and " " not in model and smbios_data.smbios_dictionary[model]["Board ID"] is not None]
-        socketed_imac_models = ["iMac9,1", "iMac10,1", "iMac11,1", "iMac11,2", "iMac11,3", "iMac12,1", "iMac12,2"]
-        socketed_gpu_models = socketed_imac_models + ["MacPro3,1", "MacPro4,1", "MacPro5,1", "Xserve2,1", "Xserve3,1"]
 
         settings = {
             "App": {
@@ -451,12 +452,12 @@ class SettingsFrame(wx.Frame):
                     "value": not self.constants.auto_update,
                     "variable": "AllowAutoUpdates",
                     "description": [
-                        "When enabled, the app will still automatically"
+                        "When enabled, the app will still automatically",
                         "check for updates.",
                         "but will not apply them automatically."
                     ],
                     "override_function": self.toggle_auto_updates,
-                    "warning": "Turning this off will make your system more vulnerable to security issues. You will need to manually check for updates on GitHub.",
+                    "warning": "Turning this off will make your system more vulnerable to security issues. You will need to manually check for updates via the application's menu or GitHub.",
                 },
                 "wrap_around 1": {
                     "type": "wrap_around",
@@ -635,30 +636,58 @@ Hardware Information:
         if global_setting is not None:
             self._update_setting(global_setting, value)
 
-    def on_check_for_updates(self, event: wx.Event = None, str = "") -> None:
-            """
-            Manual "Check for updates" button.
-    
-            Unlike the startup check this ignores constants.has_checked_updates and
-            always reports back - a user who clicks the button gets an answer even
-            when there is nothing new. Runs on a worker thread so the GitHub request
-            cannot freeze the GUI.
-            """
-            thread = getattr(self, "update_thread", None)
-            if thread is not None and thread.is_alive():
-                logging.info("An update check is already running.")
+    def on_check_for_updates(self, event: wx.Event = None) -> None:
+        """
+        Manual "Check for updates" button.
+
+        Unlike the startup check this ignores constants.has_checked_updates and
+        always reports back - a user who clicks the button gets an answer even
+        when there is nothing new. Runs on a worker thread so the GitHub request
+        cannot freeze the GUI.
+        """
+        thread = getattr(self, "update_thread", None)
+        if thread is not None and thread.is_alive():
+            logging.info("An update check is already running.")
+            return
+
+        main_frame = self.parent
+
+        # Previously this looked for 'self.update_button', which never existed -
+        # '_generate_elements()' only kept its buttons as locals, so the lookup
+        # always returned None and the progress feedback silently did nothing.
+        button = self._buttons.get("Check for updates")
+        original_label = button.GetLabel() if button is not None else None
+        if button is not None:
+            button.SetLabel("Checking...")
+            button.Disable()
+
+        def _restore_button() -> None:
+            # The user can hit Return while the check is still in flight, which
+            # destroys the dialog and the button with it. The Python wrapper
+            # outlives the C++ object, so verify it is still alive first -
+            # bool() on a wx window is False once it has been destroyed.
+            if button is None or not button:
                 return
-    
-            main_frame = self.parent
-            """ button = getattr(self, "update_button", None)
-            if button is not None:
-                button.SetLabel("Checking...")
-                button.Disable() """ #this logic is broken, TODO: fix this logic.
-            self.update_thread = threading.Thread(target=main_frame._check_for_updates, kwargs={"manual": True}, daemon=True)
-            self.update_thread.daemon = True
-            self.update_thread.start()
-            self.constants.update_thread = self.update_thread
-            
+            try:
+                button.SetLabel(original_label)
+                button.Enable()
+            except RuntimeError:
+                # Destroyed between the check above and here
+                pass
+
+        def _run_check() -> None:
+            try:
+                main_frame._check_for_updates(manual=True)
+            finally:
+                # This runs on the worker thread - every wx call has to be
+                # marshalled back to the main thread, otherwise this is a
+                # random crash waiting to happen.
+                wx.CallAfter(_restore_button)
+
+        self.update_thread = threading.Thread(target=_run_check, daemon=True)
+        self.update_thread.start()
+        self.constants.update_thread = self.update_thread
+
 
     def _toggle_developer_mode(self, variable, value, constants_variable = None) -> None:
         """
