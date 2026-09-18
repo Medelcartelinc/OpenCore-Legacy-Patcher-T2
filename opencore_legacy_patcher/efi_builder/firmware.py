@@ -118,6 +118,7 @@ class BuildFirmware:
             logging.info("- Disabling Firmware Throttling")
             # Nehalem and newer systems force firmware throttling via MSR_POWER_CTL
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("SimpleMSR.kext", self.constants.simplemsr_version, self.constants.simplemsr_path)
+
     def _block_acpi_smc_platform_plugin_tahoe(self) -> None:
         """
         macOS 26 (Tahoe) Beta bug: Kernel loads both ACPI_SMC_PlatformPlugin and X86PlatformPlugin
@@ -143,7 +144,6 @@ class BuildFirmware:
                         "MinKernel": "25.0.0",
                         "Strategy": "Disable"
                     })
-
 
     def _acpi_handling(self) -> None:
         """
