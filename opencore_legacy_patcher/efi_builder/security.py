@@ -297,10 +297,8 @@ class BuildSecurity:
         needs_amfipass = False
 
         if self._is_t2_mac():
-            # Temporarily disabled AMFIPass for T2 Tahoe to test installer AMFI stall
-            # if self.is_tahoe_target or smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe:
-            #     needs_amfipass = True
-            pass
+            if self.is_tahoe_target or smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe:
+                needs_amfipass = True
         else:
             if self.model in model_array.T2Macs:
                 logging.error(f"By accident, we executed logic for non-T2 Macs while {self.model} has the T2 chip. Aborting. Try reinstalling OpenCore Legacy Patcher T2.")
@@ -332,6 +330,10 @@ class BuildSecurity:
                 # 4. Scope graphics injection flags strictly to active valid targets
                 if self._requires_t2_graphics_injection():
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
+    
+                if self.constants.t2_installer_workaround is True:
+                    logging.info("- Enabling T2 Installer Workarounds (VESA Mode & AMFI bypass)")
+                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-radvesa -igfxvesa -amfipassbeta")
     
                 # 5. Hard Structural Boundaries Pass
                 logging.info("- Final T2 verification pass (Enforcing absolute boundaries)")

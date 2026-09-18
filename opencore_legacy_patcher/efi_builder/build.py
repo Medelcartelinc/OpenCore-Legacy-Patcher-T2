@@ -176,7 +176,6 @@ class BuildOpenCore:
 
                 # Enable booter patches for T2
                 support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Booter"]["Patch"], "Comment", "Skip Board ID check")["Enabled"] = True
-                support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Booter"]["Patch"], "Comment", "Patch SkipLogo")["Enabled"] = True
 
                 logging.info("- Adding T2-specific bypass NVRAM variables")
                 
