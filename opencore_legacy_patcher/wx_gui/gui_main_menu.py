@@ -447,17 +447,7 @@ class MainFrame(wx.Frame):
             dlg = wx.MessageDialog(self.frame_modal, f"You do not have enough free space to download this update. Please free up some space and try again\n\n{utilities.human_fmt(host_space)} available vs {utilities.human_fmt(needed_space)} required", "Insufficient Space", wx.OK | wx.ICON_WARNING)
             dlg.ShowModal()
             return
-        if manual is  False:
-            self.Hide()
-            gui_update.UpdateFrame(
-                parent=self,
-                title=self.title,
-                global_constants=self.constants,
-                screen_location=self.GetPosition(),
-                url=oclp_url,
-                version_label=oclp_version
-            )
-            return
+
             
         ID_GITHUB = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
         ID_UPDATE = wx.NewIdRef() if hasattr(wx, "NewIdRef") else wx.NewId()
