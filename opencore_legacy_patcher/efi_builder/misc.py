@@ -519,7 +519,7 @@ class BuildMiscellaneous:
             for kext, ver, path in [
                 ("WhateverGreen.kext", self.constants.whatevergreen_version, self.constants.whatevergreen_path),
                 ("CryptexFixup.kext", "1.0.5", self.constants.kexts_path),
-                ("AMFIPass.kext", "1.4.1", self.constants.kexts_path)
+                # ("AMFIPass.kext", "1.4.1", self.constants.kexts_path) # Temporarily disabled for testing AMFI stall
             ]:
                 obj = builder.get_kext_by_bundle_path(kext)
                 if not obj or obj.get("Enabled") is not True:
@@ -556,7 +556,7 @@ class BuildMiscellaneous:
                 _agdpmod = "pikera" if self.computer.dgpu else "vit9696"
                 self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args",
                     f"-v rddelay=10 igfxfw=2 igfxonln=1 -disable_ext_panics -no_compat_check -revbeta "
-                    f"agdpmod={_agdpmod} forceRenderStandby=0 revpatch=sbvmm ipc_control_port_options=0 AMFIPass=0x1")
+                    f"agdpmod={_agdpmod} forceRenderStandby=0 revpatch=sbvmm ipc_control_port_options=0 AMFIPass=0x1 amfi=0x80")
             except Exception as e:
                 logging.error("Injecting T2 specific boot arguments failed due to the following error:")
                 logging.exception("Stack Trace:")

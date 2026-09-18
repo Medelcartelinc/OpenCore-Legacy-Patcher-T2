@@ -148,7 +148,7 @@ class BuildSecurity:
 
     def _t2_uses_amfipass(self) -> bool:
         """T2 builds enable AMFIPass in misc._t2_handling (runs after security)."""
-        return self._is_t2_mac()
+        return True # Restored for Tahoe AMFI stall mitigation
 
     # ------------------------------------------------------------------
     # Graphics injection helpers
@@ -331,6 +331,10 @@ class BuildSecurity:
                 if self._requires_t2_graphics_injection():
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
     
+                if self.constants.t2_installer_workaround is True:
+                    logging.info("- Enabling T2 Installer Workarounds (VESA Mode & AMFI bypass)")
+                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-radvesa -igfxvesa -amfipassbeta")
+    
                 # 5. Hard Structural Boundaries Pass
                 logging.info("- Final T2 verification pass (Enforcing absolute boundaries)")
                 self.config["Misc"]["Security"]["SecureBootModel"] = "Disabled"
@@ -397,8 +401,9 @@ class BuildSecurity:
                     logging.info("- Disabling AMFI (non-T2 fallback)")
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "amfi=0x80")
                 else:
-                    logging.info("- Using AMFIPass & Library Validation Enforcement Bypass for Apple Account compatibility")
-                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
+                    if not self._is_t2_mac():
+                        logging.info("- Using AMFIPass & Library Validation Enforcement Bypass for Apple Account compatibility")
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
     
                 if self.constants.secure_status is False:
                     logging.info("- Disabling SecureBootModel (non-T2)")
@@ -416,5 +421,6 @@ class BuildSecurity:
             self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
             current_args = self._read_nvram_string(APPLE_NVRAM_UUID, "boot-args")
             if "amfi=0x80" in current_args:
-                cleaned_args = " ".join([arg for arg in current_args.split() if arg != "amfi=0x80"])
-                self.config["NVRAM"]["Add"][APPLE_NVRAM_UUID]["boot-args"] = cleaned_args
+                if not self._is_t2_mac():
+                    cleaned_args = " ".join([arg for arg in current_args.split() if arg != "amfi=0x80"])
+                    self.config["NVRAM"]["Add"][APPLE_NVRAM_UUID]["boot-args"] = cleaned_args

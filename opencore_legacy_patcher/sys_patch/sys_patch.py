@@ -373,14 +373,21 @@ class PatchSysVolume:
         Rebuild the root volume.
         
         Steps:
-        - Rebuilds the Kernel Collection
-        - Updates the Preboot Kernel Cache
-        - Rebuilds the dyld Shared Cache
+        - Rebuilds the Kernel Collection (if kext patches are present)
         - Creates a new APFS Snapshot
+        - Unmounts the root volume
 
         Returns:
             bool: True if successful, False if not
         """
+
+        # Rebuild kernel cache if kext-level patches were applied.
+        # This MUST happen before the APFS snapshot so the new .kc files
+        # are included in the sealed snapshot that boots.
+        if not self.skip_root_kmutil_requirement:
+            if not self._rebuild_kernel_cache():
+                logging.error("- Kernel cache rebuild failed, aborting snapshot")
+                return False
 
         if not self._create_new_apfs_snapshot():
             return False
@@ -747,6 +754,14 @@ class PatchSysVolume:
                 logging.error(f"- Failed to patch GPU compiler libraries: {e}")
                 logging.exception("Stack Trace:")
 
+        # AppleHDA Tahoe: patch binary on system volume and re-sign after installation
+        if "Modern Audio" in required_patches:
+            try:
+                sys_patch_helpers.SysPatchHelpers(self.constants).tahoe_applehda_patch(self.mount_location)
+            except Exception as e:
+                logging.error(f"- Failed to apply AppleHDA Tahoe patch: {e}")
+                logging.exception("Stack Trace:")
+
         self._write_patchset(required_patches)
 
 
@@ -1005,6 +1020,7 @@ class PatchSysVolume:
                 logging.error(f"- Failed to patch Sandy Bridge board ID: {e}")
                 logging.exception("Stack Trace:")
                 raise
+
 
         # Ensure KDK is properly installed
         try:

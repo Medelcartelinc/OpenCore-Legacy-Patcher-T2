@@ -147,9 +147,9 @@ class BuildFrame(wx.Frame):
 
         next_y = model_label.GetPosition()[1] + model_label.GetSize()[1] + 5
 
-        # Profile selection for MacBookPro14,3
+        # Profile selection for MacBookPro14,x (T1)
         target_model = self.constants.custom_model or self.constants.computer.real_model
-        if target_model == "MacBookPro14,3":
+        if target_model in ["MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3"] and self.constants.Experimental_Features:
             self.radio_standard = wx.RadioButton(frame, label="STANDARD / SAFE", pos=(-1, next_y), style=wx.RB_GROUP)
             self.radio_standard.Centre(wx.HORIZONTAL)
             next_y += 30
@@ -363,8 +363,8 @@ class BuildFrame(wx.Frame):
         logging.info(f"Target Model: {target_model}")
         logging.info(f"Profile: {profile_name}")
 
-        if target_model == "MacBookPro14,3":
-            t1_status = "DETECTED" if getattr(self.constants.computer, 't1_chip', False) else "ENABLED (MBP14,3)"
+        if target_model in ["MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3"]:
+            t1_status = "DETECTED" if getattr(self.constants.computer, 't1_chip', False) else f"ENABLED ({target_model})"
             wifi_status = f"{self.constants.computer.wifi.vendor_id:04X}:{self.constants.computer.wifi.device_id:04X}" if getattr(self.constants.computer, 'wifi', None) else "14E4:43BA"
             logging.info(f"T1 Security:  {t1_status}")
             logging.info(f"Wi-Fi Module: {wifi_status}")

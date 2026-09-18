@@ -96,9 +96,9 @@ class ZSHFunctions:
 
         _script += "    # Check if path is a directory\n"
         _script += "    if [[ -d $binaryPath ]]; then\n"
-        _script += "        /bin/chmod -R +s $binaryPath\n"
+        _script += "        /bin/chmod -R 4755 $binaryPath\n"
         _script += "    else\n"
-        _script += "        /bin/chmod +s $binaryPath\n"
+        _script += "        /bin/chmod 4755 $binaryPath\n"
         _script += "    fi\n"
         _script += "}\n"
 

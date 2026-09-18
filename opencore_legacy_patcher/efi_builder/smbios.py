@@ -421,7 +421,7 @@ class BuildSMBIOS:
         self.config["PlatformInfo"]["UpdateNVRAM"] = True
         self.config["PlatformInfo"]["UpdateSMBIOS"] = True
         self.config["UEFI"]["ProtocolOverrides"]["DataHub"] = True
-        self.config["PlatformInfo"]["Generic"]["ROM"] = binascii.unhexlify("0016CB445566")
+        self.config["PlatformInfo"]["Generic"]["ROM"] = binascii.unhexlify("112233000000")
         self.config["PlatformInfo"]["Generic"]["SystemProductName"] = self.spoofed_model
         self.config["PlatformInfo"]["Generic"]["SystemSerialNumber"] = sn
         self.config["PlatformInfo"]["Generic"]["MLB"] = mlb

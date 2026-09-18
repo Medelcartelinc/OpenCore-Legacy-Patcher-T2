@@ -176,7 +176,6 @@ class BuildOpenCore:
 
                 # Enable booter patches for T2
                 support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Booter"]["Patch"], "Comment", "Skip Board ID check")["Enabled"] = True
-                support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Booter"]["Patch"], "Comment", "Patch SkipLogo")["Enabled"] = True
 
                 logging.info("- Adding T2-specific bypass NVRAM variables")
                 
@@ -208,7 +207,7 @@ class BuildOpenCore:
                 scrubbed_args = " ".join([arg for arg in raw_args.split() if not arg.startswith("-lilu")])
                 
                 # Append required T2 args safely without compounding spaces
-                t2_args = "-ibtcompatbeta -amfipassbeta -revbeta revpatch=sbvmm"
+                t2_args = "-ibtcompatbeta -revbeta revpatch=sbvmm"
                 self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = f"{scrubbed_args} {t2_args}".strip()
                 
                 # Ensure RestrictEvents.kext is enabled for T2 VMM / TargetType spoofing
@@ -508,8 +507,10 @@ class BuildOpenCore:
                     if prefix not in current_boot_args:
                         current_boot_args = f"{current_boot_args} {arg}".strip()
                 # Clean out any leftover amfi=0x80 to ensure Apple Account & entitlements are functional
-                cleaned = [a for a in current_boot_args.split() if a != "amfi=0x80"]
-                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = " ".join(cleaned)
+                if self.model not in model_array.T2Macs:
+                    cleaned = [a for a in current_boot_args.split() if a != "amfi=0x80"]
+                    current_boot_args = " ".join(cleaned)
+                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = current_boot_args
                 # Force Wi-Fi kexts and block
                 # behebt eine Sicherheitslücke, die erlaubt Angreifern, einfach das Injizieren von diesen Kexts zu überspringen, um DoS-Angriffe zu starten
                 try:

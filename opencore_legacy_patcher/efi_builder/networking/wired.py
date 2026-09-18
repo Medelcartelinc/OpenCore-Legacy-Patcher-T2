@@ -93,6 +93,10 @@ class BuildWiredNetworking:
                     # Required due to Big Sur's BCM5701 requiring VT-D support
                     # Applicable for pre-Ivy Bridge models
                     support.BuildSupport(self.model, self.constants, self.config).enable_kext("CatalinaBCM5701Ethernet.kext", self.constants.bcm570_version, self.constants.bcm570_path)
+                else:
+                    # macOS 15 Sequoia dropped AppleBCM5701Ethernet completely.
+                    support.BuildSupport(self.model, self.constants, self.config).enable_kext("CatalinaBCM5701Ethernet.kext", self.constants.bcm570_version, self.constants.bcm570_path)
+                    support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("CatalinaBCM5701Ethernet.kext")["MinKernel"] = "24.0.0"
             elif isinstance(controller, device_probe.IntelEthernet):
                 if not self.model in smbios_data.smbios_dictionary:
                     continue
@@ -133,6 +137,10 @@ class BuildWiredNetworking:
                 # Required due to Big Sur's BCM5701 requiring VT-D support
                 # Applicable for pre-Ivy Bridge models
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("CatalinaBCM5701Ethernet.kext", self.constants.bcm570_version, self.constants.bcm570_path)
+            else:
+                # macOS 15 Sequoia dropped AppleBCM5701Ethernet completely.
+                support.BuildSupport(self.model, self.constants, self.config).enable_kext("CatalinaBCM5701Ethernet.kext", self.constants.bcm570_version, self.constants.bcm570_path)
+                support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("CatalinaBCM5701Ethernet.kext")["MinKernel"] = "24.0.0"
         elif smbios_data.smbios_dictionary[self.model]["Ethernet Chipset"] == "Nvidia":
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("nForceEthernet.kext", self.constants.nforce_version, self.constants.nforce_path)
         elif smbios_data.smbios_dictionary[self.model]["Ethernet Chipset"] == "Marvell":
