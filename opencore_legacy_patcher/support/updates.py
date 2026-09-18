@@ -58,12 +58,12 @@ class CheckBinaryUpdates:
         Only prompts for a password when a repair is actually needed, so
         this doesn't nag the user with a sudo prompt on every check.
         """
-        if not subprocess_wrapper.privileged_helper_needs_setuid_repair():
+        if subprocess_wrapper.privileged_helper_needs_setuid_repair():
+            logging.info("Privileged Helper Tool permissions need repair, requesting administrator password")
+            subprocess_wrapper.repair_privileged_helper_permissions()
+        else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Reparierung von Priveleged Helper Tool zu erzwingen, um Root-Rechte zu erhalten
             logging.info("Privileged Helper Tool permissions are already correct, no repair needed")
             return
-
-        logging.info("Privileged Helper Tool permissions need repair, requesting administrator password")
-        subprocess_wrapper.repair_privileged_helper_permissions()
 
     def check_if_newer(self, version_to_check: Union[str, version.Version]) -> bool:
         """
