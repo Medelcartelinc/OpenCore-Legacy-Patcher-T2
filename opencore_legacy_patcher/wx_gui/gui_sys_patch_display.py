@@ -127,13 +127,32 @@ class SysPatchDisplayFrame(wx.Frame):
         progress_bar.Hide()
         progress_bar_animation.stop_pulse()
 
-        available_label.SetLabel("Available patches for your system:")
+        # What this run will install, and what it leaves out.
+        #
+        # 'device_properties' only carries the patchsets that survived detection, so one
+        # the user deselected in 'Configure Patches' is simply absent here. Labelling that
+        # list "Available patches for your system" therefore read like the full set
+        # detected for the Mac, and a deselected patchset was invisible unless the user
+        # opened the configure dialog again - leaving "modern wireless and modern audio
+        # will be installed" on screen while only one of them was (#381). Both halves are
+        # spelled out below instead, so the menu alone says what will and will not be
+        # installed.
+        installed_patchsets: list = [
+            patch for patch in patches
+            if not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True
+        ]
+        # Detected for this Mac, yet not part of this run: deselected by the user, or held
+        # back because the patcher installs the network patches first (see
+        # '_handle_missing_network_connection()').
+        skipped_patchsets: list = [name for name in self.available_patchsets if name not in installed_patchsets]
+
+        available_label.SetLabel("Patches that will be installed:")
         available_label.Centre(wx.HORIZONTAL)
 
 
         can_unpatch: bool = not patches[HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE]
 
-        if not any(not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True for patch in patches):
+        if not installed_patchsets:
             logging.info("No applicable patches available")
             patches = {}
 
@@ -142,7 +161,12 @@ class SysPatchDisplayFrame(wx.Frame):
 
         if not patches:
             # Prompt user with no patches found
-            patch_label = wx.StaticText(frame, label="No patches required", pos=(-1, available_label.GetPosition()[1] + 20))
+            #
+            # Deselecting every applicable patchset ends up here as well, and "No patches
+            # required" is plainly wrong in that case: the patches exist, they were just
+            # turned off. The list below names them.
+            no_patches_text = "No patches will be installed" if skipped_patchsets else "No patches required"
+            patch_label = wx.StaticText(frame, label=no_patches_text, pos=(-1, available_label.GetPosition()[1] + 20))
             patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
             patch_label.Centre(wx.HORIZONTAL)
 
@@ -155,23 +179,18 @@ class SysPatchDisplayFrame(wx.Frame):
                 patch_label.Centre(wx.HORIZONTAL)
                 i = i + 20
             else:
-                longest_patch = ""
-                for patch in patches:
-                    if (not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True):
-                        if len(patch) > len(longest_patch):
-                            longest_patch = patch
+                longest_patch = max(installed_patchsets, key=len)
                 anchor = wx.StaticText(frame, label=longest_patch, pos=(-1, available_label.GetPosition()[1] + 20))
                 anchor.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                 anchor.Centre(wx.HORIZONTAL)
                 anchor.Hide()
 
-                logging.info("Available patches:")
-                for patch in patches:
-                    if (not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True):
-                        i = i + 20
-                        logging.info(f"- {patch}")
-                        patch_label = wx.StaticText(frame, label=f"- {patch}", pos=(anchor.GetPosition()[0], available_label.GetPosition()[1] + i))
-                        patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+                logging.info("Patches that will be installed:")
+                for patch in installed_patchsets:
+                    i = i + 20
+                    logging.info(f"- {patch}")
+                    patch_label = wx.StaticText(frame, label=f"- {patch}", pos=(anchor.GetPosition()[0], available_label.GetPosition()[1] + i))
+                    patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
 
                 if i == 20:
                     patch_label.SetLabel(patch_label.GetLabel().replace("-", ""))
@@ -232,14 +251,24 @@ class SysPatchDisplayFrame(wx.Frame):
                     patch_label.Centre(wx.HORIZONTAL)
 
 
-        # Label: patches the user opted out of
-        # Without this the deselected patches simply vanish from the menu, which reads
-        # like a detection failure rather than a choice the user made earlier.
-        if self.disabled_patchsets:
-            disabled_text = ", ".join(patch.split(": ")[1] if ": " in patch else patch for patch in self.disabled_patchsets)
-            if len(disabled_text) > 45:
-                disabled_text = f"{len(self.disabled_patchsets)} patches"
-            patch_label = wx.StaticText(frame, label=f"Disabled by you: {disabled_text}", pos=(-1, patch_label.GetPosition().y + 25))
+        # Labels: everything detected for this Mac that this run will NOT install
+        #
+        # Without this the skipped patches simply vanish from the menu: the list above
+        # then looks like the complete set detected for the machine, and a patchset
+        # deselected during an earlier test session stays silently missing from every
+        # later patch run (#381). The reason matters as well - "Disabled by you" is undone
+        # in 'Configure Patches', while the network-first split resolves itself after the
+        # reboot.
+        for group_label, group in (
+            ("Disabled by you", [name for name in skipped_patchsets if name in self.disabled_patchsets]),
+            ("Skipped this run", [name for name in skipped_patchsets if name not in self.disabled_patchsets]),
+        ):
+            if not group:
+                continue
+            group_text = ", ".join(name.split(": ")[1] if ": " in name else name for name in group)
+            if len(group_text) > 45:
+                group_text = f"{len(group)} patches"
+            patch_label = wx.StaticText(frame, label=f"{group_label}: {group_text}", pos=(-1, patch_label.GetPosition().y + 25))
             patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
             patch_label.Centre(wx.HORIZONTAL)
 
