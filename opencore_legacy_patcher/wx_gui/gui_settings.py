@@ -150,6 +150,7 @@ class SettingsFrame(wx.Frame):
                     if setting_info["args"] == wx.Frame:
                         setting_info["function"](panel)
                     else:
+                        logging.error("Invalid populate function")
                         raise Exception("Invalid populate function")
 
                     # Populate functions place their own controls and never touch 'height',
@@ -447,12 +448,12 @@ class SettingsFrame(wx.Frame):
                     "value": not self.constants.auto_update,
                     "variable": "AllowAutoUpdates",
                     "description": [
-                        "When enabled, the app will still automatically"
+                        "When enabled, the app will still automatically",
                         "check for updates.",
                         "but will not apply them automatically."
                     ],
                     "override_function": self.toggle_auto_updates,
-                    "warning": "Turning this off will make your system more vulnerable to security issues. You will need to manually check for updates on GitHub.",
+                    "warning": "Turning this off will make your system more vulnerable to security issues. You will need to manually check for updates via the application's menu or GitHub.",
                 },
                 "wrap_around 1": {
                     "type": "wrap_around",
