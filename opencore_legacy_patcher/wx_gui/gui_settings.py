@@ -799,7 +799,8 @@ Hardware Information:
         Switch the update channel (official T2 repository or a fork).
         Only the updater follows the channel - issues/discussion links stay official.
         """
-        label = event.GetEventObject().GetStringSelection()
+        choice_box = event.GetEventObject()
+        label = choice_box.GetStringSelection()
         new_channel = next((key for key, channel in self.constants.update_channels.items() if channel["label"] == label), None)
         if new_channel is None:
             logging.error(f"Unknown update channel selected: {label!r}")
@@ -808,8 +809,37 @@ Hardware Information:
             return
 
         previous_channel = self.constants.update_channel
+
+        # The channel has to persist on its own, the moment it is picked.
+        # Nothing else in the app ever writes "UpdateChannel": the updater only
+        # writes "UpdateChannelInstalled" once a build of the new channel is
+        # actually installed. So if this single write is dropped - an
+        # unwritable/root-owned settings plist is the common case, see
+        # global_settings._file_is_accessible() - the selection lives only in
+        # this process: defaults.py finds no stored value on the next launch and
+        # falls back to the "official" default in constants.py, while the user
+        # was told the switch had happened. Writing first and only then updating
+        # constants keeps the GUI, memory and disk in agreement, and a failed
+        # write puts the dropdown back instead of reverting silently later.
+        if global_settings.GlobalEnviromentSettings().write_property("UpdateChannel", new_channel) is not True:
+            logging.error(f"Failed to store update channel {new_channel!r}, staying on {previous_channel!r}")
+            selection = choice_box.FindString(self.constants.update_channel_label)
+            if selection != wx.NOT_FOUND:
+                choice_box.SetSelection(selection)
+            wx.MessageDialog(
+                self.frame_modal,
+                (
+                    f"The update channel could not be saved, so it stays on \"{self.constants.update_channel_label}\".\n\n"
+                    "This usually means the settings file cannot be written by your user, "
+                    "normally because a previous run as root left it behind. "
+                    "Run this in Terminal and restart the app:\n\n"
+                    f"sudo rm '{global_settings.SETTINGS_PLIST_PATH}'"
+                ),
+                "Update Channel Not Saved", wx.OK | wx.ICON_WARNING
+            ).ShowModal()
+            return
+
         self.constants.update_channel = new_channel
-        global_settings.GlobalEnviromentSettings().write_property("UpdateChannel", new_channel)
         # Forget the result of an earlier check - it belongs to the old repository
         self.constants.has_checked_updates = False
         logging.info(f"Update channel changed: {previous_channel} -> {new_channel} ({self.constants.update_repo_link})")
