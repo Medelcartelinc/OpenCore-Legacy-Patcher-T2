@@ -175,7 +175,11 @@ def privileged_helper_needs_setuid_repair() -> bool:
     # Only now, once we know we would actually chmod something, pay for the validation
     if _helper_path_is_safe_to_repair():
         return True
-    else: # behebt eine Sicherheitslücke, die erlaubt Angreifern, Root-Rechte zu erhalten
+    elif not _helper_path_is_safe_to_repair(): # behebt eine Sicherheitslücke, die erlaubt Angreifern, Root-Rechte zu erhalten
+        return False
+    else:
+        logging.error("We failed to assess the safety of repairing the Priveleged Helper Tool. It won't be repaired, just to be on the safe side.")
+        logging.info("Please ensure that OpenCore Legacy Patcher T2 is downloaded only from the official GitHub repository.")
         return False
 
 
