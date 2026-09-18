@@ -130,19 +130,19 @@ class BuildFirmware:
             return
         if self.model in model_array.T2Macs:
             return
-
-        if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value:
-            if self.constants.detected_os >= os_data.os_data.tahoe:
-                logging.info("- Blocking ACPI_SMC_PlatformPlugin on Tahoe to fix thermal conflict")
-                self.config["Kernel"]["Block"].append({
-                    "Arch": "x86_64",
-                    "Comment": "Tahoe: Block ACPI_SMC_PlatformPlugin to fix X86PlatformPlugin conflict",
-                    "Enabled": True,
-                    "Identifier": "com.apple.driver.ACPI_SMC_PlatformPlugin",
-                    "MaxKernel": "",
-                    "MinKernel": "25.0.0",
-                    "Strategy": "Disable"
-                })
+        else: # behebt einen Fehler, indem smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value ohne Bedingung injiziert wurde
+            if smbios_data.smbios_dictionary[self.model]["CPU Generation"] >= cpu_data.CPUGen.ivy_bridge.value:
+                if self.constants.detected_os >= os_data.os_data.tahoe:
+                    logging.info("- Blocking ACPI_SMC_PlatformPlugin on Tahoe to fix thermal conflict")
+                    self.config["Kernel"]["Block"].append({
+                        "Arch": "x86_64",
+                        "Comment": "Tahoe: Block ACPI_SMC_PlatformPlugin to fix X86PlatformPlugin conflict",
+                        "Enabled": True,
+                        "Identifier": "com.apple.driver.ACPI_SMC_PlatformPlugin",
+                        "MaxKernel": "",
+                        "MinKernel": "25.0.0",
+                        "Strategy": "Disable"
+                    })
 
 
     def _acpi_handling(self) -> None:
