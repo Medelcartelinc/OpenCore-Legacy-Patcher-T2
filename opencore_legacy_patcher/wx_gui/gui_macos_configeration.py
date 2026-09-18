@@ -77,7 +77,8 @@ class MacosConfigFrame(wx.Frame):
         root_patch_button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         # host_can_root_patch(), not host_can_build(): this button only patches the volume
         # this host already runs, so it may stay available where building an EFI is not
-        # (eg. a VMware VM with allow_vmware_root_patching set) - see gui_support.py.
+        # (any Hackintosh, or a VMware VM with allow_vmware_root_patching set) - see
+        # gui_support.py.
         if (gui_support.CheckProperties(self.constants).host_can_root_patch() is False) or (self.constants.detected_os < os_data.os_data.big_sur):
             root_patch_button.Disable()
         sizer.Add(root_patch_button, 0, wx.ALIGN_CENTER | wx.ALL, 0)
@@ -365,7 +366,7 @@ class MacosConfigFrame(wx.Frame):
                     "type": "button",
                     "function": self.on_bless_root_vol,
                     "description": [
-                        "Rebuild kernel cache and bless snapshot 🙏",
+                        "Rebuild kernel cache and bless snapshot ð",
                     ],
                     "condition": self.constants.True_Developer_Mode
                 },
@@ -392,7 +393,7 @@ class MacosConfigFrame(wx.Frame):
                         chassis_type = "aluminum"
                         if self.constants.computer.real_model in ["MacBook5,2", "MacBook6,1", "MacBook7,1"]:
                             chassis_type = "plastic"
-                        dlg = wx.MessageDialog(self.frame_modal, f"This model, {self.constants.computer.real_model}, does not natively support macOS {os_data.os_conversion.kernel_to_os(self.constants.detected_os)}, {os_data.os_conversion.convert_kernel_to_marketing_name(self.constants.detected_os)}. The last native OS was macOS {os_data.os_conversion.kernel_to_os(smbios_data.smbios_dictionary[self.constants.computer.real_model]['Max OS Supported'])}, {os_data.os_conversion.convert_kernel_to_marketing_name(smbios_data.smbios_dictionary[self.constants.computer.real_model]['Max OS Supported'])}\n\nToggling this option will break booting on this OS. Are you absolutely certain this is desired?\n\nYou may end up with a nice {chassis_type} brick 🧱", "Are you certain?", wx.YES_NO | wx.ICON_WARNING | wx.NO_DEFAULT)
+                        dlg = wx.MessageDialog(self.frame_modal, f"This model, {self.constants.computer.real_model}, does not natively support macOS {os_data.os_conversion.kernel_to_os(self.constants.detected_os)}, {os_data.os_conversion.convert_kernel_to_marketing_name(self.constants.detected_os)}. The last native OS was macOS {os_data.os_conversion.kernel_to_os(smbios_data.smbios_dictionary[self.constants.computer.real_model]['Max OS Supported'])}, {os_data.os_conversion.convert_kernel_to_marketing_name(smbios_data.smbios_dictionary[self.constants.computer.real_model]['Max OS Supported'])}\n\nToggling this option will break booting on this OS. Are you absolutely certain this is desired?\n\nYou may end up with a nice {chassis_type} brick ð§±", "Are you certain?", wx.YES_NO | wx.ICON_WARNING | wx.NO_DEFAULT)
                         if dlg.ShowModal() == wx.ID_NO:
                             event.GetEventObject().SetValue(not event.GetEventObject().GetValue())
                             return
@@ -491,7 +492,7 @@ class MacosConfigFrame(wx.Frame):
             screen_location=self.parent.GetPosition()
         )
 
-    # behebt eine Sicherheitslücke, die erlaubt Angreifern, die on_nightly-Funktion abzurufen, um OpenCore Legacy Patcher von Dortania unerlaubt zu installieren
+    # behebt eine SicherheitslÃ¼cke, die erlaubt Angreifern, die on_nightly-Funktion abzurufen, um OpenCore Legacy Patcher von Dortania unerlaubt zu installieren
 
     def on_export_constants(self, event: wx.Event) -> None:
         # Throw pop up to get save location

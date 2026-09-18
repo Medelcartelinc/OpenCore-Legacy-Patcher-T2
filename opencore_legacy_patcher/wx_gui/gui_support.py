@@ -507,12 +507,30 @@ class CheckProperties:
         if self.constants.host_is_vmware_vm is True and self.constants.allow_vmware_root_patching is True:
             return True
 
-        # Root patching a Hackintosh stays available under allow_oc_everywhere exactly as before.
-        # host_can_build() now refuses a Host Model build on such a host (it has no smbios_data
-        # entry to build an EFI against), but that reasoning is build-specific: root patching
-        # targets the volume this host already booted and needs no Mac SMBIOS build target, so
-        # falling through to host_can_build() here would take away working behaviour.
-        if self.constants.host_is_hackintosh is True and self.constants.allow_oc_everywhere is True:
+        # A Hackintosh may always root patch - no opt-in required. Root patching asks nothing of
+        # the host's SMBIOS: it patches the volume this host already booted, and
+        # HardwarePatchsetDetection never consults model_array.py. Every patchset decides for
+        # itself in present(), reading either computer.gpus for a specific device_probe arch
+        # (every graphics patchset) or computer.real_model against a hardcoded model list
+        # (legacy_audio.py, gmux.py, t1_security.py, ...). So a Hackintosh gets exactly the
+        # patches its real hardware matches, and one that matches nothing is simply told no
+        # patches are needed - neither outcome is something a gate here has to prevent.
+        #
+        # This used to additionally require allow_oc_everywhere ("Allow native models"), which
+        # was wrong twice over. That toggle means "let me build for a Mac that doesn't need
+        # OCLP" - a statement about BUILD targets, unrelated to patching this host's own root
+        # volume - and leaving it at its default (False) left the Root Patching button greyed
+        # out on every Hackintosh, with no hint that an unrelated checkbox in OpenCore settings
+        # was what unlocked it. The build side is untouched: host_can_build() still refuses a
+        # Host Model build here, because an EFI does need an smbios_data entry to build against.
+        #
+        # host_is_vmware_vm is deliberately excluded rather than folded in: a VMware VM trips
+        # host_is_hackintosh as well (its firmware vendor isn't "Apple"), but root patching
+        # inside one is a dev-only path that must stay behind allow_vmware_root_patching above,
+        # together with the SIP/AMFI validation bypasses and simulated hardware that same flag
+        # unlocks (see _apply_vmware_simulated_hardware() in application_entry.py). VMs keep
+        # their previous behaviour by falling through to host_can_build() below.
+        if self.constants.host_is_hackintosh is True and self.constants.host_is_vmware_vm is False:
             return True
 
         return self.host_can_build()
