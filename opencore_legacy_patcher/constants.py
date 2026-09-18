@@ -42,7 +42,7 @@ class Constants:
         # plist can never point the updater at an arbitrary URL.
         self.update_channels: dict = {
             "official": {
-                "label": "Official (T2)",
+                "label": "Albert Müller - Official (T2 - recommended)",
                 "repo":  "https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/",
             },
             "medelcartelinc": {
