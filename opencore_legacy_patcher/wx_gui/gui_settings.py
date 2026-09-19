@@ -116,8 +116,12 @@ class SettingsFrame(wx.Frame):
         if not (self.constants.Experimental_Features or self.constants.True_Developer_Mode):
             tabs.remove("Advanced")
         for tab in tabs:
-            panel = wx.ScrolledWindow(notebook)
-            panel.SetScrollRate(0, 20)
+            if tab == "Statistics":
+                panel = wx.Panel(notebook)
+            else:
+                panel = wx.ScrolledWindow(notebook)
+                panel.SetScrollRate(0, 20)
+
             notebook.AddPage(panel, tab)
 
         sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
@@ -284,10 +288,11 @@ class SettingsFrame(wx.Frame):
             panel.SetVirtualSize((page_width, lowest_height_reached + 50))
 
         # Only the visible page is resized on layout, so recalculate on tab change
-        notebook.Bind(
-            wx.EVT_NOTEBOOK_PAGE_CHANGED,
-            lambda event: (notebook.GetPage(event.GetSelection()).AdjustScrollbars(), event.Skip())
-        )
+        if tab == "Statistics":
+            notebook.Bind(
+                wx.EVT_NOTEBOOK_PAGE_CHANGED,
+                lambda event: (notebook.GetPage(event.GetSelection()).AdjustScrollbars(), event.Skip())
+            )
 
 
     def _settings(self) -> dict:
@@ -530,7 +535,7 @@ Hardware Information:
     {pprint.pformat(self.constants.computer, indent=4)}
 """
         # TextCtrl: properties
-        self.app_stats = wx.TextCtrl(panel, value=lines, pos=(-1, title.GetPosition()[1] + 30), size=(600, 525), style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_RICH2 | wx.BORDER_NONE | wx.HSCROLL | wx.VSCROLL | wx.TE_DONTWRAP) #TODO: Fix this to show a scrollbar!!! It has to be in the textCtrl, which is the tricky part
+        self.app_stats = wx.TextCtrl(panel, value=lines, pos=(-1, title.GetPosition()[1] + 30), size=(712, 508), style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_RICH2 | wx.BORDER_NONE | wx.HSCROLL | wx.VSCROLL | wx.TE_DONTWRAP)
         self.app_stats.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         self.app_stats.SetScrollbar(wx.HORIZONTAL, 0, 600, 1200)
 
