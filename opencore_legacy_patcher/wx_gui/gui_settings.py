@@ -149,21 +149,19 @@ class SettingsFrame(wx.Frame):
 
             for setting, setting_info in self.settings[tab].items():
                 if setting_info["type"] == "populate":
-                    # execute populate function
-                    if setting_info["args"] == wx.Frame:
-                        setting_info["function"](panel)
-                    else:
-                        logging.error("Invalid populate function")
-                        raise Exception("Invalid populate function")
+                    existing_children = set(panel.GetChildren())
 
-                    # Populate functions place their own controls and never touch 'height',
-                    # so sample the panel afterwards to keep the page height correct
+                    setting_info["function"](panel)
+
                     for child in panel.GetChildren():
-                        bottom = child.GetPosition()[1] + child.GetSize()[1]
-                        if bottom > lowest_height_reached:
-                            lowest_height_reached = bottom
-                    continue
+                        if child in existing_children:
+                            continue
 
+                    bottom = child.GetPosition()[1] + child.GetSize()[1]
+                    if bottom > lowest_height_reached:
+                        lowest_height_reached = bottom
+
+                    continue
                 if setting_info["type"] == "title":
                     stock_height = lowest_height_reached
                     height = stock_height
@@ -351,31 +349,6 @@ class SettingsFrame(wx.Frame):
                         "Requires restarting the app to take effect."
                     ],
                 },
-                "T2 Installer Workaround": {
-                    "type": "checkbox",
-                    "override_function": self._update_global_settings,
-                    "variable": "t2_installer_workaround",
-                    "value": self.constants.t2_installer_workaround,
-                    "warning": "You are enabling the T2 Installer Workaround. This forces software rendering (-radvesa, -igfxvesa) and disables AMFI (amfi=0x80) to allow the macOS Tahoe installer to boot without freezing on T2 Macs.\n\nOnly enable this if you are creating a USB installer. You must uncheck this and rebuild OpenCore after installing macOS and root patching!",
-                    "description": [
-                        "Enables workarounds to fix freezing",
-                        "in the macOS Tahoe installer on T2 Macs."
-                    ],
-                    "condition": self.constants.True_Developer_Mode
-                },
-                "Allow Experimental T2 RestrictEvents Kext": {
-                    "type": "checkbox",
-                    "override_function": self._update_global_settings,
-                    "variable": "allow_t2_experimental_kext",
-                    "value": self.constants.allow_t2_experimental_kext,
-                    "warning": "You are about to allow the injection of an experimental custom RestrictEvents.kext for T2 Macs.\n\nWARNING: This kext is highly unstable and may cause early boot kernel panics on macOS Tahoe. Only enable this if you are testing the T2 patches and are prepared to recover your system.",
-                    "description": [
-                        "Injects the custom RestrictEvents kext on T2 Macs",
-                        "to bypass Tahoe installer checks. If disabled,",
-                        "no RestrictEvents kext is injected on T2."
-                    ],
-                    "condition": self.constants.True_Developer_Mode
-                },
                 "Update Channel": {
                     "type": "choice",
                     "choices": [channel["label"] for channel in self.constants.update_channels.values()],
@@ -488,6 +461,37 @@ class SettingsFrame(wx.Frame):
                         "Wipes the KDK cache and Rebuilds it.",
                         "This is useful if you have a broken KDK.",
                     ],
+                },
+                "T2 Settings": {
+                    "type": "title",
+                },
+                "Allow Experimental T2 RestrictEvents Kext": {
+                    "type": "checkbox",
+                    "override_function": self._update_global_settings,
+                    "variable": "allow_t2_experimental_kext",
+                    "value": self.constants.allow_t2_experimental_kext,
+                    "warning": "You are about to allow the injection of an experimental custom RestrictEvents.kext for T2 Macs.\n\nWARNING: This kext is highly unstable and may cause early boot kernel panics on macOS Tahoe. Only enable this if you are testing the T2 patches and are prepared to recover your system.",
+                    "description": [
+                        "Injects the custom RestrictEvents kext on T2 Macs",
+                        "to bypass Tahoe installer checks. If disabled,",
+                        "no RestrictEvents kext is injected on T2."
+                    ],
+                    "condition": self.constants.True_Developer_Mode
+                },
+                "wrap_around 2": {
+                    "type": "wrap_around",
+                },
+                "T2 Installer Workaround": {
+                    "type": "checkbox",
+                    "override_function": self._update_global_settings,
+                    "variable": "t2_installer_workaround",
+                    "value": self.constants.t2_installer_workaround,
+                    "warning": "You are enabling the T2 Installer Workaround. This forces software rendering (-radvesa, -igfxvesa) and disables AMFI (amfi=0x80) to allow the macOS Tahoe installer to boot without freezing on T2 Macs.\n\nOnly enable this if you are creating a USB installer. You must uncheck this and rebuild OpenCore after installing macOS and root patching!",
+                    "description": [
+                        "Enables workarounds to fix freezing",
+                        "in the macOS Tahoe installer on T2 Macs."
+                    ],
+                    "condition": self.constants.True_Developer_Mode
                 },
             },
         }
