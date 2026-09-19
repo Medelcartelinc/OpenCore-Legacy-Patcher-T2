@@ -3,6 +3,7 @@
 ## 4.0.0.190001 - 4.0.0 alpha 19.1
 This release:
 - removes emojis from the Build OpenCore settings to improve compatability with macOS 10.13 High Sierra - on macOS 10.13 High Sierra it showed a question mark instead of the emoji
+- fixes a bug where inside constants.py, for certain kexts it was saying that they were on an older version than they are - which could trigger in certain cases injecting the wrong version after updating OpenCore Legacy Patcher T2, which could break as non-T2 Macs as T2 ones
 - fixes a bug where on certain Macs, 2 USB port mappings get injected when running macOS 26 Tahoe, causing the kernel to not even start up
 - fixes a bug where the Statistics menu is too small and the scroll bar was missing, thx @gandolf243
 - moves highly experimental T2 settings to the Advanced tab, which is accessible only in Developer Mode, but even previously they were greyed out outside Developer Mode, thx @gandolf243
