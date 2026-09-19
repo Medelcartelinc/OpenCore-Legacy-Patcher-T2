@@ -20,6 +20,7 @@ from .detections import (
 from .support import (
     utilities,
     defaults,
+    global_settings,
     arguments,
     reroute_payloads,
     commit_info,
@@ -254,6 +255,27 @@ class OpenCoreLegacyPatcher:
 
         # Generate defaults
         defaults.GenerateDefaults(self.computer.real_model, True, self.constants)
+
+        # "--disable_auto_update": switch the updater off before anything can
+        # trigger it, for users who deliberately want to stay on one specific
+        # build. It has to sit after GenerateDefaults(), not next to the
+        # "--developer" check above: GenerateDefaults() restores
+        # "AllowAutoUpdates" from the settings file and would overwrite an
+        # earlier assignment. The automatic check only starts once the main GUI
+        # frame exists, which is strictly later than this, so nothing can slip
+        # through in between.
+        if "--disable_auto_update" in sys.argv:
+            self.constants.auto_update = False
+            # Stored like the Settings checkbox, since "I want this exact
+            # version" is not a single-launch decision, and the auto patcher
+            # and macos-update daemons are separate processes that read the
+            # same key. A failed write only costs persistence: auto_update is
+            # already False for this session either way.
+            if global_settings.GlobalEnviromentSettings().write_property("AllowAutoUpdates", False) is True:
+                logging.info("Automatic updates disabled via --disable_auto_update")
+            else:
+                logging.warning("Automatic updates are disabled for this launch, but the choice could not be stored")
+
         if self.constants.computer.build_model is None:
             logging.info(f"Initializing build_model to native host: {self.computer.real_model}")
             self.constants.computer.build_model = self.computer.real_model
