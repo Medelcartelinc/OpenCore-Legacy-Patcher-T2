@@ -22,10 +22,10 @@ class Constants:
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania · T2 fork © 2026 Albert Müller"
 
         # Versions
-        self.lilu_version:               str = "1.7.0"  #      Lilu
-        self.whatevergreen_version:      str = "1.6.8"  #      WhateverGreen
-        self.airportbcrmfixup_version:   str = "1.4.1"  #      AirportBrcmFixup
-        self.nvme_fix_version:           str = "1.1.2"  #      NVMeFix
+        self.lilu_version:               str = "1.7.2"  #      Lilu
+        self.whatevergreen_version:      str = "1.7.0"  #      WhateverGreen
+        self.airportbcrmfixup_version:   str = "2.2.0"  #      AirportBrcmFixup
+        self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
         self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         # URLs
