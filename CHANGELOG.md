@@ -3,7 +3,9 @@
 ## 4.0.0.190001 - 4.0.0 alpha 19.1
 This release:
 - removes emojis from the Build OpenCore settings to improve compatability with macOS 10.13 High Sierra - on macOS 10.13 High Sierra it showed a question mark instead of the emoji
-- 
+- fixes a bug where on certain Macs, 2 USB port mappings get injected when running macOS 26 Tahoe, causing the kernel to not even start up
+- fixes a bug where the Statistics menu is too small and the scroll bar was missing, thx @gandolf243
+- moves highly experimental T2 settings to the Advanced tab, which is accessible only in Developer Mode, but even previously they were greyed out outside Developer Mode, thx @gandolf243
 - HardwarePatchsetDetection now splits the detected patchsets into installed_patchsets / uninstalled_patchsets by comparing each patchset's own manifest keys against the root volume manifest, and exposes manifest_metadata alongside them.
 - New manifest_keys_for_patchset() derives those keys from BaseHardware.patches() instead of stripping the category off the display name. Miscellaneous: Legacy Audio writes Legacy Non-GOP / Legacy Realtek, so the old mapping could never match and those Macs were told to reinstall forever.
 - The menu lists only patchsets that are genuinely missing, names the installed ones under Already installed, and reports a manifest written by another build as "Installed by a different build - revert to reinstall" rather than as pending work.
