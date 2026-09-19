@@ -1262,11 +1262,11 @@ class OCSettingsFrame(wx.Frame):
         else:
             user_had_prompt_set = False
         choices = [
-            "🟢 Standard / Safe Build",
-            "🧪 [LEVEL-B] Experimental GPU",
-            "🧪 [LEVEL-C] Experimental Tahoe (Native SMBIOS)",
-            "🧪 [LEVEL-C] Experimental Spoof T2 (MacBookPro16,1)",
-            "🧪 [LEVEL-D] All-In-One Tahoe (Wi-Fi + Audio + GPU + T1)"
+            "Standard / Safe Build",
+            "[LEVEL-B] Experimental GPU",
+            "[LEVEL-C] Experimental Tahoe (Native SMBIOS)",
+            "[LEVEL-C] Experimental Spoof T2 (MacBookPro16,1)",
+            "[LEVEL-D] All-In-One Tahoe (Wi-Fi + Audio + GPU + T1)"
         ]
         dialog = wx.SingleChoiceDialog(
             self,
