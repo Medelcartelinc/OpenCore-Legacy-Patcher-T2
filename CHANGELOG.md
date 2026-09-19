@@ -1,5 +1,16 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## 4.0.0.190001 - 4.0.0 alpha 19.1
+This release:
+- removes emojis from the Build OpenCore settings to improve compatability with macOS 10.13 High Sierra - on macOS 10.13 High Sierra it showed a question mark instead of the emoji
+- 
+- HardwarePatchsetDetection now splits the detected patchsets into installed_patchsets / uninstalled_patchsets by comparing each patchset's own manifest keys against the root volume manifest, and exposes manifest_metadata alongside them.
+- New manifest_keys_for_patchset() derives those keys from BaseHardware.patches() instead of stripping the category off the display name. Miscellaneous: Legacy Audio writes Legacy Non-GOP / Legacy Realtek, so the old mapping could never match and those Macs were told to reinstall forever.
+- The menu lists only patchsets that are genuinely missing, names the installed ones under Already installed, and reports a manifest written by another build as "Installed by a different build - revert to reinstall" rather than as pending work.
+- _manifest_requires_revert() and _already_has_networking_patches() use the same key mapping and manifest reader, so the menu and start_patch() can no longer disagree.
+- device_probe.oclp_sys_patch_probe() falls back to find_any_oclp_manifest() instead of reporting an unpatched volume when the manifest lives in the Dortania support folder.
+- Removed both copies of _check_if_new_patches_needed(). The copy in gui_sys_patch_start.py was dead code; the copy in gui_sys_patch_display.py called utilities.find_any_oclp_manifest() while the module never imported utilities - a NameError on any host without a manifest at the CoreServices path.
+
 ## 4.0.0.190000 - 4.0.0 alpha 19
 This release:
 - introduces the --disable_auto_update flag to disable automatic updates if the user wants to before it reaches the automatic update phase. It will disable them even if not running the app from source, but the user needs to download the source code and run it once so this can take action.
