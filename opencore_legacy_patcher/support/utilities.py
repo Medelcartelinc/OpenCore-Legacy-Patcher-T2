@@ -654,7 +654,16 @@ def check_cli_args():
     parser.add_argument("--gui_unpatch", help="Starts GUI in Root Unpatcher", action="store_true", required=False)
     parser.add_argument("--auto_patch", help="Check if patches are needed and prompt user", action="store_true", required=False)
     parser.add_argument("--update_installed", help="Prompt user to finish updating via GUI", action="store_true", required=False)
-    parser.add_argument("--developer", required=False)
+    # Both of these are GUI-side switches, not CLI-mode triggers: they are
+    # deliberately absent from the "did the user ask for CLI mode" check below,
+    # so passing them still opens the normal GUI. They only need to exist here
+    # because parse_args() aborts the whole app on an unrecognised argument.
+    # "--developer" takes an optional value (nargs="?") purely for backwards
+    # compatibility: as a plain store it demanded one, so passing just
+    # "--developer" - the documented usage, and what application_entry.py looks
+    # for in sys.argv - made argparse exit(2) and killed the launch.
+    parser.add_argument("--developer", nargs="?", const=True, default=None, help="Force True Developer Mode", required=False)
+    parser.add_argument("--disable_auto_update", help="Disable automatic update checks, equivalent to Settings > \"Turn Off Auto Updates\"", action="store_true", required=False)
 
     args = parser.parse_args()
     if not (
