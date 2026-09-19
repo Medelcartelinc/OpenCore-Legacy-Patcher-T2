@@ -1,5 +1,81 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 
+## 4.0.0.190000 - 4.0.0 alpha 19
+This release:
+- introduces the --disable_auto_update flag to disable automatic updates if the user wants to before it reaches the automatic update phase. It will disable them even if not running the app from source, but the user needs to download the source code and run it once so this can take action.
+- Now, the Settings page is as big as it needs to be instead of a fixed size to fix text not fully visible
+<img width="848" height="797" alt="image" src="https://github.com/user-attachments/assets/31810002-6afd-4f9d-8f72-e042de022b7f" />
+- fixes a bug where when trying to switch update channels, if an error occurs when switching between the channels, the patcher would revert back to the official channel aggressively and start pulling updates from there, locking users into automatic updates loops. Now, if it fails to switch the channels, it will throw an error with instructions on how to fix this to avoid people accidentally switching between @Medelcartelinc's fork and the main project when they didn't intend to do so.
+- fixes a bug where the root patching menu being blocked on Hackintoshes, now it is blocked only for VMWare virtual machines
+- removes emojis in Settings > Advanced > Default OpenCore build to improve compatability with macOS 10.13 High Sierra, as these emojis didn't show up properly on High Sierra and showed a ? instead
+- Updates T1 model profile selection in GUI to require Developer Mode, thx @Medelcartelinc
+- Fixes auto-patcher update permission denied, thx @Medelcartelinc 
+- Fixes Priveleged Helper Tool permissions, thx @Medelcartelinc 
+- fixes APFS snapshot creation on macOS 15 Sequoia and macOS 26 Tahoe , thx @Medelcartelinc 
+- Fixes bless --bootefi missing on macOS 15 Sequoia x86_64, thx @Medelcartelinc 
+- The AppleHDA audio driver is so old that on macOS 26.7 it stopped working and on macOS 26.6.2 it enables safety guard hold that prevents from installing any macOS updates. This is now fixed by adding a new patch: https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/pull/376/changes/8d6a60aec8f1179a39da234dc9cd6d1ad2bd0e1e , thx @Medelcartelinc 
+- fixes unconditional injection of the SkipLogo patch that causes T2 Macs to not even reach the Apple logo at all, thx @Medelcartelinc 
+- fixes a bug where on MacBookPro16,4 (MacBook Pro 2020, Intel) MacBookAir9,1 (2020) and MacBookAir9,2 (2020) where they weren't exempt from the SkipLogo patch
+- now, it only enables AMFIPass only on unsupported T2 Macs, thx @Medelcartelinc https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/pull/376/changes/a6a9b27208ce4a2110c20c5c9e1bc4b9949a10ee
+- Changes the PlatformInfo > Generic > ROM value from 0016CB445566 to 112233000000, thx @Medelcartelinc 
+- macOS 26 Tahoe introduces a WindowServer deadlock with AMD Legacy GCN, Polaris, and Intel Skylake GPUs due to incompatibilities between the legacy drivers and the Tahoe metallib format. This is fixed by Re-using the 3802 downgraded metallibs from MetallibSupportPkg, thx @Medelcartelinc
+- Fixes a bug where Broadcom BCM5701 Ethernet injection patchset for macOS 15 Sequoia & 26 Tahoe was there but wasn't injected at all, causing on the affected Macs to have no Ethernet at all, thx @Medelcartelinc 
+- Adds the liquid glass icon to AutoPkg, thx @gandolf243
+- fixes broken Check for updates button that didn't indicate when it was checking for updates
+- removes the following dead code from gui_settings.py:
+
+            models = [model for model in smbios_data.smbios_dictionary if "_" not in model and " " not in model and smbios_data.smbios_dictionary[model]["Board ID"] is not None]
+                    socketed_imac_models = ["iMac9,1", "iMac10,1", "iMac11,1", "iMac11,2", "iMac11,3", "iMac12,1", "iMac12,2"]
+                    socketed_gpu_models = socketed_imac_models + ["MacPro3,1", "MacPro4,1", "MacPro5,1", "Xserve2,1", "Xserve3,1"]
+
+It is no longer used and as such, it is deprecated.
+
+- fixes the following vulnerabilities (and all of them are critical):
+subprocess_wrapper.py:
+
+        helper_path = Path(OCLP_PRIVILEGED_HELPER)
+        
+            try:
+                # lstat(), NOT stat(): we want to inspect the path itself, not its symlink target
+                helper_stat = helper_path.lstat()
+                parent_stat = helper_path.parent.lstat()
+            except OSError as error:
+                logging.error(f"Could not stat Privileged Helper Tool: {error}")
+                return False
+      # <- except Exception as e was missing, an attacker could trigger an error outside OSError as error
+
+Impact: an attacker could trigger an error outside OSError as error and exploit the missing except Exception as e to execute arbitary code if the Priveleged Helper Tool unexpectedly fails to start. This is fixed by adding error handling if an unexpected error ever occurs.
+
+          logging.info(f"Privileged Helper Tool has unexpected permissions: {oct(current_mode)} (expected {oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)})")
+          
+              # Only now, once we know we would actually chmod something, pay for the validation
+              if not _helper_path_is_safe_to_repair():
+                    return False
+
+              return True # <- an attacker could bypass the if not _helper_path_is_safe_to_repair condition to escalate privileges
+
+Impact: an attacker could bypass the check whether it is safe to repair or not to gain root access and then execute a malicious Priveleged Helper Tool, or worse - a shortcut that points to a script instead of the Priveleged Helper Tool. Returning True unconditionally is dangerous. This vulnerability is fixed by checking via conditions like this if it is safe to repair the Priveleged Helper Tool or not:
+
+              if _helper_path_is_safe_to_repair():
+                      return True
+                  elif not _helper_path_is_safe_to_repair(): # behebt eine Sicherheitslücke, die erlaubt Angreifern, Root-Rechte zu erhalten
+                      return False
+                  else:
+                      logging.error("We failed to assess the safety of repairing the Priveleged Helper Tool. It won't be repaired, just to be on the safe side.")
+                      logging.info("Please ensure that OpenCore Legacy Patcher T2 is downloaded only from the official GitHub repository.")
+                      return False
+
+The next vulnerability that got fixed is in the update engine (updates.py):
+
+            if not subprocess_wrapper.privileged_helper_needs_setuid_repair():
+                        logging.info("Privileged Helper Tool permissions are already correct, no repair needed")
+                        return
+            
+                    logging.info("Privileged Helper Tool permissions need repair, requesting administrator password") # <- an attacker could gain root privileges by simply deleting the if not subprocess_wrapper.privileged_helper_needs_setuid_repair() condition
+                    subprocess_wrapper.repair_privileged_helper_permissions()
+
+Impact: an attacker could disable the check if the Priveleged Helper Tool requires a repair to gain root access. This vulnerability is fixed by only ever requesting the admin password via an else condition to ensure only if it falls in the subprocess_wrapper.privileged_helper_needs_setuid_repair condition before starting to repair.
+
 ## 4.0.0.180010.4 - 4.0.0 alpha 18.10.4
 This version introduces the option to change the update channel to Matteo's fork instead for the users who are using their fork, or simply want to switch to that fork and try out:
 <img width="1080" height="1920" alt="Untitled - 17  September 2026 um 20 16 58" src="https://github.com/user-attachments/assets/f2f83c7a-1904-4e5d-aa39-746da7664e6e" />
