@@ -6,12 +6,9 @@ import wx
 import sys
 import time
 import logging
-import plistlib
 import traceback
 import threading
 import subprocess
-
-from pathlib import Path
 
 from .. import constants
 
@@ -20,7 +17,6 @@ from ..datasets import os_data
 from ..support import (
     kdk_handler,
     metallib_handler,
-    utilities
 )
 from ..sys_patch import (
     sys_patch,
@@ -441,45 +437,3 @@ class SysPatchStartFrame(wx.Frame):
             sys.exit(0)
 
 
-    def _check_if_new_patches_needed(self, patches: dict) -> bool:
-        """
-        Checks if any new patches are needed for the user to install
-        Newer users will assume the root patch menu will present missing patches.
-        Thus we'll need to see if the exact same OCLP build was used already
-        """
-
-        logging.info("Checking if new patches are needed")
-
-        if self.constants.commit_info[0] in ["Running from source", "Built from source"]:
-            return True
-
-        if self.constants.computer.oclp_sys_url != self.constants.commit_info[2]:
-            # If commits are different, assume patches are as well
-            return True
-
-        oclp_plist = Path("/System/Library/CoreServices/OpenCore-Legacy-Patcher.plist")
-        if not oclp_plist.exists():
-            manifest = utilities.find_any_oclp_manifest()
-            if manifest is not None:
-                oclp_plist = manifest
-
-        if not oclp_plist.exists():
-            # If it doesn't exist, no patches were ever installed
-            # ie. all patches applicable
-            return True
-
-        try:
-            oclp_plist_data = plistlib.loads(oclp_plist.read_bytes())
-        except Exception as e:
-            logging.error(f"Failed to read patch manifest ({oclp_plist}): {e}")
-            return True
-        for patch in patches:
-            if (not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True):
-                # Patches should share the same name as the plist key
-                # See sys_patch/patchsets/base.py for more info
-                if patch.split(": ")[1] not in oclp_plist_data:
-                    logging.info(f"- Patch {patch} not installed")
-                    return True
-
-        logging.info("No new patches detected for system")
-        return False

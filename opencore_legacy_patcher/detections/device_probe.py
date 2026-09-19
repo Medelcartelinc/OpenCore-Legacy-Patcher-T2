@@ -956,9 +956,22 @@ class Computer:
     def oclp_sys_patch_probe(self):
         path = Path("/System/Library/CoreServices/OpenCore-Legacy-Patcher.plist")
         if not path.exists():
-            self.oclp_sys_signed = True
+            # Older patcher versions wrote the manifest elsewhere (ie. the Dortania
+            # support folder). Ignoring those left every field below empty on a machine
+            # that is in fact patched, which the root patch menu then read as "nothing
+            # installed" - see 'find_any_oclp_manifest()' and #387.
+            fallback = utilities.find_any_oclp_manifest()
+            if fallback is None:
+                self.oclp_sys_signed = True
+                return
+            path = fallback
+
+        try:
+            sys_plist = plistlib.load(path.open("rb"))
+        except Exception as e:
+            logging.error(f"Failed to read root patch manifest ({path}): {e}")
             return
-        sys_plist = plistlib.load(path.open("rb"))
+
         if sys_plist:
             if "OpenCore Legacy Patcher" in sys_plist:
                 self.oclp_sys_version = sys_plist["OpenCore Legacy Patcher"]

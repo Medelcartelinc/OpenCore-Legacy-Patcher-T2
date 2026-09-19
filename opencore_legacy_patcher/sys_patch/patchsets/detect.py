@@ -134,6 +134,29 @@ MANIFEST_METADATA_KEYS: set = {
 }
 
 
+def manifest_keys_for_patchset(hardware: BaseHardware) -> set[str]:
+    """
+    Keys a patchset writes into the root volume manifest once installed.
+
+    The manifest is keyed by the entries of 'BaseHardware.patches()', not by the
+    display name of the patchset ('Miscellaneous: Legacy Audio' installs
+    'Legacy Non-GOP' or 'Legacy Realtek'), so deriving the keys from the patchset
+    itself is the only mapping that cannot drift. Anything asking "is this
+    patchset installed?" must go through here rather than stripping the category
+    off the display name, which silently never matched for Legacy Audio and left
+    those Macs being told to install patches they already had.
+
+    Falls back to the stripped display name for patchsets that expose no patches
+    of their own (ie. native OS), so the caller always gets something to compare.
+    """
+    keys = set(hardware.patches())
+    if keys:
+        return keys
+
+    name = hardware.name()
+    return {name.split(": ")[1] if ": " in name else name}
+
+
 # Global settings key holding the patchsets the user opted out of.
 #
 # Every patchset detected for the host is applied by default. Users can however
@@ -260,6 +283,19 @@ class HardwarePatchsetDetection:
             t1_login_experimental.T1LoginExperimental,
             usb11.USB11Controller,
         ]
+
+        # Patchsets applicable to this host, split by what the root volume manifest
+        # says is already on disk.
+        #
+        # Detection itself only answers "does this Mac need this patchset?", never
+        # "does this Mac already have it?" - so without this split the menu lists a
+        # fully patched machine exactly like an unpatched one (#387).
+        self.installed_patchsets:   list[str] = []
+        self.uninstalled_patchsets: list[str] = []
+
+        # Metadata of the manifest that produced the split above (version, date,
+        # commit URL), so callers can tell the user which build patched the volume.
+        self.manifest_metadata: dict = {}
 
         self.device_properties = None
         self.patches           = None
@@ -457,9 +493,8 @@ class HardwarePatchsetDetection:
         # If any detected hardware patches for this machine are NOT yet in the manifest,
         # repatching must be permitted so the user can complete system patching (e.g. stage 2
         # after wireless or applying remaining graphics/audio/camera patches).
-        present_hardware_names = {
-            item.name().split(": ")[1] if ": " in item.name() else item.name()
-            for item in self._strip_incompatible_hardware([
+        uninstalled_hardware_patches = {
+            item.name() for item in self._strip_incompatible_hardware([
                 hw(
                     xnu_major        = self._xnu_major,
                     xnu_minor        = self._xnu_minor,
@@ -469,8 +504,8 @@ class HardwarePatchsetDetection:
                 for hw in self._hardware_variants
             ])
             if (item.present() and not item.native_os() and not self._is_disabled(item))
+            and not self._patchset_is_installed(item, manifest)
         }
-        uninstalled_hardware_patches = present_hardware_names - set(manifest)
         if uninstalled_hardware_patches:
             logging.info(f"Uninstalled patches detected ({', '.join(sorted(uninstalled_hardware_patches))}), repatching is permitted")
             return False
@@ -482,6 +517,60 @@ class HardwarePatchsetDetection:
             logging.info("Only network patches are installed, patching can continue")
 
         return False
+
+
+    def _read_manifest(self, manifest_path: Path = None) -> dict:
+        """
+        Load the root volume manifest left behind by a previous root patch
+
+        Returns an empty dictionary when no readable manifest exists, ie. nothing
+        was ever patched - which callers must treat as "nothing installed", never
+        as "everything installed".
+        """
+        if manifest_path is None:
+            return {}
+
+        try:
+            manifest = plistlib.loads(manifest_path.read_bytes())
+        except Exception as e:
+            logging.error(f"Failed to read root patch manifest ({manifest_path}): {e}")
+            return {}
+
+        if not isinstance(manifest, dict):
+            logging.error(f"Root patch manifest is malformed ({manifest_path})")
+            return {}
+
+        return manifest
+
+
+    def _patchset_is_installed(self, hardware: BaseHardware, manifest: dict) -> bool:
+        """
+        Determine whether every patch of a patchset is recorded in the manifest
+        """
+        if not manifest:
+            return False
+        return manifest_keys_for_patchset(hardware).issubset(set(manifest))
+
+
+    def _classify_installed_patchsets(self, present_hardware: list[BaseHardware], manifest: dict) -> None:
+        """
+        Split the patchsets detected for this host into installed and uninstalled
+
+        The Post-Install menu used to decide this from a single comparison of the
+        manifest's 'Commit URL' against the running build, so any app update made a
+        fully patched Mac look entirely unpatched (#387). Comparing per patchset
+        instead keeps the answer tied to what is actually on the volume; whether the
+        installed patches came from an older build is a separate question, answered
+        from 'manifest_metadata'.
+        """
+        self.manifest_metadata = {key: value for key, value in manifest.items() if key in MANIFEST_METADATA_KEYS}
+
+        for item in present_hardware:
+            item: BaseHardware
+            if self._patchset_is_installed(item, manifest):
+                self.installed_patchsets.append(item.name())
+            else:
+                self.uninstalled_patchsets.append(item.name())
 
 
     def _validation_check_root_is_dirty(self, manifest_path: Path = None) -> bool:
@@ -517,16 +606,13 @@ class HardwarePatchsetDetection:
         """
         Check if network patches are already applied
         """
-        oclp_patch_path = "/System/Library/CoreServices/OpenCore-Legacy-Patcher.plist"
-        if not Path(oclp_patch_path).exists():
+        # Read through the same helper as the rest of the manifest checks, so a
+        # manifest written to the Dortania support folder by an older patcher build
+        # is not mistaken for "no wireless patches installed".
+        oclp_plist = self._read_manifest(utilities.find_any_oclp_manifest())
+        if not oclp_plist:
             return False
-        try:
-            oclp_plist = plistlib.load(open(oclp_patch_path, "rb"))
-        except Exception as e:
-            return False
-        if "Legacy Wireless" in oclp_plist or "Modern Wireless" in oclp_plist:
-            return True
-        return False
+        return "Legacy Wireless" in oclp_plist or "Modern Wireless" in oclp_plist
 
 
     def _is_cached_kernel_debug_kit_present(self) -> bool:
@@ -770,6 +856,10 @@ class HardwarePatchsetDetection:
         requires_network_connection = missing_metallib_support_pkg or missing_kernel_debug_kit
 
         manifest_path = utilities.find_any_oclp_manifest(root_path=Path(self._constants.mount_root) if hasattr(self._constants, "mount_root") else Path("/"))
+
+        # Which of the detected patchsets are already sitting on the root volume
+        if self._validation is False:
+            self._classify_installed_patchsets(present_hardware, self._read_manifest(manifest_path))
 
         requirements = {
             HardwarePatchsetSettings.KERNEL_DEBUG_KIT_REQUIRED:     requires_kernel_debug_kit,
