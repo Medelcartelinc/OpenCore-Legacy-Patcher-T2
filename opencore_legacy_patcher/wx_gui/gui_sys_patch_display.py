@@ -4,10 +4,7 @@ gui_sys_patch_display.py: Display root patching menu
 
 import wx
 import logging
-import plistlib
 import threading
-
-from pathlib import Path
 
 from .. import constants
 
@@ -63,6 +60,11 @@ class SysPatchDisplayFrame(wx.Frame):
         self.disabled_patchsets:  list = []
         self.required_patchsets:  list = []
 
+        # Patchsets already recorded in the root volume manifest, and that manifest's
+        # own metadata (patcher version, date, commit URL).
+        self.installed_patchsets: list = []
+        self.manifest_metadata:   dict = {}
+
         self.frame_modal = wx.Dialog(self.frame, title=title, size=(360, 200))
 
         self._generate_elements_display_patches(self.frame_modal)
@@ -116,6 +118,10 @@ class SysPatchDisplayFrame(wx.Frame):
             self.available_patchsets = detection.available_patchsets
             self.disabled_patchsets  = detection.disabled_patchsets
             self.required_patchsets  = detection.required_patchsets
+            # What the root volume manifest says is already installed, so the menu can
+            # tell a patched Mac apart from an unpatched one (#387).
+            self.installed_patchsets = detection.installed_patchsets
+            self.manifest_metadata   = detection.manifest_metadata
 
         thread = threading.Thread(target=_fetch_patches, args=(self,))
         thread.start()
@@ -137,27 +143,40 @@ class SysPatchDisplayFrame(wx.Frame):
         # will be installed" on screen while only one of them was (#381). Both halves are
         # spelled out below instead, so the menu alone says what will and will not be
         # installed.
-        installed_patchsets: list = [
+        selected_patchsets: list = [
             patch for patch in patches
             if not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True
         ]
         # Detected for this Mac, yet not part of this run: deselected by the user, or held
         # back because the patcher installs the network patches first (see
         # '_handle_missing_network_connection()').
-        skipped_patchsets: list = [name for name in self.available_patchsets if name not in installed_patchsets]
+        skipped_patchsets: list = [name for name in self.available_patchsets if name not in selected_patchsets]
 
-        available_label.SetLabel("Patches that will be installed:")
-        available_label.Centre(wx.HORIZONTAL)
+        # Of the patchsets this run covers, the ones the root volume manifest already
+        # records - and the ones genuinely still missing.
+        #
+        # Detection alone cannot answer this: it reports every patchset applicable to the
+        # hardware, whether or not it is on disk. The previous shortcut asked instead
+        # whether the manifest's 'Commit URL' matched the running build, so updating the
+        # app was enough to have a fully patched Mac told that all of its patches "will be
+        # installed" (#387). Which build installed them is a separate question, answered
+        # by 'patched_with_other_build' below.
+        already_installed: list = [patch for patch in selected_patchsets if patch in self.installed_patchsets]
+        pending_patchsets: list = [patch for patch in selected_patchsets if patch not in self.installed_patchsets]
 
+        patched_with_other_build: bool = bool(self.manifest_metadata) and self.manifest_metadata.get("Commit URL") != self.constants.commit_info[2]
 
         can_unpatch: bool = not patches[HardwarePatchsetValidation.UNPATCHING_NOT_POSSIBLE]
 
-        if not installed_patchsets:
+        if not selected_patchsets:
             logging.info("No applicable patches available")
             patches = {}
 
-        # Check if OCLP has already applied the same patches
-        no_new_patches = not self._check_if_new_patches_needed(patches) if patches else False
+        # Everything applicable is already on the volume
+        no_new_patches = bool(patches) and not pending_patchsets
+
+        available_label.SetLabel("Root patch status:" if no_new_patches else "Patches that will be installed:")
+        available_label.Centre(wx.HORIZONTAL)
 
         if not patches:
             # Prompt user with no patches found
@@ -178,15 +197,25 @@ class SysPatchDisplayFrame(wx.Frame):
                 patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                 patch_label.Centre(wx.HORIZONTAL)
                 i = i + 20
+
+                # The patches are installed, they just came from another build of the
+                # patcher. Saying so beats listing them as pending: nothing is missing,
+                # while reinstalling them with this build does require a revert first.
+                if patched_with_other_build is True:
+                    logging.info("Patches were installed by a different build of the patcher")
+                    patch_label = wx.StaticText(frame, label="Installed by a different build - revert to reinstall", pos=(-1, available_label.GetPosition()[1] + 20 + i))
+                    patch_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+                    patch_label.Centre(wx.HORIZONTAL)
+                    i = i + 20
             else:
-                longest_patch = max(installed_patchsets, key=len)
+                longest_patch = max(pending_patchsets, key=len)
                 anchor = wx.StaticText(frame, label=longest_patch, pos=(-1, available_label.GetPosition()[1] + 20))
                 anchor.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
                 anchor.Centre(wx.HORIZONTAL)
                 anchor.Hide()
 
                 logging.info("Patches that will be installed:")
-                for patch in installed_patchsets:
+                for patch in pending_patchsets:
                     i = i + 20
                     logging.info(f"- {patch}")
                     patch_label = wx.StaticText(frame, label=f"- {patch}", pos=(anchor.GetPosition()[0], available_label.GetPosition()[1] + i))
@@ -260,6 +289,10 @@ class SysPatchDisplayFrame(wx.Frame):
         # in 'Configure Patches', while the network-first split resolves itself after the
         # reboot.
         for group_label, group in (
+            # Patchsets this run would cover, but that are already on the volume. Listing
+            # them keeps the menu honest in the mixed case - some installed, some still
+            # missing - where the header above only names the missing ones.
+            ("Already installed", already_installed if pending_patchsets else []),
             ("Disabled by you", [name for name in skipped_patchsets if name in self.disabled_patchsets]),
             ("Skipped this run", [name for name in skipped_patchsets if name not in self.disabled_patchsets]),
         ):
@@ -585,45 +618,3 @@ by creating a new APFS snapshot.
         self.frame_modal = None
 
 
-    def _check_if_new_patches_needed(self, patches: dict) -> bool:
-        """
-        Checks if any new patches are needed for the user to install
-        Newer users will assume the root patch menu will present missing patches.
-        Thus we'll need to see if the exact same OCLP build was used already
-        """
-
-        logging.info("Checking if new patches are needed")
-
-        if self.constants.commit_info[0] in ["Running from source", "Built from source"]:
-            return True
-
-        if self.constants.computer.oclp_sys_url != self.constants.commit_info[2]:
-            # If commits are different, assume patches are as well
-            return True
-
-        oclp_plist = Path("/System/Library/CoreServices/OpenCore-Legacy-Patcher.plist")
-        if not oclp_plist.exists():
-            manifest = utilities.find_any_oclp_manifest()
-            if manifest is not None:
-                oclp_plist = manifest
-
-        if not oclp_plist.exists():
-            # If it doesn't exist, no patches were ever installed
-            # ie. all patches applicable
-            return True
-
-        try:
-            oclp_plist_data = plistlib.loads(oclp_plist.read_bytes())
-        except Exception as e:
-            logging.error(f"Failed to read patch manifest ({oclp_plist}): {e}")
-            return True
-        for patch in patches:
-            if (not patch.startswith("Settings") and not patch.startswith("Validation") and patches[patch] is True):
-                # Patches should share the same name as the plist key
-                # See sys_patch/patchsets/base.py for more info
-                if patch.split(": ")[1] not in oclp_plist_data:
-                    logging.info(f"- Patch {patch} not installed")
-                    return True
-
-        logging.info("No new patches detected for system")
-        return False
