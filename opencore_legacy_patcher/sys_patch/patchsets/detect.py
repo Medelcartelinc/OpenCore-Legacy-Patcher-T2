@@ -18,7 +18,7 @@ except ImportError:
 except Exception as e: # behebt eine Sicherheitslücke, indem Angreifern Fehler außerhalb ImportError auslösen können
     logging.error("CRITICAL ERROR: Imports failed, please reinstall the patcher from GitHub and if this issue persists, report this issue.")
     logging.exception("Stack Trace:")
-    sys.exot(3)
+    sys.exit(3)
 from pathlib   import Path
 from functools import cache
 
