@@ -82,7 +82,7 @@ class AMDLegacyGCN(BaseHardware):
         is explicitly active.
         """
         if self._xnu_major >= os_data.tahoe.value:
-            if not self._dortania_internal_check():
+            if not self._constants.Experimental_Features:
                 return False
         return True
 
