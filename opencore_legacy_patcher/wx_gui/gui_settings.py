@@ -285,14 +285,27 @@ class SettingsFrame(wx.Frame):
 
             # wx.ScrolledWindow only scrolls once its virtual size exceeds the client
             # size; the pages have no sizer, so it has to be set explicitly.
-            panel.SetVirtualSize((page_width, lowest_height_reached + 50))
+            if isinstance(panel, wx.ScrolledWindow):
+                panel.SetVirtualSize((page_width, lowest_height_reached + 50))
 
-        # Only the visible page is resized on layout, so recalculate on tab change
-        if tab == "Statistics":
-            notebook.Bind(
-                wx.EVT_NOTEBOOK_PAGE_CHANGED,
-                lambda event: (notebook.GetPage(event.GetSelection()).AdjustScrollbars(), event.Skip())
-            )
+        # Only the visible page is resized on layout, so recalculate on tab change.
+        # Not every page scrolls (Statistics is a plain wx.Panel), so the handler has
+        # to check the page type rather than assume every page is a wx.ScrolledWindow.
+        notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self._on_page_changed)
+
+
+    def _on_page_changed(self, event: wx.BookCtrlEvent) -> None:
+        """
+        Recalculates the scrollbars of the page that just became visible
+
+        wx.Notebook only resizes the page that is currently shown, so a page that was
+        populated while hidden still carries a stale client size until it is selected
+        once. Pages that are not a wx.ScrolledWindow have no scrollbars to adjust.
+        """
+        page = event.GetEventObject().GetPage(event.GetSelection())
+        if isinstance(page, wx.ScrolledWindow):
+            page.AdjustScrollbars()
+        event.Skip()
 
 
     def _settings(self) -> dict:
