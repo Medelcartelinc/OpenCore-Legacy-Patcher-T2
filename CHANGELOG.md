@@ -1,4 +1,6 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190002 - 4.0.0 alpha 19.2
+This release fixes a bug where the patcher enters an auto update loop due to a bug that it thinks it's on an older version.
 
 ## 4.0.0.190001 - 4.0.0 alpha 19.1
 This release:
