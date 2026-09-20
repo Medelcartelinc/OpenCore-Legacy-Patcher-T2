@@ -9,7 +9,7 @@
 	<key>CFBundleIconFile</key>
 	<string>OC-Patcher.icns</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.albert-mueller.opencore-legacy-patcher-t2</string>
+	<string>io.github.albert-mueller.opencore-legacy-patcher-t2.tools-stub</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
