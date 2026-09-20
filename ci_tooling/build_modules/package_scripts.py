@@ -109,39 +109,32 @@ class ZSHFunctions:
         return _script
 
 
-    def generate_install_shim(self) -> str:
+    def generate_create_alias(self) -> str:
         """
-        ZSH function to install the /Applications entry
-
-        This used to create a symlink into /Library/Application Support/Dortania.
-        Launch Services only indexes real bundles in the standard application
-        folders during a scan, so a symlinked entry never made it into the
-        Launchpad database - the app was reachable from Finder and `open` but
-        invisible in Launchpad (#395).
-
-        A copy costs the bundle's size on disk, but the PKG runs on every update
-        (the in-app updater installs the PKG too), so it is refreshed each time
-        rather than drifting out of date.
+        ZSH function to create alias
         """
 
         _script = ""
 
-        _script += "function _installShim() {\n"
+        _script += "function _createAlias() {\n"
         _script += "    local mainPath=$1\n"
-        _script += "    local shimPath=$2\n\n"
+        _script += "    local aliasPath=$2\n\n"
 
-        _script += "    # Remove whatever is there: a symlink from a pre-copy install,\n"
-        _script += "    # a dangling symlink, or the previous copy.\n"
-        _script += "    if [[ -L $shimPath ]]; then\n"
-        _script += "        echo \"Removing old symbolic link: $shimPath\"\n"
-        _script += "        /bin/rm -f $shimPath\n"
-        _script += "    elif [[ -e $shimPath ]]; then\n"
-        _script += "        echo \"Removing old copy: $shimPath\"\n"
-        _script += "        /bin/rm -rf $shimPath\n"
+        _script += "    # Check if alias path exists\n"
+        _script += "    if [[ -e $aliasPath ]]; then\n"
+        _script += "        # Check if alias path is a symbolic link\n"
+        _script += "        if [[ -L $aliasPath ]]; then\n"
+        _script += "            echo \"Removing old symbolic link: $aliasPath\"\n"
+        _script += "            /bin/rm -f $aliasPath\n"
+        _script += "        else\n"
+        _script += "            echo \"Removing old file: $aliasPath\"\n"
+        _script += "            /bin/rm -rf $aliasPath\n"
+        _script += "        fi\n"
         _script += "    fi\n\n"
 
-        _script += "    echo \"Installing application: $shimPath\"\n"
-        _script += "    /bin/cp -R $mainPath $shimPath\n"
+        _script += "    # Create symbolic link\n"
+        _script += "    echo \"Creating symbolic link: $aliasPath\"\n"
+        _script += "    /bin/ln -s $mainPath $aliasPath\n"
         _script += "}\n"
 
         return _script
@@ -336,7 +329,7 @@ class ZSHFunctions:
 
         _script += "function _main() {\n"
         _script += "    _setSUIDBit \"$pathToTargetVolume/$helperPath\"\n"
-        _script += "    _installShim \"$pathToTargetVolume/$mainAppPath\" \"$pathToTargetVolume/$shimAppPath\"\n"
+        _script += "    _createAlias \"$pathToTargetVolume/$mainAppPath\" \"$pathToTargetVolume/$shimAppPath\"\n"
         _script += "    _prewarmGatekeeper \"$pathToTargetVolume/$mainAppPath\"\n"
         if is_autopkg:
             _script += "    _startPatching \"$pathToTargetVolume/$executablePath\"\n"
@@ -504,7 +497,7 @@ class GenerateScripts:
 
         _script += self.zsh_functions.generate_set_suid_bit()
         _script += "\n"
-        _script += self.zsh_functions.generate_install_shim()
+        _script += self.zsh_functions.generate_create_alias()
         _script += "\n"
         _script += self.zsh_functions.generate_prewarm_gatekeeper()
         _script += "\n"

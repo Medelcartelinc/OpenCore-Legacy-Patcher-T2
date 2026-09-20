@@ -78,7 +78,7 @@ class GeneratePackage:
         _welcome += "# Overview\n"
         _welcome += f"This package will install the OpenCore Legacy Patcher T2 application (v{constants.Constants().patcher_version}) on your system."
 
-        _welcome += "\n\nAdditionally, OpenCore Legacy Patcher T2 will be installed into the '/Applications' folder."
+        _welcome += "\n\nAdditionally, a shortcut for OpenCore Legacy Patcher T2 will be added in the '/Applications' folder."
         _welcome += "\n\nThis package will not 'Build and Install OpenCore' or install any 'Root Patches' on your machine. If required, you can run OpenCore Legacy Patcher T2 to install any patches you may need."
         _welcome += "\n\nBefore installing the patcher, I highly recommend to open Terminal and verify the SHA256 certificates using the shasum -a 256 command with the ones in this repository."
         _welcome += f"\n\nFor more information on OpenCore Legacy Patcher T2 usage, see our [documentation]({constants.Constants().guide_link}) and [GitHub repository]({constants.Constants().repo_link})."
