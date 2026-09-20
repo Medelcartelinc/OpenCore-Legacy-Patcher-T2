@@ -4,7 +4,7 @@
 <dict>
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
-		<string>com.dortania.opencore-legacy-patcher</string>
+		<string>io.github.albert-mueller.opencore-legacy-patcher-t2</string>
 	</array>
 	<key>Label</key>
 	<string>com.dortania.opencore-legacy-patcher.os-caching</string>

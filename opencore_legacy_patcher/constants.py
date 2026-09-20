@@ -21,6 +21,13 @@ class Constants:
         self.patcher_support_pkg_version:     str = "2.0.3"  # PatcherSupportPkg
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania · T2 fork © 2026 Albert Müller"
 
+        # Application identity
+        # Must NOT be "com.dortania.opencore-legacy-patcher": Launch Services
+        # deduplicates registered apps by CFBundleIdentifier, so sharing Dortania's
+        # identifier makes Launchpad display only whichever of the two patchers was
+        # registered first (see issue #395).
+        self.bundle_identifier:               str = "io.github.albert-mueller.opencore-legacy-patcher-t2"
+
         # Versions
         self.lilu_version:               str = "1.7.2"  #      Lilu
         self.whatevergreen_version:      str = "1.7.0"  #      WhateverGreen
