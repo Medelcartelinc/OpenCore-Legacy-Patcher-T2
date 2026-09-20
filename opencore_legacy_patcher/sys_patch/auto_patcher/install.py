@@ -37,6 +37,28 @@ class InstallAutomaticPatchingServices:
         self._staging_directory: Path = None
 
 
+    @staticmethod
+    def _bundle_is_ours(bundle_path: Path) -> bool:
+        """
+        Whether an app bundle at a shared path belongs to this fork
+
+        Pre-rebrand builds installed as OpenCore-Patcher.app, the exact name and
+        location Dortania's patcher uses. Ownership is decided by what the bundle
+        declares about itself; anything ambiguous is treated as not ours.
+        """
+
+        try:
+            info = plistlib.load((bundle_path / "Contents" / "Info.plist").open("rb"))
+        except Exception:
+            return False
+
+        if "T2" in info.get("CFBundleName", ""):
+            return True
+        if "Albert" in info.get("NSHumanReadableCopyright", ""):
+            return True
+        return False
+
+
     def _resolve_patcher_binary(self) -> str:
         """
         Resolve the patcher binary that the launch services should invoke
@@ -50,9 +72,18 @@ class InstallAutomaticPatchingServices:
         so both the current PKG layout and the older ZIP layout keep working.
         """
         for bundle in ("OpenCore-Patcher-T2.app", "OpenCore-Patcher.app"):
-            binary = Path(self._PATCHER_INSTALL_DIRECTORY) / bundle / "Contents" / "MacOS" / "OpenCore-Patcher"
-            if binary.exists():
-                return str(binary)
+            bundle_path = Path(self._PATCHER_INSTALL_DIRECTORY) / bundle
+            binary = bundle_path / "Contents" / "MacOS" / "OpenCore-Patcher"
+            if not binary.exists():
+                continue
+            # Dortania's patcher installs to this same directory under the old
+            # name, so the legacy path is only ours if the bundle says so.
+            # Pointing our launch services at their binary would hand them a
+            # --auto_patch invocation they never asked for.
+            if bundle == "OpenCore-Patcher.app" and not self._bundle_is_ours(bundle_path):
+                logging.info(f"- Ignoring {bundle}, not one of ours")
+                continue
+            return str(binary)
 
         # Nothing installed yet (ex. services written before the app is copied):
         # fall back to the path the PKG will create.
@@ -154,6 +185,38 @@ class InstallAutomaticPatchingServices:
             )
 
 
+    def _remove_legacy_app_bundle(self) -> None:
+        """
+        Remove a pre-rebrand copy of ourselves left at the old bundle name
+
+        Builds from before the T2 rebrand installed as OpenCore-Patcher.app and
+        declared Dortania's bundle identifier. Left in place it keeps colliding
+        with their app in Launch Services, which is what makes Launchpad show
+        only one of the two. Removed only when the bundle is identifiably ours.
+        """
+
+        legacy_bundle = Path(self._PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher.app"
+        if not legacy_bundle.exists():
+            return
+
+        if not self._bundle_is_ours(legacy_bundle):
+            logging.info("- Leaving OpenCore-Patcher.app, not one of ours")
+            return
+
+        logging.info("- Removing pre-rebrand copy of ourselves: OpenCore-Patcher.app")
+        subprocess_wrapper.run_as_root_and_verify(
+            ["/bin/rm", "-rf", str(legacy_bundle)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
+
+        # The /Applications entry is a symlink created by the PKG; it now dangles
+        legacy_shim = Path("/Applications/OpenCore-Patcher.app")
+        if legacy_shim.is_symlink() and not legacy_shim.exists():
+            logging.info("- Removing dangling shim: /Applications/OpenCore-Patcher.app")
+            subprocess_wrapper.run_as_root_and_verify(
+                ["/bin/rm", "-f", str(legacy_shim)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+
+
     def install_auto_patcher_launch_agent(self, kdk_caching_needed: bool = False):
         """
         Install patcher launch services
@@ -166,6 +229,7 @@ class InstallAutomaticPatchingServices:
             return
 
         self._remove_legacy_launch_services()
+        self._remove_legacy_app_bundle()
 
         services = {
             self.constants.auto_patch_launch_agent_path:        "/Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.auto-patch.plist",
