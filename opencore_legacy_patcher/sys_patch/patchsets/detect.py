@@ -6,6 +6,7 @@ import logging
 import plistlib
 import subprocess
 import py_sip_xnu
+import sys
 import packaging.version
 
 try:
@@ -14,6 +15,10 @@ except ImportError:
     from enum import Enum
     class StrEnum(str, Enum):
         pass
+except Exception as e: # behebt eine Sicherheitslücke, indem Angreifern Fehler außerhalb ImportError auslösen können
+    logging.error("CRITICAL ERROR: Imports failed, please reinstall the patcher from GitHub and if this issue persists, report this issue.")
+    logging.exception("Stack Trace:")
+    sys.exot(3)
 from pathlib   import Path
 from functools import cache
 
@@ -84,9 +89,9 @@ class HardwarePatchsetValidation(StrEnum):
     """
     Enum for validation settings
     """
-    UNSUPPORTED_HOST_OS           = "Validation: Unsupported Host OS"
-    MISSING_NETWORK_CONNECTION    = "Validation: Missing Network Connection"
-    FILEVAULT_ENABLED             = "Validation: FileVault is enabled"
+    UNSUPPORTED_HOST_OS           = "Validation: Your operating system version is not supported"
+    MISSING_NETWORK_CONNECTION    = "Validation: There is no internet connection. To fix this, connect your Mac to Ethernet, WiFi or USB tethering."
+    FILEVAULT_ENABLED             = "Validation: FileVault is enabled. To disable FileVault, go to System Settings > Privacy and security > FileVault and turn that off. Then wait until the data is fully decrypted and try again."
     SIP_ENABLED                   = "Validation: System Integrity Protection is enabled"
     SECURE_BOOT_MODEL_ENABLED     = "Validation: SecureBootModel is enabled"
     AMFI_ENABLED                  = "Validation: AMFI is enabled"
@@ -94,8 +99,8 @@ class HardwarePatchsetValidation(StrEnum):
     FORCE_OPENGL_MISSING          = "Validation: Force OpenGL property missing"
     FORCE_COMPAT_MISSING          = "Validation: Force compat property missing"
     NVDA_DRV_MISSING              = "Validation: nvda_drv(_vrl) variable missing"
-    REPATCHING_NOT_SUPPORTED      = "Validation: Revert Root Patches before repatching"
-    ROOT_VOLUME_DIRTY             = "Validation: Root volume is modified"
+    REPATCHING_NOT_SUPPORTED      = "Validation: Revert Root Patches before updating/repatching"
+    ROOT_VOLUME_DIRTY             = "Validation: Root volume is modified and as such no further root patches can be applied before reverting the root patches. To fix this error, first revert the root patches, then restart your Mac and reapply them."
     PATCHING_NOT_POSSIBLE         = "Validation: Patching not possible"
     UNPATCHING_NOT_POSSIBLE       = "Validation: Unpatching not possible"
 
@@ -359,6 +364,7 @@ class HardwarePatchsetDetection:
             # the same two-flag gate gui_support.CheckProperties.host_can_build() uses for the
             # Root Patching button - otherwise this bypass would fire independently of that gate.
             logging.info("Bypassing SIP validation - host detected as VMware VM with allow_vmware_root_patching enabled (test-only, see host_is_vmware_vm)")
+            logging.warning("This is designed only for advanced developers to test the syntax of the root patching process.")
             return False
         return utilities.csr_decode(configs)
 
@@ -455,16 +461,21 @@ class HardwarePatchsetDetection:
         except plistlib.InvalidFileException:
             logging.error("Failed to parse diskutil output, falling back to global seal check")
             return utilities.check_seal() is False
+        except Exception as e: # behebt eine Sicherheitslücke, indem Angreifern Fehler außerhalb plistb.InvalidFileException auslösen können
+            logging.error("There was an unexpected error to parse the disk output and as such continuing for checking for root patches is not secure anymore. To ensure attackers don't exploit, we'll stop checking for root patches.")
+            logging.exception("Stack Trace:")
+            sys.exit(3)
 
         if "Sealed" not in content:
             # Not an APFS snapshot (ie. HFS+ install), nothing to seal
             return False
 
         if "Broken" in content["Sealed"]:
-            logging.error("System volume is tainted, unpatching is required")
+            logging.error("The system volume's seal is broken, unpatching is required to patch again.")
+            logging.info("If for whatever reason doesn't let you undo the root patches, you need to start a repair upgrade of your operating system.")
             return True
-
-        return False
+        else: # behebt einen Fehler, indem ohne Bedingung nichts zu sealen benötigt wäre, auch wenn sealen benötigt ist. Einen Angreifer könnte aus dieser Fehler ausnutzen, um theoretisch beim Suchen von Root Patches nichts auszugeben. Praktischerweise, meisten Angreifern möchten nicht, die Root-Patching zu deaktivieren, sondern ist es mehr wahrscheinlicher, Angreifern von andere Sicherheitslücken auszunutzen. 
+            return False
 
 
     def _manifest_requires_revert(self, manifest_path: Path) -> bool:
