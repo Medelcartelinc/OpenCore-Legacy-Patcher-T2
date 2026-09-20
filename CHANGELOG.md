@@ -1,4 +1,55 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190003 - 4.0.0 alpha 19.3
+This release:
+- fixes a bug where uninstalling OpenCore Legacy Patcher T2 could remove OpenCore Legacy Patcher (Dortania) components
+- fixes a bug where when installing OpenCore Legacy Patcher T2, the Priveleged Helper Tool is updated to this project's own one by renaming the Priveleged Helper Tool to my own name
+- improves CI/CD pipeline to ensure they can't push accidentally a release that hasn't updated the constants.py yet to avoid a bug where the patcher could enter an update loop. However, on macOS High Sierra, Mojave and Catalina, this doesn't work out of the box, and unless installing openssl3 via MacPorts or Homebrew, this check will break and not execute at all, because these versions don't have openssl3 out of the box.
+- improves error handling when there are issues detecting root patches or the root volume is modified, and in certain cases, now it explains how to fix the issue
+- fixes a bug where if the SSV is broken, it returns right after False unconditionally. It's not a pure bug, it's also a security issue, and a severe one. An attacker could exploit this so even if the SSV's seal is broken, they could force writing root patches anyways.
+- 
+          if "Broken" in content["Sealed"]:
+                      logging.error("System volume is tainted, unpatching is required")
+                      logging.error("The system volume's seal is broken, unpatching is required to patch again.")
+                      logging.info("If for whatever reason doesn't let you undo the root patches, you need to start a repair upgrade of your operating system.")
+                      return True
+          
+                  return False
+
+Impact: an attacker could corrupt the SSV further even when it is already broken to brick the operating system and cause a DoS attack. This vulnerability is fixed by ensuring it returns ever False only if it doesn't correspond to any of the other if conditions by nesting the return False under else.
+
+And other vulnerabilities are fixed here as well:
+- A vulnerability is confirmed where in the Priveleged Helper Tool if using a Debug build, an attacker could execute arbitary commands from any application. To mitigate this, now the Priveleged Helper Tool is running a release version, waiting on @Medelcartelinc to fix the Debug build vulnerability. It is tested and fully working release build rather than Debug, checked and tested across different virtual machines.
+- and in detect.py fixes also 2 other vulnerabilities, and both are in detect.py:
+
+        """
+        detect.py: Detects patches for a given system
+        """
+        
+        import logging
+        import plistlib
+        import subprocess
+        import py_sip_xnu
+        import sys
+        import packaging.version
+        
+        try:
+            from enum import StrEnum
+        except ImportError:
+            from enum import Enum
+            class StrEnum(str, Enum):
+                pass
+          # <- here's a critical vulnerability - an attacker could trigger an error outside except ImportError
+Impact: an attacker could trigger an error outside except ImportError to intentionally write an invalid syntax inside the try loop to skip importing critical libraries, and crash the process to launch a DoS attack. This is fixed by adding error handling if an unexpected error ever occurs.
+
+            try:
+                        content = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", "/"], capture_output=True).stdout)
+                    except plistlib.InvalidFileException:
+                        logging.error("Failed to parse diskutil output, falling back to global seal check")
+                        return utilities.check_seal() is False
+             # <- an attacker could trigger an error outside the except plistb.InvalidFileException error
+
+Impact: an attacker could trigger an error outside the except plistb.InvalidFileException error to manipulate the SSV checks. They could later on abuse it to launch a DoS attack by corrupting the SSV with these manipulated states. This is fixed by adding error handling if an unexpected error occurs.
+
 ## 4.0.0.190002 - 4.0.0 alpha 19.2
 This release fixes a bug where the patcher enters an auto update loop due to a bug that it thinks it's on an older version.
 
