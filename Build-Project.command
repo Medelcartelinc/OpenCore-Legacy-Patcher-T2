@@ -27,6 +27,7 @@ from ci_tooling.build_modules import (
     application,
     disk_images,
     package,
+    release_guard,
     sign_notarize,
     hash as hash_pkg
 )
@@ -153,6 +154,7 @@ def main() -> None:
     parser.add_argument("--reset-dmg-cache", action="store_true")
     parser.add_argument("--reset-pyinstaller-cache", action="store_true")
     parser.add_argument("--no-auto-detect-identity", action="store_true", help="Never pick a signing identity from the keychain automatically")
+    parser.add_argument("--ignore-release", action="store_true", help="Build even when the version does not line up with the latest release")
 
     # Steps
     parser.add_argument("--run-as-individual-steps", action="store_true")
@@ -171,6 +173,13 @@ def main() -> None:
         args.application_signing_identity,
         auto_detect=args.no_auto_detect_identity is False,
     )
+
+    # A build that could never become a usable release is stopped before the first step:
+    # a version that is behind a release without assets is corrected, and a version that
+    # would collide with a release that already has its assets is refused. --ignore-release
+    # builds anyway.
+    status = f"[0/{TOTAL_STEPS}] Checking the release state"
+    release_guard.ReleaseGuard(ignore_release=args.ignore_release).check()
 
     try:
         # 1. Assets
