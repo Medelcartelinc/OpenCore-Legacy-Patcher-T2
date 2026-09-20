@@ -1,0 +1,123 @@
+name: Publish SHA256SUMS
+
+# Generates a single SHA256SUMS file covering every asset attached to a release
+# and uploads it back to that same release - unattended.
+#
+# GitHub fires no event when an asset is uploaded, only when the release itself is
+# published or edited. So this runs on two paths:
+#   1. release events, then waits for the asset list to stop growing before hashing
+#   2. a cron sweep that backfills any recent release still missing SHA256SUMS,
+#      which covers uploads that arrive long after the release went live
+#
+# Note: this is separate from dist/certificates.txt, which Build-Project.command
+# writes at build time (pkgs + privileged helper) and which keeps its own format.
+
+on:
+  release:
+    types: [published, released, prereleased, edited]
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (leave empty to scan recent releases)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sha256sums-${{ github.event.release.tag_name || inputs.tag || 'scan' }}
+  cancel-in-progress: false
+
+jobs:
+  sha256sums:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Asset list must stay unchanged across one poll before hashing starts.
+      SETTLE_SECONDS: "60"
+      MAX_WAIT_SECONDS: "1200"
+      # Cron sweep only looks at releases this recent, to avoid re-downloading
+      # the whole release history on every run.
+      SCAN_DAYS: "7"
+      SCAN_LIMIT: "10"
+    steps:
+      - name: Determine target releases
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${EVENT_TAG:-${INPUT_TAG:-}}"
+          if [ -n "$TAG" ]; then
+            printf '%s\n' "$TAG" > tags.txt
+          else
+            CUTOFF="$(date -u -d "-${SCAN_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)"
+            gh release list --repo "$GITHUB_REPOSITORY" --limit "$SCAN_LIMIT" \
+              --json tagName,publishedAt,isDraft \
+              --jq "[.[] | select(.isDraft == false) | select(.publishedAt >= \"$CUTOFF\")] | .[].tagName" \
+              > tags.txt
+          fi
+          echo "Target releases:"
+          cat tags.txt
+
+      - name: Generate and upload SHA256SUMS
+        run: |
+          set -euo pipefail
+
+          process() {
+            TAG="$1"
+            echo "::group::$TAG"
+
+            # Wait until the asset count stops changing. Protects against the
+            # release being published before the pkgs finish uploading.
+            PREV=-1
+            WAITED=0
+            while true; do
+              COUNT="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+                --jq '[.assets[] | select(.name != "SHA256SUMS")] | length')"
+              if [ "$COUNT" -gt 0 ] && [ "$COUNT" -eq "$PREV" ]; then
+                break
+              fi
+              if [ "$WAITED" -ge "$MAX_WAIT_SECONDS" ]; then
+                echo "Timed out waiting for assets on $TAG (currently $COUNT) - the cron sweep will retry."
+                echo "::endgroup::"
+                return 0
+              fi
+              PREV="$COUNT"
+              sleep "$SETTLE_SECONDS"
+              WAITED=$((WAITED + SETTLE_SECONDS))
+            done
+
+            rm -rf work
+            mkdir -p work
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir work --clobber
+
+            if [ -f work/SHA256SUMS ]; then
+              mv work/SHA256SUMS existing.txt
+            else
+              rm -f existing.txt
+            fi
+
+            (cd work && LC_ALL=C find . -maxdepth 1 -type f -printf '%P\n' \
+              | LC_ALL=C sort \
+              | xargs -d '\n' -r sha256sum) > SHA256SUMS
+
+            if [ ! -s SHA256SUMS ]; then
+              echo "Nothing to hash for $TAG."
+            elif [ -f existing.txt ] && cmp -s existing.txt SHA256SUMS; then
+              echo "SHA256SUMS already up to date for $TAG."
+            else
+              cat SHA256SUMS
+              gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+            fi
+
+            rm -rf work existing.txt SHA256SUMS
+            echo "::endgroup::"
+          }
+
+          while read -r t; do
+            [ -n "$t" ] && process "$t"
+          done < tags.txt
