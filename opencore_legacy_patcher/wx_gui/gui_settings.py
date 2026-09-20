@@ -157,13 +157,18 @@ class SettingsFrame(wx.Frame):
 
                     setting_info["function"](panel)
 
+                    # Height has to come from the widgets the populate function drew
+                    # itself, so skip the ones that were already on the page. Both the
+                    # measurement and the comparison belong inside the loop: kept out
+                    # of it, only the last child of the page was ever measured (and an
+                    # empty page raised NameError on "child").
                     for child in panel.GetChildren():
                         if child in existing_children:
                             continue
 
-                    bottom = child.GetPosition()[1] + child.GetSize()[1]
-                    if bottom > lowest_height_reached:
-                        lowest_height_reached = bottom
+                        bottom = child.GetPosition()[1] + child.GetSize()[1]
+                        if bottom > lowest_height_reached:
+                            lowest_height_reached = bottom
 
                     continue
                 if setting_info["type"] == "title":
