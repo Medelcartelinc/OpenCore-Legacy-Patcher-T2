@@ -1,0 +1,75 @@
+name: Publish SHA256SUMS
+
+# Generates a single SHA256SUMS file covering every asset attached to a release
+# and uploads it back to that same release.
+#
+# Note: this is separate from dist/certificates.txt, which Build-Project.command
+# writes at build time (pkgs + privileged helper) and which keeps its own format.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)generate SHA256SUMS for"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  sha256sums:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: tag
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${EVENT_TAG:-${INPUT_TAG:-}}"
+          if [ -z "$TAG" ]; then
+            echo "No release tag available." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          COUNT="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "Release $TAG has no assets yet - nothing to hash." >&2
+            echo "If the assets are uploaded after publishing, re-run this workflow manually." >&2
+            exit 1
+          fi
+          mkdir -p assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets --clobber
+          rm -f assets/SHA256SUMS
+
+      - name: Generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd assets
+          LC_ALL=C find . -maxdepth 1 -type f -printf '%P\n' \
+            | LC_ALL=C sort \
+            | xargs -d '\n' -r sha256sum > ../SHA256SUMS
+          if [ ! -s ../SHA256SUMS ]; then
+            echo "No files left to hash." >&2
+            exit 1
+          fi
+          cat ../SHA256SUMS
+
+      - name: Upload SHA256SUMS to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
