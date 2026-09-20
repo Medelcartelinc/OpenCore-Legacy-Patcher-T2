@@ -372,8 +372,12 @@ class BuildGraphicsAudio:
 
         is_t2_mac = utilities.is_t2_mac(self.model, self.constants)
 
-        # T2 Macs on macOS Tahoe (Kernel 25.x) require AppleALC to resolve CoreAudio stalls
-        if ((self.model in model_array.LegacyAudio or self.model in model_array.MacPro or is_t2_mac) 
+        # T2 Macs on macOS Tahoe (Kernel 25.x) require AppleALC to resolve CoreAudio stalls.
+        # Apple also dropped AppleHDA analog audio routing for all non-T2 Macs in Tahoe, so they require AppleALC too.
+        # Thus, ALL unsupported Macs require AppleALC starting in macOS Tahoe (Kernel 25.x).
+        needs_applealc_on_tahoe = smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe.value
+        
+        if ((self.model in model_array.LegacyAudio or self.model in model_array.MacPro or is_t2_mac or needs_applealc_on_tahoe) 
             and self.constants.set_alc_usage is True):
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("AppleALC.kext", self.constants.applealc_version, self.constants.applealc_path)
 
