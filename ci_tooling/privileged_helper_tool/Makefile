@@ -1,5 +1,5 @@
 CC=clang
-OUTPUT=com.dortania.opencore-legacy-patcher.privileged-helper
+OUTPUT=com.albert-mueller.opencore-legacy-patcher.privileged-helper
 
 all: clean release
 

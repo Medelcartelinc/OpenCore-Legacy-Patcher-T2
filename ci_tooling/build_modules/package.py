@@ -46,7 +46,7 @@ class GeneratePackage:
         """
         self._files = {
             "./dist/OpenCore-Patcher-T2.app": "/Library/Application Support/Dortania/OpenCore-Patcher-T2.app",
-            "./ci_tooling/privileged_helper_tool/com.dortania.opencore-legacy-patcher.privileged-helper": "/Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper",
+            "./ci_tooling/privileged_helper_tool/com.albert-mueller.opencore-legacy-patcher.privileged-helper": "/Library/PrivilegedHelperTools/com.albert-mueller.opencore-legacy-patcher.privileged-helper",
         }
         self._autopkg_files = {
             "./payloads/Launch Services/com.dortania.opencore-legacy-patcher.auto-patch.plist": "/Library/LaunchAgents/com.dortania.opencore-legacy-patcher.auto-patch.plist",

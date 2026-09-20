@@ -10,10 +10,10 @@ from pathlib import Path
 
 class GenerateHash():
     def __init__(self):
-        shutil.copyfile("./ci_tooling/privileged_helper_tool/com.dortania.opencore-legacy-patcher.privileged-helper", "./dist/com.dortania.opencore-legacy-patcher.privileged-helper")
+        shutil.copyfile("./ci_tooling/privileged_helper_tool/com.albert-mueller.opencore-legacy-patcher.privileged-helper", "./dist/com.albert-mueller.opencore-legacy-patcher.privileged-helper")
         Path("./dist/certificates.txt").unlink(missing_ok=True)
         self.start()
-        Path("./dist/com.dortania.opencore-legacy-patcher.privileged-helper").unlink(missing_ok=True)
+        Path("./dist/com.albert-mueller.opencore-legacy-patcher.privileged-helper").unlink(missing_ok=True)
 
     def start(self):
         file_dump = ["Resource certificates:"]

@@ -318,7 +318,7 @@ class GenerateScripts:
             "Applications/OpenCore-Patcher-T2.app",
             "Library/Application Support/Dortania/Update.plist",
             "Library/Application Support/Dortania/OpenCore-Patcher-T2.app",
-            "Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper"
+            "Library/PrivilegedHelperTools/com.albert-mueller.opencore-legacy-patcher.privileged-helper"
         ]
 
         self.additional_auto_pkg_files = [
@@ -432,7 +432,7 @@ class GenerateScripts:
         _script += self._generate_label_bar()
         _script += "\n"
 
-        _script += "helperPath=\"Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper\"\n"
+        _script += "helperPath=\"Library/PrivilegedHelperTools/com.albert-mueller.opencore-legacy-patcher.privileged-helper\"\n"
         _script += "mainAppPath=\"Library/Application Support/Dortania/OpenCore-Patcher-T2.app\"\n"
         _script += "shimAppPath=\"Applications/OpenCore-Patcher-T2.app\"\n"
         if is_autopkg:
