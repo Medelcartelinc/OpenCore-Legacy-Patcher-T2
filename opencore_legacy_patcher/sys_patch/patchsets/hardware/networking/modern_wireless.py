@@ -76,20 +76,22 @@ class ModernWireless(BaseHardware):
         """
         Extended patches for Modern Wireless
         """
-        source = f"13.7.2-{self._xnu_major}" if self._xnu_major < os_data.tahoe.value else "13.7.2-24"
+        if self._xnu_major > os_data.sonoma.value:
+            return {}
+
         return {
             "Modern Wireless Extended": {
                 PatchType.OVERWRITE_SYSTEM_VOLUME: {
                     "/usr/libexec": {
-                        "airportd": source,
+                        "airportd": f"13.7.2-{self._xnu_major}",
                     },
                 },
                 PatchType.MERGE_SYSTEM_VOLUME: {
                     "/System/Library/Frameworks": {
-                        **({ "CoreWLAN.framework": source } if self._xnu_major >= os_data.sonoma.value else {}),
+                        **({ "CoreWLAN.framework": f"13.7.2-{self._xnu_major}" } if self._xnu_major >= os_data.sonoma.value else {}),
                     },
                     "/System/Library/PrivateFrameworks": {
-                        "CoreWiFi.framework":       source,
+                        "CoreWiFi.framework":       f"13.7.2-{self._xnu_major}",
                     },
                 }
             },
