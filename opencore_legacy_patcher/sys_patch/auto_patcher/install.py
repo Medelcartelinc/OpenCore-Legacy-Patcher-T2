@@ -4,6 +4,7 @@ install.py: Install the auto patcher launch services
 
 import hashlib
 import logging
+import os
 import plistlib
 import subprocess
 import sys
@@ -95,6 +96,64 @@ class InstallAutomaticPatchingServices:
         return str(staged_service)
 
 
+    # Launch services used to be installed under Dortania's identifier, which meant
+    # a side-by-side install of their patcher overwrote ours and vice versa. They
+    # are now namespaced; these are the old paths, kept only for cleanup.
+    _LEGACY_LAUNCH_SERVICES: list = [
+        "/Library/LaunchAgents/com.dortania.opencore-legacy-patcher.auto-patch.plist",
+        "/Library/LaunchDaemons/com.dortania.opencore-legacy-patcher.macos-update.plist",
+        "/Library/LaunchDaemons/com.dortania.opencore-legacy-patcher.rsr-monitor.plist",
+        "/Library/LaunchDaemons/com.dortania.opencore-legacy-patcher.os-caching.plist",
+    ]
+
+
+    def _remove_legacy_launch_services(self) -> None:
+        """
+        Remove pre-rename launch services that belong to us
+
+        Dortania's patcher installs services at these exact paths, so ownership is
+        decided by what the service actually launches: only those pointing at our
+        app bundle are ours to remove. Anything else is left alone.
+        """
+
+        for service in self._LEGACY_LAUNCH_SERVICES:
+            if not Path(service).exists():
+                continue
+
+            try:
+                service_plist = plistlib.load(Path(service).open("rb"))
+                program = service_plist.get("ProgramArguments", [""])[0]
+            except Exception as e:
+                logging.info(f"- Failed to read {Path(service).name}, leaving in place: {e}")
+                continue
+
+            if "OpenCore-Patcher-T2.app" not in program:
+                logging.info(f"- Leaving {Path(service).name}, not ours")
+                continue
+
+            logging.info(f"- Removing legacy service: {Path(service).name}")
+            label = Path(service).stem
+            if "/LaunchAgents/" in service:
+                # Agents live in the console user's GUI domain, not root's. The
+                # patcher can run elevated, so derive the UID from /dev/console
+                # rather than from our own process.
+                try:
+                    uid = os.stat("/dev/console").st_uid
+                except OSError:
+                    uid = os.getuid()
+                domain = f"gui/{uid}"
+            else:
+                domain = "system"
+            # Best effort: the service may not be loaded, which bootout reports as an error
+            subprocess_wrapper.run_as_root(
+                ["/bin/launchctl", "bootout", f"{domain}/{label}"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+            subprocess_wrapper.run_as_root_and_verify(
+                ["/bin/rm", service], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+
+
     def install_auto_patcher_launch_agent(self, kdk_caching_needed: bool = False):
         """
         Install patcher launch services
@@ -106,11 +165,13 @@ class InstallAutomaticPatchingServices:
             logging.info("- Skipping Auto Patcher Launch Agent, not supported when running from source")
             return
 
+        self._remove_legacy_launch_services()
+
         services = {
-            self.constants.auto_patch_launch_agent_path:        "/Library/LaunchAgents/com.dortania.opencore-legacy-patcher.auto-patch.plist",
-            self.constants.update_launch_daemon_path:           "/Library/LaunchDaemons/com.dortania.opencore-legacy-patcher.macos-update.plist",
-            **({ self.constants.rsr_monitor_launch_daemon_path: "/Library/LaunchDaemons/com.dortania.opencore-legacy-patcher.rsr-monitor.plist" } if self._create_rsr_monitor_daemon() else {}),
-            **({ self.constants.kdk_launch_daemon_path:         "/Library/LaunchDaemons/com.dortania.opencore-legacy-patcher.os-caching.plist" } if kdk_caching_needed is True else {} ),
+            self.constants.auto_patch_launch_agent_path:        "/Library/LaunchAgents/com.albert-mueller.opencore-legacy-patcher.auto-patch.plist",
+            self.constants.update_launch_daemon_path:           "/Library/LaunchDaemons/com.albert-mueller.opencore-legacy-patcher.macos-update.plist",
+            **({ self.constants.rsr_monitor_launch_daemon_path: "/Library/LaunchDaemons/com.albert-mueller.opencore-legacy-patcher.rsr-monitor.plist" } if self._create_rsr_monitor_daemon() else {}),
+            **({ self.constants.kdk_launch_daemon_path:         "/Library/LaunchDaemons/com.albert-mueller.opencore-legacy-patcher.os-caching.plist" } if kdk_caching_needed is True else {} ),
         }
 
         for service in services:
