@@ -1,3 +1,4 @@
+## Ganz wichtig - diese Datei ist nur für @Medelcartelinc (Matteo)s Fork gedacht und NUR er kann dieses Datei verwenden!
 import urllib.request, json, subprocess, sys, os
 
 res = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n", capture_output=True, text=True)
