@@ -103,3 +103,8 @@ Steps for Step 4:
 * create the UI
 * Test, Test, Test and Test
 * add a preview button, it generates a `Boot-Picker.png` of what all the icons would look like on the background
+
+Steps for Optional Step 5:
+
+* Setup a test to see if haveing the whole UI running on a thread will remove the need to restart the app to apply the Experimental mode changes, This could also unlock possiblities that where before imposible.
+* change, Test, repeat
