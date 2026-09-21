@@ -250,6 +250,66 @@ def verify_python_ssl() -> None:
         sys.exit(3)
 
 
+CA_BUNDLE_CANDIDATES = [
+    Path("/opt/homebrew/etc/openssl@3/cert.pem"),                # Homebrew openssl@3 (Apple Silicon)
+    Path("/usr/local/etc/openssl@3/cert.pem"),                   # Homebrew openssl@3 (Intel)
+    Path("/opt/local/libexec/openssl3/etc/openssl/cert.pem"),    # MacPorts openssl3
+    Path("/opt/local/share/curl/curl-ca-bundle.crt"),            # MacPorts curl-ca-bundle
+    Path("/opt/local/etc/openssl/cert.pem"),                     # MacPorts
+    Path("/etc/ssl/cert.pem"),                                   # macOS system bundle
+]
+
+
+def configure_ca_certificates() -> None:
+    """
+    Make sure Python's ssl module has root certificates to verify HTTPS against
+
+    Pythons from python.org ship their own OpenSSL but no root certificates until
+    "Install Certificates.command" was run once. Without them every HTTPS request fails with
+    CERTIFICATE_VERIFY_FAILED ("unable to get local issuer certificate"), which made the
+    release guard skip the version check. When the default context has no CA certificates,
+    SSL_CERT_FILE is pointed at a known bundle: certifi's if installed, otherwise the one from
+    Homebrew/MacPorts OpenSSL 3 or macOS itself. Set before any HTTPS context is created, so
+    urllib (release guard) and every subprocess started by the build pick it up.
+    An SSL_CERT_FILE the user set is left alone.
+    """
+    import ssl
+
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+
+    try:
+        if ssl.create_default_context().cert_store_stats().get("x509_ca", 0) > 0:
+            return
+    except ssl.SSLError:
+        pass
+
+    candidates = []
+    try:
+        import certifi
+        candidates.append(Path(certifi.where()))
+    except ImportError:
+        pass
+    candidates += CA_BUNDLE_CANDIDATES
+
+    for bundle in candidates:
+        if bundle.is_file() is False:
+            continue
+        os.environ["SSL_CERT_FILE"] = str(bundle)
+        try:
+            if ssl.create_default_context().cert_store_stats().get("x509_ca", 0) > 0:
+                rich.print(f"[yellow]Note: this Python has no root certificates, using {bundle}[/yellow]")
+                return
+        except ssl.SSLError:
+            pass
+        del os.environ["SSL_CERT_FILE"]
+
+    rich.print("[red]Error: Python's ssl module has no root certificates to verify HTTPS with.[/red]")
+    rich.print("[yellow]      For a python.org Python, run 'Install Certificates.command' from its Applications folder,[/yellow]")
+    rich.print("[yellow]      or set SSL_CERT_FILE to a CA bundle, then build again.[/yellow]")
+    sys.exit(3)
+
+
 # OpenSSL 3 is needed by the version check (release_guard), which runs before any build step.
 # It is ensured here, BEFORE ci_tooling is imported: release_guard imports urllib.request, and
 # urllib probes for ssl at that moment. Installing OpenSSL 3 only after that import - e.g. from
@@ -261,6 +321,7 @@ if __name__ == "__main__" and not any(arg in ("-h", "--help") for arg in sys.arg
     if _openssl3_prefix is not None:
         export_openssl3_environment(_openssl3_prefix)
         verify_python_ssl()
+        configure_ca_certificates()
 
 
 # Import der internen Module
