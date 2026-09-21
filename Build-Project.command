@@ -23,119 +23,6 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 os.chdir(SCRIPT_DIR)
 
-# Import der internen Module
-from ci_tooling.build_modules import (
-    application,
-    disk_images,
-    package,
-    release_guard,
-    sign_notarize,
-    hash as hash_pkg
-)
-
-
-TOTAL_STEPS = 9
-
-# Written by the build thread, read by the spinner in the main thread.
-status = f"[0/{TOTAL_STEPS}] Starting"
-
-# Filled in by _run_build(). "completed" is only True when main() returned normally,
-# so the "Build script completed" line can never be printed after a failed build.
-# Do NOT replace this with a module level flag assigned inside main(): an assignment
-# there creates a function local unless 'global' is declared, and the module level
-# value stays False forever - the failure mode this structure exists to prevent.
-build_result = {"exit_code": 0, "completed": False}
-
-
-def check_file_exists(path: Path) -> None:
-    if not path.exists():
-        rich.print(f"[red]Error: Expected file/directory not found: {path}[/red]")
-        sys.exit(3)
-
-def available_codesigning_identities() -> list:
-    """
-    Return (SHA-1 hash, name, status) for every valid code signing identity in the keychain
-
-    'security find-identity -v' already filters out expired or otherwise unusable
-    certificates. A self signed "Code Signing" certificate made in Keychain Access shows
-    up here exactly like a Developer ID one.
-    """
-    if sys.platform != "darwin":
-        return []
-
-    try:
-        result = subprocess.run(
-            ["/usr/bin/security", "find-identity", "-v", "-p", "codesigning"],
-            capture_output=True, text=True, timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        rich.print(f"[yellow]Warning: could not query signing identities: {e}[/yellow]")
-        return []
-
-    identities = []
-    for line in result.stdout.splitlines():
-        # "security find-identity" hängt bei nicht vertrauenswuerdigen Zertifikaten
-        # eine Statusmeldung an, z.B. (CSSMERR_TP_NOT_TRUSTED). Ein selbst signiertes
-        # Zertifikat ist damit trotzdem brauchbar: das Helper Tool vergleicht nur die
-        # Zertifikatsketten und fuehrt keine Trust-Pruefung durch.
-        #
-        # "security find-identity" appends a status note for certificates that are not
-        # trusted, e.g. (CSSMERR_TP_NOT_TRUSTED). A self signed certificate still works:
-        # the helper tool only compares certificate chains and runs no trust evaluation.
-        match = re.match(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(.+?)"\s*(\(CSSMERR_[A-Z_]+\))?\s*$', line)
-        if match:
-            identities.append((match.group(1), match.group(2), match.group(3)))
-    return identities
-
-
-def resolve_application_identity(requested: str, auto_detect: bool) -> "str | None":
-    """
-    Decide which identity the app and the privileged helper tool get signed with
-
-    Both must end up carrying the same certificate: at runtime the helper compares its own
-    certificate chain against its parent process' chain (ci_tooling/privileged_helper_tool/main.m)
-    and refuses to run anything as root when they differ. It runs no trust evaluation, so a
-    self signed certificate satisfies it just as well as a Developer ID one - but an unsigned
-    or ad-hoc signed build carries no certificates at all and can never pass.
-    """
-    requested = requested or os.environ.get("MACOS_SIGNING_IDENTITY")
-    identities = available_codesigning_identities()
-
-    if requested:
-        # Only reject when the lookup actually returned something; an empty list means the
-        # query failed or we are not on macOS, which is not evidence the identity is missing.
-        if identities and not any(requested in (identity_hash, name) for identity_hash, name, _ in identities):
-            rich.print(f"[red]Error: no valid signing identity found matching: {requested}[/red]")
-            available = ", ".join(f'"{name}"' for _, name, _ in identities) or "none"
-            rich.print(f"[yellow]Available: {available}[/yellow]")
-            sys.exit(3)
-        return requested
-
-    if auto_detect is False:
-        return None
-
-    if not identities:
-        rich.print(f"[yellow]Note: no code signing certificate found, the app and helper tool stay unsigned.[/yellow]")
-        rich.print(f"[yellow]      The privileged helper tool will refuse to run commands as root unless it was[/yellow]")
-        rich.print(f"[yellow]      compiled with 'make debug' (ci_tooling/privileged_helper_tool/README.md).[/yellow]")
-        rich.print(f"[yellow]      To sign locally, create a self signed certificate in Keychain Access:[/yellow]")
-        rich.print(f"[yellow]      Certificate Assistant > Create a Certificate > Self Signed Root, type Code Signing.[/yellow]")
-        return None
-
-    if len(identities) > 1:
-        rich.print(f"[yellow]Note: multiple code signing certificates found, none picked automatically:[/yellow]")
-        for _, name, _ in identities:
-            rich.print(f"[yellow]      - {name}[/yellow]")
-        rich.print(f"[yellow]      Pass --application-signing-identity \"<name>\" to choose one.[/yellow]")
-        return None
-
-    _, name, identity_status = identities[0]
-    rich.print(f"[yellow]Automatically selected signing identity: {name}[/yellow]")
-    if identity_status:
-        rich.print(f"[yellow]      Note: certificate is not trusted {identity_status} - that is enough for signing,[/yellow]")
-        rich.print(f"[yellow]      the helper tool only compares certificate chains.[/yellow]")
-    return name
-
 
 OPENSSL3_PREFIXES = [
     Path("/opt/homebrew/opt/openssl@3"),  # Apple Silicon Homebrew
@@ -346,6 +233,150 @@ def export_openssl3_environment(prefix: Path) -> None:
     os.environ["OPENSSL_DIR"] = str(prefix)
 
 
+def verify_python_ssl() -> None:
+    """
+    The release guard talks to the GitHub API over HTTPS through urllib, which needs Python's
+    ssl module - and depending on how this Python was built, that module links against
+    OpenSSL 3. urllib decides once, at import time, whether HTTPS is available: when ssl fails
+    to load there, urlopen() later raises URLError and the release guard silently skips the
+    version check ("could not reach GitHub"). Load it here so that case is reported clearly.
+    """
+    try:
+        import ssl
+    except ImportError as e:
+        rich.print(f"[red]Error: Python's ssl module failed to load: {e}[/red]")
+        rich.print(f"[yellow]      OpenSSL 3 is installed, but {sys.executable} cannot use it.[/yellow]")
+        rich.print(f"[yellow]      The version check against the latest release needs HTTPS.[/yellow]")
+        sys.exit(3)
+
+
+# OpenSSL 3 is needed by the version check (release_guard), which runs before any build step.
+# It is ensured here, BEFORE ci_tooling is imported: release_guard imports urllib.request, and
+# urllib probes for ssl at that moment. Installing OpenSSL 3 only after that import - e.g. from
+# inside main() - would leave urllib without HTTPS support for the rest of this process.
+# This also runs before the rich Live spinner starts, so install output and the MacPorts
+# admin password dialog are not drawn over.
+if __name__ == "__main__" and not any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+    _openssl3_prefix = ensure_openssl3(allow_install="--no-install-openssl" not in sys.argv[1:])
+    if _openssl3_prefix is not None:
+        export_openssl3_environment(_openssl3_prefix)
+        verify_python_ssl()
+
+
+# Import der internen Module
+from ci_tooling.build_modules import (
+    application,
+    disk_images,
+    package,
+    release_guard,
+    sign_notarize,
+    hash as hash_pkg
+)
+
+
+TOTAL_STEPS = 9
+
+# Written by the build thread, read by the spinner in the main thread.
+status = f"[0/{TOTAL_STEPS}] Starting"
+
+# Filled in by _run_build(). "completed" is only True when main() returned normally,
+# so the "Build script completed" line can never be printed after a failed build.
+# Do NOT replace this with a module level flag assigned inside main(): an assignment
+# there creates a function local unless 'global' is declared, and the module level
+# value stays False forever - the failure mode this structure exists to prevent.
+build_result = {"exit_code": 0, "completed": False}
+
+
+def check_file_exists(path: Path) -> None:
+    if not path.exists():
+        rich.print(f"[red]Error: Expected file/directory not found: {path}[/red]")
+        sys.exit(3)
+
+def available_codesigning_identities() -> list:
+    """
+    Return (SHA-1 hash, name, status) for every valid code signing identity in the keychain
+
+    'security find-identity -v' already filters out expired or otherwise unusable
+    certificates. A self signed "Code Signing" certificate made in Keychain Access shows
+    up here exactly like a Developer ID one.
+    """
+    if sys.platform != "darwin":
+        return []
+
+    try:
+        result = subprocess.run(
+            ["/usr/bin/security", "find-identity", "-v", "-p", "codesigning"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        rich.print(f"[yellow]Warning: could not query signing identities: {e}[/yellow]")
+        return []
+
+    identities = []
+    for line in result.stdout.splitlines():
+        # "security find-identity" hängt bei nicht vertrauenswuerdigen Zertifikaten
+        # eine Statusmeldung an, z.B. (CSSMERR_TP_NOT_TRUSTED). Ein selbst signiertes
+        # Zertifikat ist damit trotzdem brauchbar: das Helper Tool vergleicht nur die
+        # Zertifikatsketten und fuehrt keine Trust-Pruefung durch.
+        #
+        # "security find-identity" appends a status note for certificates that are not
+        # trusted, e.g. (CSSMERR_TP_NOT_TRUSTED). A self signed certificate still works:
+        # the helper tool only compares certificate chains and runs no trust evaluation.
+        match = re.match(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"(.+?)"\s*(\(CSSMERR_[A-Z_]+\))?\s*$', line)
+        if match:
+            identities.append((match.group(1), match.group(2), match.group(3)))
+    return identities
+
+
+def resolve_application_identity(requested: str, auto_detect: bool) -> "str | None":
+    """
+    Decide which identity the app and the privileged helper tool get signed with
+
+    Both must end up carrying the same certificate: at runtime the helper compares its own
+    certificate chain against its parent process' chain (ci_tooling/privileged_helper_tool/main.m)
+    and refuses to run anything as root when they differ. It runs no trust evaluation, so a
+    self signed certificate satisfies it just as well as a Developer ID one - but an unsigned
+    or ad-hoc signed build carries no certificates at all and can never pass.
+    """
+    requested = requested or os.environ.get("MACOS_SIGNING_IDENTITY")
+    identities = available_codesigning_identities()
+
+    if requested:
+        # Only reject when the lookup actually returned something; an empty list means the
+        # query failed or we are not on macOS, which is not evidence the identity is missing.
+        if identities and not any(requested in (identity_hash, name) for identity_hash, name, _ in identities):
+            rich.print(f"[red]Error: no valid signing identity found matching: {requested}[/red]")
+            available = ", ".join(f'"{name}"' for _, name, _ in identities) or "none"
+            rich.print(f"[yellow]Available: {available}[/yellow]")
+            sys.exit(3)
+        return requested
+
+    if auto_detect is False:
+        return None
+
+    if not identities:
+        rich.print(f"[yellow]Note: no code signing certificate found, the app and helper tool stay unsigned.[/yellow]")
+        rich.print(f"[yellow]      The privileged helper tool will refuse to run commands as root unless it was[/yellow]")
+        rich.print(f"[yellow]      compiled with 'make debug' (ci_tooling/privileged_helper_tool/README.md).[/yellow]")
+        rich.print(f"[yellow]      To sign locally, create a self signed certificate in Keychain Access:[/yellow]")
+        rich.print(f"[yellow]      Certificate Assistant > Create a Certificate > Self Signed Root, type Code Signing.[/yellow]")
+        return None
+
+    if len(identities) > 1:
+        rich.print(f"[yellow]Note: multiple code signing certificates found, none picked automatically:[/yellow]")
+        for _, name, _ in identities:
+            rich.print(f"[yellow]      - {name}[/yellow]")
+        rich.print(f"[yellow]      Pass --application-signing-identity \"<name>\" to choose one.[/yellow]")
+        return None
+
+    _, name, identity_status = identities[0]
+    rich.print(f"[yellow]Automatically selected signing identity: {name}[/yellow]")
+    if identity_status:
+        rich.print(f"[yellow]      Note: certificate is not trusted {identity_status} - that is enough for signing,[/yellow]")
+        rich.print(f"[yellow]      the helper tool only compares certificate chains.[/yellow]")
+    return name
+
+
 def main() -> None:
     global status
     parser = argparse.ArgumentParser(description="Build OpenCore Legacy Patcher Suite")
@@ -389,13 +420,6 @@ def main() -> None:
     # a version that is behind a release without assets is corrected, and a version that
     # would collide with a release that already has its assets is refused. --ignore-release
     # builds anyway.
-    # OpenSSL 3 is checked before anything else, so a missing dependency stops the build
-    # right away instead of failing somewhere deep inside one of the build steps.
-    status = f"[0/{TOTAL_STEPS}] Checking for OpenSSL 3"
-    openssl3_prefix = ensure_openssl3(allow_install=args.no_install_openssl is False)
-    if openssl3_prefix is not None:
-        export_openssl3_environment(openssl3_prefix)
-
     status = f"[0/{TOTAL_STEPS}] Checking the release state"
     release_guard.ReleaseGuard(ignore_release=args.ignore_release).check()
 
