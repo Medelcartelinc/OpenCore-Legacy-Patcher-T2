@@ -102,3 +102,4 @@ Steps for Step 4:
 * add a hardcoded constants location for the opencanapy resources
 * create the UI
 * Test, Test, Test and Test
+* add a preview button, it generates a `Boot-Picker.png` of what all the icons would look like on the background
