@@ -846,7 +846,7 @@ class Constants:
 
     # Icons
     @property
-    def icns_resource_path(self):
+    def app_icons_resource_path(self):
         if self.launcher_script:
             return self.payload_path / Path("Resources/AppIcons")
         return Path(self.launcher_binary).parent.parent / Path("Resources")
@@ -855,20 +855,20 @@ class Constants:
     @property
     def patch_icon_path(self):
        if self.detected_os > os_data.os_data.tahoe:
-           return self.icns_resource_path / Path("OC-Patch-Wrench.icns")
+           return self.app_icons_resource_path / Path("OC-Patch-Wrench.png")
        elif self.detected_os < os_data.os_data.big_sur:
-           return self.icns_resource_path / Path("OC-Patch-WrenchAndScrewDriver.icns")
+           return self.app_icons_resource_path / Path("OC-Patch-WrenchAndScrewDriver.png")
        else:
-            return self.icns_resource_path / Path(f"OC-Patch-{self.detected_os}.icns")
+            return self.app_icons_resource_path / Path(f"OC-Patch-{self.detected_os}.png")
 
        
     @property
     def app_icon_path(self):
-        return self.icns_resource_path / Path("OC-Patcher.icns")
+        return self.app_icons_resource_path / Path("OC-Patcher.icns")
 
     @property
     def app_icon_path_png(self):
-        return self.icns_resource_path / Path("OC-Patcher.png")
+        return self.app_icons_resource_path / Path("OC-Patcher.png")
 
     @property
     def icon_path_external(self):
@@ -888,31 +888,31 @@ class Constants:
 
     @property
     def icon_path_macos_generic(self):
-        return self.icns_resource_path / Path("Generic.icns")
+        return self.app_icons_resource_path / Path("Generic.png")
 
     @property
     def icon_path_macos_big_sur(self):
-        return self.icns_resource_path / Path("BigSur.icns")
+        return self.app_icons_resource_path / Path("BigSur.png")
 
     @property
     def icon_path_macos_monterey(self):
-        return self.icns_resource_path / Path("Monterey.icns")
+        return self.app_icons_resource_path / Path("Monterey.png")
 
     @property
     def icon_path_macos_ventura(self):
-        return self.icns_resource_path / Path("Ventura.icns")
+        return self.app_icons_resource_path / Path("Ventura.png")
 
     @property
     def icon_path_macos_sonoma(self):
-        return self.icns_resource_path / Path("Sonoma.icns")
+        return self.app_icons_resource_path / Path("Sonoma.png")
 
     @property
     def icon_path_macos_sequoia(self):
-        return self.icns_resource_path / Path("Sequoia.icns")
+        return self.app_icons_resource_path / Path("Sequoia.png")
 
     @property
     def icon_path_macos_tahoe(self):
-        return self.icns_resource_path / Path("Tahoe.icns")
+        return self.app_icons_resource_path / Path("Tahoe.png")
 
     @property
     def gui_path(self):
