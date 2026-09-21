@@ -20,3 +20,8 @@ markdown2
 macos-pkg-builder
 mac-signing-buddy
 rich
+openssl@3 # behebt das Fehler Warning: could not reach GitHub (<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]
+# certificate verify failed: unable to get local issuer certificate 
+# (_ssl.c:1032)>)
+# Skipping the release check, building 4.0.0.190003 as is.
+# auf Hosts mit macOS Catalina und aelter
