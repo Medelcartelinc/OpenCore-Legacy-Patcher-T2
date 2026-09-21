@@ -143,6 +143,30 @@ OPENSSL3_PREFIXES = [
 ]
 BREW_CANDIDATES = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
 
+# MacPorts' openssl3 port keeps headers, libs and pkgconfig files together under
+# libexec/openssl3 and symlinks the dylibs into /opt/local/lib.
+MACPORTS_OPENSSL3_PREFIXES = [
+    Path("/opt/local/libexec/openssl3"),
+    Path("/opt/local"),
+]
+MACPORTS_PORT = "/opt/local/bin/port"
+
+# Homebrew no longer supports macOS 10.15 Catalina and older (Darwin 19 and below), so
+# the build uses MacPorts there instead. The Darwin version is used rather than the macOS
+# version: Python built against an older SDK can report Big Sur as "10.16".
+MACPORTS_MAX_DARWIN = 19
+
+
+def _darwin_major() -> int:
+    try:
+        return int(os.uname().release.split(".")[0])
+    except (ValueError, IndexError):
+        return 0
+
+
+def _use_macports() -> bool:
+    return _darwin_major() <= MACPORTS_MAX_DARWIN
+
 
 def _openssl3_prefix_is_valid(prefix: Path) -> bool:
     return (prefix / "lib" / "libssl.3.dylib").exists() and (prefix / "lib" / "libcrypto.3.dylib").exists()
@@ -156,6 +180,12 @@ def _find_brew() -> "str | None":
         if Path(candidate).exists():
             return candidate
     return None
+
+
+def _find_port() -> "str | None":
+    if Path(MACPORTS_PORT).exists():
+        return MACPORTS_PORT
+    return shutil.which("port")
 
 
 def _brew_command(brew: str, *args: str) -> list:
@@ -173,39 +203,63 @@ def _brew_command(brew: str, *args: str) -> list:
     return [brew, *args]
 
 
-def ensure_openssl3(allow_install: bool = True) -> "Path | None":
-    """
-    Make sure OpenSSL 3 (Homebrew's openssl@3) is present on the build machine
+def _print_failed_install(command: str, result: subprocess.CompletedProcess) -> None:
+    rich.print(f"[red]Error: '{command}' failed with exit code {result.returncode}[/red]")
+    print(result.stdout)
+    print(result.stderr)
 
-    'openssl version' is deliberately not used: on macOS it reports Apple's bundled LibreSSL,
-    which says nothing about whether OpenSSL 3 is installed. The keg's dylibs are checked instead.
 
-    Returns the openssl@3 prefix, or None when not building on macOS. Exits when OpenSSL 3
-    is missing and cannot (or may not) be installed.
-    """
-    if sys.platform != "darwin":
-        return None
-
-    for prefix in OPENSSL3_PREFIXES:
+def _first_valid_prefix(prefixes: list) -> "Path | None":
+    for prefix in prefixes:
         if _openssl3_prefix_is_valid(prefix):
             return prefix
+    return None
 
-    brew = _find_brew()
 
-    # Homebrew installed to a custom prefix
-    if brew:
-        try:
-            result = subprocess.run(_brew_command(brew, "--prefix", "openssl@3"), capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and _openssl3_prefix_is_valid(Path(result.stdout.strip())):
-                return Path(result.stdout.strip())
-        except (OSError, subprocess.SubprocessError):
-            pass
+def _install_openssl3_macports() -> Path:
+    """
+    Install MacPorts' openssl3 port
 
-    if allow_install is False:
-        rich.print("[red]Error: OpenSSL 3 not found and --no-install-openssl was passed.[/red]")
-        rich.print("[yellow]      Install it with 'brew install openssl@3', then build again.[/yellow]")
+    Unlike Homebrew, MacPorts has to install as root. The order is:
+    already root -> run directly; cached sudo credentials -> 'sudo -n'; otherwise ask for the
+    admin password through a macOS authentication dialog. An interactive sudo password prompt
+    is avoided on purpose: the rich Live spinner in the main thread would draw over it.
+    """
+    port = _find_port()
+    if port is None:
+        rich.print("[red]Error: OpenSSL 3 not found and MacPorts is not installed.[/red]")
+        rich.print("[yellow]      On macOS 10.15 Catalina and older the build uses MacPorts instead of Homebrew.[/yellow]")
+        rich.print("[yellow]      Install MacPorts (https://www.macports.org/install.php), then run 'sudo port install openssl3'.[/yellow]")
         sys.exit(3)
 
+    rich.print("[yellow]OpenSSL 3 not found, installing openssl3 via MacPorts...[/yellow]")
+    install = [port, "-N", "install", "openssl3"]
+
+    if os.geteuid() == 0:
+        result = subprocess.run(install, capture_output=True, text=True)
+    else:
+        result = subprocess.run(["/usr/bin/sudo", "-n", *install], capture_output=True, text=True)
+        if result.returncode != 0 and "password" in (result.stderr or "").lower():
+            shell_command = " ".join(install)
+            result = subprocess.run(
+                ["/usr/bin/osascript", "-e",
+                 f'do shell script "{shell_command}" with prompt "OpenCore-Patcher-T2 needs to install OpenSSL 3 via MacPorts." with administrator privileges'],
+                capture_output=True, text=True,
+            )
+
+    if result.returncode != 0:
+        _print_failed_install("port install openssl3", result)
+        rich.print("[yellow]      Run 'sudo port install openssl3' manually, then build again.[/yellow]")
+        sys.exit(3)
+
+    prefix = _first_valid_prefix(MACPORTS_OPENSSL3_PREFIXES)
+    if prefix is None:
+        rich.print("[red]Error: openssl3 was installed, but libssl.3.dylib/libcrypto.3.dylib were not found under /opt/local.[/red]")
+        sys.exit(3)
+    return prefix
+
+
+def _install_openssl3_homebrew(brew: "str | None") -> Path:
     if brew is None:
         rich.print("[red]Error: OpenSSL 3 not found and Homebrew is not installed.[/red]")
         rich.print("[yellow]      Install Homebrew (https://brew.sh), then run 'brew install openssl@3'.[/yellow]")
@@ -216,9 +270,7 @@ def ensure_openssl3(allow_install: bool = True) -> "Path | None":
     # rich Live spinner running in the main thread. It is printed when the install fails.
     result = subprocess.run(_brew_command(brew, "install", "openssl@3"), capture_output=True, text=True)
     if result.returncode != 0:
-        rich.print(f"[red]Error: 'brew install openssl@3' failed with exit code {result.returncode}[/red]")
-        print(result.stdout)
-        print(result.stderr)
+        _print_failed_install("brew install openssl@3", result)
         sys.exit(3)
 
     result = subprocess.run(_brew_command(brew, "--prefix", "openssl@3"), capture_output=True, text=True)
@@ -226,7 +278,54 @@ def ensure_openssl3(allow_install: bool = True) -> "Path | None":
     if result.returncode != 0 or _openssl3_prefix_is_valid(prefix) is False:
         rich.print("[red]Error: openssl@3 was installed, but libssl.3.dylib/libcrypto.3.dylib were not found.[/red]")
         sys.exit(3)
+    return prefix
 
+
+def ensure_openssl3(allow_install: bool = True) -> "Path | None":
+    """
+    Make sure OpenSSL 3 is present on the build machine
+
+    macOS 10.15 Catalina and older: MacPorts' openssl3 port only.
+    macOS 11 Big Sur and newer:     Homebrew's openssl@3 only.
+
+    'openssl version' is deliberately not used: on macOS it reports Apple's bundled LibreSSL,
+    which says nothing about whether OpenSSL 3 is installed. The dylibs are checked instead.
+
+    Returns the OpenSSL 3 prefix, or None when not building on macOS. Exits when OpenSSL 3
+    is missing and cannot (or may not) be installed.
+    """
+    if sys.platform != "darwin":
+        return None
+
+    macports = _use_macports()
+
+    if macports:
+        prefix = _first_valid_prefix(MACPORTS_OPENSSL3_PREFIXES)
+        if prefix is not None:
+            return prefix
+        brew = None
+    else:
+        prefix = _first_valid_prefix(OPENSSL3_PREFIXES)
+        if prefix is not None:
+            return prefix
+
+        brew = _find_brew()
+        # Homebrew installed to a custom prefix
+        if brew:
+            try:
+                result = subprocess.run(_brew_command(brew, "--prefix", "openssl@3"), capture_output=True, text=True, timeout=60)
+                if result.returncode == 0 and _openssl3_prefix_is_valid(Path(result.stdout.strip())):
+                    return Path(result.stdout.strip())
+            except (OSError, subprocess.SubprocessError):
+                pass
+
+    if allow_install is False:
+        manual = "sudo port install openssl3" if macports else "brew install openssl@3"
+        rich.print("[red]Error: OpenSSL 3 not found and --no-install-openssl was passed.[/red]")
+        rich.print(f"[yellow]      Install it with '{manual}', then build again.[/yellow]")
+        sys.exit(3)
+
+    prefix = _install_openssl3_macports() if macports else _install_openssl3_homebrew(brew)
     rich.print(f"[green]Installed OpenSSL 3 at {prefix}[/green]")
     return prefix
 
@@ -266,7 +365,7 @@ def main() -> None:
     parser.add_argument("--reset-pyinstaller-cache", action="store_true")
     parser.add_argument("--no-auto-detect-identity", action="store_true", help="Never pick a signing identity from the keychain automatically")
     parser.add_argument("--ignore-release", action="store_true", help="Build even when the version does not line up with the latest release")
-    parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing openssl@3 via Homebrew when OpenSSL 3 is missing")
+    parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing OpenSSL 3 (MacPorts on 10.15 and older, Homebrew otherwise) when it is missing")
 
     # Steps
     parser.add_argument("--run-as-individual-steps", action="store_true")
