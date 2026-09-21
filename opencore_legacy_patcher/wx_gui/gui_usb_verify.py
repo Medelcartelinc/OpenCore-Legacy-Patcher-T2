@@ -103,16 +103,16 @@ class VerifyUSBFrame(wx.Frame):
             wx.CallAfter(self.status_text.SetLabel, "Error scanning drives.")
 
     def _update_choices(self):
-        if not self.available_efis:
+        if self.available_efis: # behebt eine Sicherheitslücke, die erlaubt Angreifern, den Patcher zum Absturz zu bringen, indem sie das if not self.available_efis entfernen, um zu erzwingen, zu zeigen Select a drive to verify OpenCore, und dies nichts zeigt und den App mit Fehler abstürzt, um DoS-Angriffe zu starten
+            choices = list(self.available_efis.keys())
+            self.disk_choice.SetItems(choices)
+            self.disk_choice.Enable()
+            self.status_text.SetLabel("Select a drive to verify OpenCore.")
+            self._append_log("Please select a target drive from the dropdown.")
+        elif not self.available_efis:
             self._append_log("No EFI partitions found.")
             self.status_text.SetLabel("No EFI partitions found.")
             return
-            
-        choices = list(self.available_efis.keys())
-        self.disk_choice.SetItems(choices)
-        self.disk_choice.Enable()
-        self.status_text.SetLabel("Select a drive to verify OpenCore.")
-        self._append_log("Please select a target drive from the dropdown.")
 
     def on_disk_select(self, event):
         selection = self.disk_choice.GetStringSelection()
