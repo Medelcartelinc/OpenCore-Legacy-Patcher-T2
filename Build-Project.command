@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import time
+import shutil
 import argparse
 import traceback
 import subprocess
@@ -136,6 +137,116 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> "str | No
     return name
 
 
+OPENSSL3_PREFIXES = [
+    Path("/opt/homebrew/opt/openssl@3"),  # Apple Silicon Homebrew
+    Path("/usr/local/opt/openssl@3"),     # Intel Homebrew
+]
+BREW_CANDIDATES = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+
+
+def _openssl3_prefix_is_valid(prefix: Path) -> bool:
+    return (prefix / "lib" / "libssl.3.dylib").exists() and (prefix / "lib" / "libcrypto.3.dylib").exists()
+
+
+def _find_brew() -> "str | None":
+    brew = shutil.which("brew")
+    if brew:
+        return brew
+    for candidate in BREW_CANDIDATES:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _brew_command(brew: str, *args: str) -> list:
+    """
+    Homebrew refuses to run as root. When the build was started with sudo, run it as the
+    user who invoked sudo instead, so the keg ends up owned by that user like a normal install.
+    """
+    if os.geteuid() == 0:
+        sudo_user = os.environ.get("SUDO_USER")
+        if not sudo_user or sudo_user == "root":
+            rich.print("[red]Error: OpenSSL 3 is missing and Homebrew cannot install it as root.[/red]")
+            rich.print("[yellow]      Run 'brew install openssl@3' as a normal user, then build again.[/yellow]")
+            sys.exit(3)
+        return ["/usr/bin/sudo", "-u", sudo_user, brew, *args]
+    return [brew, *args]
+
+
+def ensure_openssl3(allow_install: bool = True) -> "Path | None":
+    """
+    Make sure OpenSSL 3 (Homebrew's openssl@3) is present on the build machine
+
+    'openssl version' is deliberately not used: on macOS it reports Apple's bundled LibreSSL,
+    which says nothing about whether OpenSSL 3 is installed. The keg's dylibs are checked instead.
+
+    Returns the openssl@3 prefix, or None when not building on macOS. Exits when OpenSSL 3
+    is missing and cannot (or may not) be installed.
+    """
+    if sys.platform != "darwin":
+        return None
+
+    for prefix in OPENSSL3_PREFIXES:
+        if _openssl3_prefix_is_valid(prefix):
+            return prefix
+
+    brew = _find_brew()
+
+    # Homebrew installed to a custom prefix
+    if brew:
+        try:
+            result = subprocess.run(_brew_command(brew, "--prefix", "openssl@3"), capture_output=True, text=True, timeout=60)
+            if result.returncode == 0 and _openssl3_prefix_is_valid(Path(result.stdout.strip())):
+                return Path(result.stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    if allow_install is False:
+        rich.print("[red]Error: OpenSSL 3 not found and --no-install-openssl was passed.[/red]")
+        rich.print("[yellow]      Install it with 'brew install openssl@3', then build again.[/yellow]")
+        sys.exit(3)
+
+    if brew is None:
+        rich.print("[red]Error: OpenSSL 3 not found and Homebrew is not installed.[/red]")
+        rich.print("[yellow]      Install Homebrew (https://brew.sh), then run 'brew install openssl@3'.[/yellow]")
+        sys.exit(3)
+
+    rich.print("[yellow]OpenSSL 3 not found, installing openssl@3 via Homebrew...[/yellow]")
+    # Output is captured instead of streamed: raw subprocess output would tear up the
+    # rich Live spinner running in the main thread. It is printed when the install fails.
+    result = subprocess.run(_brew_command(brew, "install", "openssl@3"), capture_output=True, text=True)
+    if result.returncode != 0:
+        rich.print(f"[red]Error: 'brew install openssl@3' failed with exit code {result.returncode}[/red]")
+        print(result.stdout)
+        print(result.stderr)
+        sys.exit(3)
+
+    result = subprocess.run(_brew_command(brew, "--prefix", "openssl@3"), capture_output=True, text=True)
+    prefix = Path(result.stdout.strip())
+    if result.returncode != 0 or _openssl3_prefix_is_valid(prefix) is False:
+        rich.print("[red]Error: openssl@3 was installed, but libssl.3.dylib/libcrypto.3.dylib were not found.[/red]")
+        sys.exit(3)
+
+    rich.print(f"[green]Installed OpenSSL 3 at {prefix}[/green]")
+    return prefix
+
+
+def export_openssl3_environment(prefix: Path) -> None:
+    """
+    Point compilers, pkg-config and wheel builds run later in this process at OpenSSL 3
+    """
+    for key, value in {
+        "LDFLAGS":         f"-L{prefix}/lib",
+        "CPPFLAGS":        f"-I{prefix}/include",
+        "PKG_CONFIG_PATH": f"{prefix}/lib/pkgconfig",
+    }.items():
+        existing = os.environ.get(key, "")
+        if value not in existing.split(" " if key != "PKG_CONFIG_PATH" else ":"):
+            separator = ":" if key == "PKG_CONFIG_PATH" else " "
+            os.environ[key] = f"{value}{separator}{existing}" if existing else value
+    os.environ["OPENSSL_DIR"] = str(prefix)
+
+
 def main() -> None:
     global status
     parser = argparse.ArgumentParser(description="Build OpenCore Legacy Patcher Suite")
@@ -155,6 +266,7 @@ def main() -> None:
     parser.add_argument("--reset-pyinstaller-cache", action="store_true")
     parser.add_argument("--no-auto-detect-identity", action="store_true", help="Never pick a signing identity from the keychain automatically")
     parser.add_argument("--ignore-release", action="store_true", help="Build even when the version does not line up with the latest release")
+    parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing openssl@3 via Homebrew when OpenSSL 3 is missing")
 
     # Steps
     parser.add_argument("--run-as-individual-steps", action="store_true")
@@ -178,6 +290,13 @@ def main() -> None:
     # a version that is behind a release without assets is corrected, and a version that
     # would collide with a release that already has its assets is refused. --ignore-release
     # builds anyway.
+    # OpenSSL 3 is checked before anything else, so a missing dependency stops the build
+    # right away instead of failing somewhere deep inside one of the build steps.
+    status = f"[0/{TOTAL_STEPS}] Checking for OpenSSL 3"
+    openssl3_prefix = ensure_openssl3(allow_install=args.no_install_openssl is False)
+    if openssl3_prefix is not None:
+        export_openssl3_environment(openssl3_prefix)
+
     status = f"[0/{TOTAL_STEPS}] Checking the release state"
     release_guard.ReleaseGuard(ignore_release=args.ignore_release).check()
 
