@@ -15,7 +15,7 @@ jobs:
     if: github.event.issue.pull_request == null
     steps:
       - name: Look for duplicate issues
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -105,6 +105,55 @@ jobs:
               'confidence is 0.0 to 1.0. Return {"duplicates":[]} if none match.',
             ].join(' ');
 
+            // Calls GitHub Models and returns the parsed JSON answer, or null on failure.
+            // Tries once with JSON mode and once without, because not every model accepts it.
+            async function callModel(messages) {
+              const variants = [
+                { response_format: { type: 'json_object' } },
+                {},
+              ];
+              for (const extra of variants) {
+                let res, raw;
+                try {
+                  res = await fetch('https://models.github.ai/inference/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ model: AI_MODEL, temperature: 0, messages, ...extra }),
+                  });
+                  raw = await res.text();
+                } catch (e) {
+                  core.warning(`GitHub Models request failed: ${e.message}`);
+                  return null;
+                }
+
+                // Read the body as text first so a non-JSON answer (e.g. "OK") is logged, not crashed on
+                let data;
+                try { data = JSON.parse(raw); } catch { data = null; }
+
+                if (!res.ok || !data || !Array.isArray(data.choices)) {
+                  core.warning(`GitHub Models answered HTTP ${res.status}` +
+                    `${extra.response_format ? ' (JSON mode)' : ''}: ${raw.slice(0, 300)}`);
+                  continue; // try the next variant
+                }
+
+                const text = (data.choices[0]?.message?.content || '')
+                  .replace(/```json|```/g, '').trim();
+                const jsonPart = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+                try {
+                  return JSON.parse(jsonPart);
+                } catch {
+                  core.warning(`Model reply was not JSON: ${text.slice(0, 300)}`);
+                  continue;
+                }
+              }
+              return null;
+            }
+
             async function aiFindDuplicates(candidates) {
               const found = new Map(); // number -> confidence
               const newIssue = `Title: ${clip(issue.title, 200)}\nBody: ${clip(issue.body, 1500)}`;
@@ -115,43 +164,13 @@ jobs:
                   .map(c => `#${c.number}: ${clip(c.title, 120)} | ${clip(c.body, 200)}`)
                   .join('\n');
 
-                let res;
-                try {
-                  res = await fetch('https://models.github.ai/inference/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                      'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
-                      'Content-Type': 'application/json',
-                      'Accept': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: AI_MODEL,
-                      temperature: 0,
-                      response_format: { type: 'json_object' },
-                      messages: [
-                        { role: 'system', content: SYSTEM_PROMPT },
-                        { role: 'user', content: `NEW ISSUE:\n${newIssue}\n\nEXISTING ISSUES:\n${list}` },
-                      ],
-                    }),
-                  });
-                } catch (e) {
-                  core.warning(`AI check request failed: ${e.message}`);
-                  break;
-                }
-
-                if (!res.ok) {
-                  core.warning(`AI check failed (HTTP ${res.status}): ${await res.text()}`);
-                  break; // e.g. rate limit – keep the text-based result
-                }
-
-                let parsed;
-                try {
-                  const data = await res.json();
-                  const text = (data.choices?.[0]?.message?.content || '').replace(/```json|```/g, '').trim();
-                  parsed = JSON.parse(text);
-                } catch (e) {
-                  core.warning(`Could not parse AI answer: ${e.message}`);
-                  continue;
+                const parsed = await callModel([
+                  { role: 'system', content: SYSTEM_PROMPT },
+                  { role: 'user', content: `NEW ISSUE:\n${newIssue}\n\nEXISTING ISSUES:\n${list}` },
+                ]);
+                if (parsed === null) {
+                  core.warning('AI check stopped: GitHub Models did not return a usable answer (see warnings above).');
+                  break; // same error would repeat for every batch
                 }
 
                 // Only accept issue numbers that were actually in this batch
