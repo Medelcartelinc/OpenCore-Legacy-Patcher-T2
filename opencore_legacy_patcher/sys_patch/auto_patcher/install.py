@@ -29,7 +29,11 @@ class InstallAutomaticPatchingServices:
 
     # Where the persistent copy of the patcher lives, as installed by the PKG
     # (see ci_tooling/build_modules/package.py)
-    _PATCHER_INSTALL_DIRECTORY: str = "/Library/Application Support/Dortania"
+    _PATCHER_INSTALL_DIRECTORY: str = "/Library/Application Support/albert-mueller/OpenCore-Patcher-T2"
+
+    # Where older PKGs installed it: Dortania's own directory, shared with their
+    # patcher. Only read to keep existing installs working and to clean up.
+    _LEGACY_PATCHER_INSTALL_DIRECTORY: str = "/Library/Application Support/Dortania"
 
 
     def __init__(self, global_constants: constants.Constants):
@@ -73,12 +77,15 @@ class InstallAutomaticPatchingServices:
         """
         # The executable itself was later renamed to OpenCore-Patcher-T2 as well,
         # so a T2 bundle installed by an older build still carries the old name.
-        for bundle, executable in (
-            ("OpenCore-Patcher-T2.app", "OpenCore-Patcher-T2"),
-            ("OpenCore-Patcher-T2.app", "OpenCore-Patcher"),
-            ("OpenCore-Patcher.app",    "OpenCore-Patcher"),
+        # The current install directory wins; the legacy (Dortania) directory is
+        # only used by installs from before the move that haven't been updated.
+        for directory, bundle, executable in (
+            (self._PATCHER_INSTALL_DIRECTORY,        "OpenCore-Patcher-T2.app", "OpenCore-Patcher-T2"),
+            (self._LEGACY_PATCHER_INSTALL_DIRECTORY, "OpenCore-Patcher-T2.app", "OpenCore-Patcher-T2"),
+            (self._LEGACY_PATCHER_INSTALL_DIRECTORY, "OpenCore-Patcher-T2.app", "OpenCore-Patcher"),
+            (self._LEGACY_PATCHER_INSTALL_DIRECTORY, "OpenCore-Patcher.app",    "OpenCore-Patcher"),
         ):
-            bundle_path = Path(self._PATCHER_INSTALL_DIRECTORY) / bundle
+            bundle_path = Path(directory) / bundle
             binary = bundle_path / "Contents" / "MacOS" / executable
             if not binary.exists():
                 continue
@@ -111,7 +118,7 @@ class InstallAutomaticPatchingServices:
 
         arguments = service_plist.get("ProgramArguments", [])
         # Services that don't invoke the patcher (ex. the RSRMonitor's /bin/rm) are left alone
-        if not arguments or not str(arguments[0]).startswith(self._PATCHER_INSTALL_DIRECTORY):
+        if not arguments or not str(arguments[0]).startswith((self._PATCHER_INSTALL_DIRECTORY, self._LEGACY_PATCHER_INSTALL_DIRECTORY)):
             return service
 
         resolved_binary = self._resolve_patcher_binary()
@@ -191,6 +198,29 @@ class InstallAutomaticPatchingServices:
             )
 
 
+    def _remove_moved_app_bundle(self) -> None:
+        """
+        Remove our copy left in Dortania's directory after the install location moved
+
+        OpenCore-Patcher-T2.app is a name only this fork uses, so the bundle is ours.
+        It is only removed once the new location actually holds the app: until the
+        updated PKG has run, launch services may still be executing the old copy.
+        """
+
+        moved_bundle = Path(self._LEGACY_PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher-T2.app"
+        if not moved_bundle.exists():
+            return
+
+        if not (Path(self._PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher-T2.app").exists():
+            logging.info(f"- Keeping {moved_bundle}, nothing installed at {self._PATCHER_INSTALL_DIRECTORY} yet")
+            return
+
+        logging.info(f"- Removing copy from previous install location: {moved_bundle}")
+        subprocess_wrapper.run_as_root_and_verify(
+            ["/bin/rm", "-rf", str(moved_bundle)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
+
+
     def _remove_legacy_app_bundle(self) -> None:
         """
         Remove a pre-rebrand copy of ourselves left at the old bundle name
@@ -201,7 +231,9 @@ class InstallAutomaticPatchingServices:
         only one of the two. Removed only when the bundle is identifiably ours.
         """
 
-        legacy_bundle = Path(self._PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher.app"
+        self._remove_moved_app_bundle()
+
+        legacy_bundle = Path(self._LEGACY_PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher.app"
         if not legacy_bundle.exists():
             return
 

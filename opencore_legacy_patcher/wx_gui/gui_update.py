@@ -287,7 +287,7 @@ class UpdateFrame(wx.Frame):
         installed_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
         installed_label.Centre(wx.HORIZONTAL)
 
-        installed_path_label = wx.StaticText(self.frame, label='/Library/Application Support/Dortania', pos=(-1, installed_label.GetPosition().y + 20))
+        installed_path_label = wx.StaticText(self.frame, label=self._install_directory(), pos=(-1, installed_label.GetPosition().y + 20))
         installed_path_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         installed_path_label.Centre(wx.HORIZONTAL)
 
@@ -374,18 +374,29 @@ class UpdateFrame(wx.Frame):
         except Exception as e:
             logging.error(f"Failed to store installed update channel: {e}")
 
+    def _install_directory(self) -> str:
+        """
+        Directory the downloaded update installs into
+
+        Our PKG installs to its own directory; an upstream Dortania ZIP still
+        lands in theirs (see pkg_download_path above).
+        """
+        if self.url.endswith(".zip"):
+            return "/Library/Application Support/Dortania"
+        return "/Library/Application Support/albert-mueller/OpenCore-Patcher-T2"
+
     def _launch_update(self) -> None:
         # Same reasoning as pkg_download_path above: an upstream Dortania nightly
         # install still lands as "OpenCore-Patcher.app", only our own T2 releases
         # install as "OpenCore-Patcher-T2.app" (see package.py's _files mapping).
         _app_name = "OpenCore-Patcher.app" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.app"
         try:
-            logging.info(f"Aktualisierung beginnen: '/Library/Application Support/Dortania/{_app_name}'")
-            logging.info(f"Launching update: '/Library/Application Support/Dortania/{_app_name}'")
+            logging.info(f"Aktualisierung beginnen: '{self._install_directory()}/{_app_name}'")
+            logging.info(f"Launching update: '{self._install_directory()}/{_app_name}'")
             # T2 builds now ship their executable as OpenCore-Patcher-T2; older T2
             # releases and Dortania's app still use OpenCore-Patcher, so launch
             # whichever one the freshly installed bundle actually contains.
-            _macos_dir = f"/Library/Application Support/Dortania/{_app_name}/Contents/MacOS"
+            _macos_dir = f"{self._install_directory()}/{_app_name}/Contents/MacOS"
             _executable = f"{_macos_dir}/OpenCore-Patcher-T2"
             if not Path(_executable).exists():
                 _executable = f"{_macos_dir}/OpenCore-Patcher"

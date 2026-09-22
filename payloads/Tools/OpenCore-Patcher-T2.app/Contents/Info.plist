@@ -24,8 +24,8 @@
 	<string>Copyright © 2020-2026 Dortania</string>
 	<key>SMPrivilegedExecutables</key>
 	<dict>
-		<key>com.albert-mueller.opencore-legacy-patcher.privileged-helper</key>
-		<string>identifier "com.albert-mueller.opencore-legacy-patcher.privileged-helper" and anchor apple generic</string>
+		<key>com.albert-mueller.opencore-patcher-t2.privileged-helper</key>
+		<string>identifier "com.albert-mueller.opencore-patcher-t2.privileged-helper" and anchor apple generic</string>
 	</dict>
 </dict>
 </plist>

@@ -1,6 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190004 - 4.0.0 alpha 19.4
 This release:
+- moves the install directory from /Library/Application Support/Dortania (shared with Dortania's patcher) to /Library/Application Support/albert-mueller/OpenCore-Patcher-T2, and renames the Privileged Helper Tool to /Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper. The PKG installer and uninstaller remove our copies from the old locations (Dortania's own files are left alone, and the Dortania folder is only deleted if it ends up empty); the auto-patcher keeps using an old-location install until the new PKG has been installed
 - fixes a bug where upon trying to open the Statistics menu, it displays AttributeError: 'Panel' object has no attribute 'AdjustScrollbars' albeit opening the menu successfully
 - fixes a CI/CD bug where checking for the version number before starting to build the patcher fails on macOS 10.15 Catalina and older due to these macOS versions missing openssl3 - now a check is added if the host has openssl3 and if not, it will try to install openssl3 via Homebrew on newer macOS versions like Big Sur, and MacPorts on macOS Catalina and older. If Homebrew or MacPorts is not installed but the host lacks openssl3, it will throw an immediate error and stop building the app.
 - removes most emojis from gui_settings.py to improve macOS 10.15 Catalina and older versions compatability

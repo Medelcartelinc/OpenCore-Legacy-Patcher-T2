@@ -302,6 +302,33 @@ class ZSHFunctions:
         return _script
 
 
+    def generate_clean_legacy_install_location(self) -> str:
+        """
+        ZSH function to clean up the pre-move install location.
+
+        The app used to install to /Library/Application Support/Dortania, the same
+        directory Dortania's patcher uses, and the helper used the
+        com.albert-mueller.opencore-legacy-patcher identifier. Both moved; remove
+        our copies from the old locations. Every path in legacyFilesToRemove is
+        one only this fork ever writes, so nothing of Dortania's is touched, and
+        the Dortania directory itself is only removed once it is empty.
+        """
+
+        _script = ""
+
+        _script += "function _cleanLegacyInstallLocation() {\n"
+        _script += "    for file in $legacyFilesToRemove; do\n"
+        _script += "        _removeFile \"$pathToTargetVolume/$file\"\n"
+        _script += "    done\n\n"
+
+        _script += "    # rmdir refuses non-empty directories, so a Dortania install stays intact\n"
+        _script += "    /bin/rmdir \"$pathToTargetVolume/Library/Application Support/Dortania\" 2>/dev/null\n"
+        _script += "    return 0\n"
+        _script += "}\n"
+
+        return _script
+
+
     def generate_preinstall_main(self) -> str:
         """
         ZSH function for preinstall's main
@@ -311,6 +338,7 @@ class ZSHFunctions:
 
         _script += "function _main() {\n"
         _script += "    _cleanLegacyHelper\n"
+        _script += "    _cleanLegacyInstallLocation\n"
         _script += "    for file in $filesToRemove; do\n"
         _script += "        _removeFile $pathToTargetVolume/$file\n"
         _script += "        _createParentDirectory $pathToTargetVolume/$file\n"
@@ -350,6 +378,7 @@ class ZSHFunctions:
         _script += "function _main() {\n"
         _script += "    _cleanLaunchService\n"
         _script += "    _cleanLegacyHelper\n"
+        _script += "    _cleanLegacyInstallLocation\n"
         _script += "    for file in $filesToRemove; do\n"
         _script += "        _removeFile $pathToTargetVolume/$file\n"
         _script += "    done\n"
@@ -365,6 +394,13 @@ class GenerateScripts:
 
         self.files = [
             "Applications/OpenCore-Patcher-T2.app",
+            "Library/Application Support/albert-mueller/OpenCore-Patcher-T2/OpenCore-Patcher-T2.app",
+            "Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper"
+        ]
+
+        # Locations used before the app moved out of Dortania's directory and the
+        # helper was renamed. Removed on install and uninstall, never recreated.
+        self.legacy_files = [
             "Library/Application Support/Dortania/Update.plist",
             "Library/Application Support/Dortania/OpenCore-Patcher-T2.app",
             "Library/PrivilegedHelperTools/com.albert-mueller.opencore-legacy-patcher.privileged-helper"
@@ -433,6 +469,12 @@ class GenerateScripts:
 
         _script += ")\n"
 
+        _script += "legacyFilesToRemove=(\n"
+        for _file in self.legacy_files:
+            _script += f"    \"{_file}\"\n"
+
+        _script += ")\n"
+
         _script += "\n\n"
 
         _script += "# MARK: Functions\n"
@@ -444,6 +486,8 @@ class GenerateScripts:
         _script += self.zsh_functions.generate_script_create_parent_directory()
         _script += "\n"
         _script += self.zsh_functions.generate_clean_legacy_helper()
+        _script += "\n"
+        _script += self.zsh_functions.generate_clean_legacy_install_location()
         _script += "\n"
         _script += self.zsh_functions.generate_preinstall_main()
         _script += "\n\n"
@@ -483,8 +527,8 @@ class GenerateScripts:
         _script += self._generate_label_bar()
         _script += "\n"
 
-        _script += "helperPath=\"Library/PrivilegedHelperTools/com.albert-mueller.opencore-legacy-patcher.privileged-helper\"\n"
-        _script += "mainAppPath=\"Library/Application Support/Dortania/OpenCore-Patcher-T2.app\"\n"
+        _script += "helperPath=\"Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper\"\n"
+        _script += "mainAppPath=\"Library/Application Support/albert-mueller/OpenCore-Patcher-T2/OpenCore-Patcher-T2.app\"\n"
         _script += "shimAppPath=\"Applications/OpenCore-Patcher-T2.app\"\n"
         if is_autopkg:
             _script += "executablePath=\"$mainAppPath/Contents/MacOS/OpenCore-Patcher-T2\"\n"
@@ -553,6 +597,12 @@ class GenerateScripts:
 
         _script += ")\n"
 
+        _script += "legacyFilesToRemove=(\n"
+        for _file in self.legacy_files:
+            _script += f"    \"{_file}\"\n"
+
+        _script += ")\n"
+
         _script += "\n\n"
 
         _script += "# MARK: Functions\n"
@@ -564,6 +614,8 @@ class GenerateScripts:
         _script += self.zsh_functions.generate_clean_launch_service()
         _script += "\n"
         _script += self.zsh_functions.generate_clean_legacy_helper()
+        _script += "\n"
+        _script += self.zsh_functions.generate_clean_legacy_install_location()
         _script += "\n"
         _script += self.zsh_functions.generate_uninstall_main()
         _script += "\n\n"
