@@ -98,12 +98,12 @@ class GenerateApplication:
 
     def _patch_load_command(self) -> None:
         """
-        Patch LC_VERSION_MIN_MACOSX in Load Command to report 10.10
+        Patch LC_VERSION_MIN_MACOSX in Load Command to report 10.13.6
         """
         _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher-T2"
 
         _find    = b'\x00\x0D\x0A\x00' # 10.13
-        _replace = b'\x00\x0A\x0A\x00' # 10.10
+        _replace = b'\x06\x0D\x0A\x00' # 10.13.6
 
         if not _file.exists():
             raise FileNotFoundError(f"Target binary not found for patching: {_file}")
