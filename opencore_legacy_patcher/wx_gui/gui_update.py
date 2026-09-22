@@ -128,7 +128,7 @@ class UpdateFrame(wx.Frame):
             wx.Yield()
             time.sleep(self.constants.thread_sleep_interval)
 
-        file_name = "OpenCore-Patcher.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg"
+        file_name = "OpenCore-Patcher-T2.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg"
         download_obj = network_handler.DownloadObject(self.url, self.constants.payload_path / file_name)
         download_frame = gui_download.DownloadFrame(
             self.frame,
@@ -139,9 +139,10 @@ class UpdateFrame(wx.Frame):
             download_icon=str(self.constants.app_icon_path),
             cancel_message=(
                 "Are you sure you want to cancel the update?\n\n"
-                "Staying on an older version of OpenCore Legacy Patcher means you "
+                "Staying on an older version of OpenCore Legacy Patcher T2 means you "
                 "won't get the latest fixes, which can include security fixes. "
-                "Running outdated software may leave your Mac exposed to known issues."
+                "Running outdated software may leave your Mac exposed to known vulnerabilities"
+                "that attackers could exploit."
             )
         )
 
