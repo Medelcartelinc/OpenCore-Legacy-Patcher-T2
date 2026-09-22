@@ -21,6 +21,7 @@ jobs:
             const THRESHOLD   = 0.75;   // 0..1 – how similar an issue must be to count as a duplicate
             const MAX_MATCHES = 3;      // how many duplicates to list at most
             const ADD_LABEL   = true;   // add the "duplicate" label
+            const CLOSE_ISSUE = true;   // close the issue as a duplicate
             const MARKER      = '<!-- duplicate-issue-bot -->';
             // ------------------------------------------------------------------
 
@@ -111,14 +112,14 @@ jobs:
               '**English:** This is a duplicated issue. It appears to be a duplicate of:',
               list,
               '',
-              'Please continue the discussion in the original issue. If this is not a duplicate, let us know and we will reopen or remove the label.',
+              'This issue has been closed. Please continue the discussion in the original issue. If this is not a duplicate, let us know and we will reopen it.',
               '',
               '---',
               '',
               '**Deutsch:** Dies ist ein doppeltes Issue. Es scheint ein Duplikat zu sein von:',
               list,
               '',
-              'Bitte führe die Diskussion im ursprünglichen Issue weiter. Falls es sich nicht um ein Duplikat handelt, gib uns Bescheid, dann entfernen wir das Label wieder.',
+              'Dieses Issue wurde geschlossen. Bitte führe die Diskussion im ursprünglichen Issue weiter. Falls es sich nicht um ein Duplikat handelt, gib uns Bescheid, dann öffnen wir es wieder.',
             ].join('\n');
 
             await github.rest.issues.createComment({
@@ -132,6 +133,22 @@ jobs:
                 });
               } catch (e) {
                 core.warning(`Could not add label: ${e.message}`);
+              }
+            }
+
+            if (CLOSE_ISSUE) {
+              try {
+                // Newer GitHub API: close with reason "duplicate"
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issue.number,
+                  state: 'closed', state_reason: 'duplicate',
+                });
+              } catch (e) {
+                core.warning(`Closing as "duplicate" failed (${e.message}), falling back to "not_planned".`);
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issue.number,
+                  state: 'closed', state_reason: 'not_planned',
+                });
               }
             }
 
