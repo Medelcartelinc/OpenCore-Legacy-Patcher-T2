@@ -5,7 +5,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>OpenCore-Patcher-T2</string>
 	<key>CFBundleExecutable</key>
-	<string>OpenCore-Patcher</string>
+	<string>OpenCore-Patcher-T2</string>
 	<key>CFBundleIconFile</key>
 	<string>OC-Patcher.icns</string>
 	<key>CFBundleIdentifier</key>
