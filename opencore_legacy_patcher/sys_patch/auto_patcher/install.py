@@ -71,9 +71,15 @@ class InstallAutomaticPatchingServices:
         Resolve against what is actually on disk instead of hardcoding either name,
         so both the current PKG layout and the older ZIP layout keep working.
         """
-        for bundle in ("OpenCore-Patcher-T2.app", "OpenCore-Patcher.app"):
+        # The executable itself was later renamed to OpenCore-Patcher-T2 as well,
+        # so a T2 bundle installed by an older build still carries the old name.
+        for bundle, executable in (
+            ("OpenCore-Patcher-T2.app", "OpenCore-Patcher-T2"),
+            ("OpenCore-Patcher-T2.app", "OpenCore-Patcher"),
+            ("OpenCore-Patcher.app",    "OpenCore-Patcher"),
+        ):
             bundle_path = Path(self._PATCHER_INSTALL_DIRECTORY) / bundle
-            binary = bundle_path / "Contents" / "MacOS" / "OpenCore-Patcher"
+            binary = bundle_path / "Contents" / "MacOS" / executable
             if not binary.exists():
                 continue
             # Dortania's patcher installs to this same directory under the old
@@ -87,7 +93,7 @@ class InstallAutomaticPatchingServices:
 
         # Nothing installed yet (ex. services written before the app is copied):
         # fall back to the path the PKG will create.
-        return str(Path(self._PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher-T2.app" / "Contents" / "MacOS" / "OpenCore-Patcher")
+        return str(Path(self._PATCHER_INSTALL_DIRECTORY) / "OpenCore-Patcher-T2.app" / "Contents" / "MacOS" / "OpenCore-Patcher-T2")
 
 
     def _stage_service(self, service: str) -> str:

@@ -487,7 +487,7 @@ class GenerateScripts:
         _script += "mainAppPath=\"Library/Application Support/Dortania/OpenCore-Patcher-T2.app\"\n"
         _script += "shimAppPath=\"Applications/OpenCore-Patcher-T2.app\"\n"
         if is_autopkg:
-            _script += "executablePath=\"$mainAppPath/Contents/MacOS/OpenCore-Patcher\"\n"
+            _script += "executablePath=\"$mainAppPath/Contents/MacOS/OpenCore-Patcher-T2\"\n"
 
         _script += "\n\n"
 

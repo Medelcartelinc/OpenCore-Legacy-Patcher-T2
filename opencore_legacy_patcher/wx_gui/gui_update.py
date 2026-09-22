@@ -381,7 +381,14 @@ class UpdateFrame(wx.Frame):
         try:
             logging.info(f"Aktualisierung beginnen: '/Library/Application Support/Dortania/{_app_name}'")
             logging.info(f"Launching update: '/Library/Application Support/Dortania/{_app_name}'")
-            subprocess.Popen([f"/Library/Application Support/Dortania/{_app_name}/Contents/MacOS/OpenCore-Patcher", "--update_installed"])
+            # T2 builds now ship their executable as OpenCore-Patcher-T2; older T2
+            # releases and Dortania's app still use OpenCore-Patcher, so launch
+            # whichever one the freshly installed bundle actually contains.
+            _macos_dir = f"/Library/Application Support/Dortania/{_app_name}/Contents/MacOS"
+            _executable = f"{_macos_dir}/OpenCore-Patcher-T2"
+            if not Path(_executable).exists():
+                _executable = f"{_macos_dir}/OpenCore-Patcher"
+            subprocess.Popen([_executable, "--update_installed"])
         except Exception as e:
             logging.error("Das Starten des Aktualisierung durch den Builtin-Update-Instrument hat fehlgeschlagen.")
             logging.error("Launching the update via the builtin updater failed.")

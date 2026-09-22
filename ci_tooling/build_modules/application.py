@@ -100,7 +100,7 @@ class GenerateApplication:
         """
         Patch LC_VERSION_MIN_MACOSX in Load Command to report 10.10
         """
-        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher"
+        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher-T2"
 
         _find    = b'\x00\x0D\x0A\x00' # 10.13
         _replace = b'\x00\x0A\x0A\x00' # 10.10
@@ -121,7 +121,7 @@ class GenerateApplication:
         """
         Patch LC_BUILD_VERSION in Load Command to report the macOS 26 SDK
         """
-        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher"
+        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher-T2"
 
         _find    = b'\x00\x01\x0C\x00'
         _replace = b'\x00\x00\x1A\x00'
