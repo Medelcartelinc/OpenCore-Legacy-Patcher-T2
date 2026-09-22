@@ -1,0 +1,138 @@
+name: Duplicate Issue Check
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  issues: write
+
+jobs:
+  check-duplicates:
+    runs-on: ubuntu-latest
+    # Ignore pull requests (they also trigger issue events in some cases)
+    if: github.event.issue.pull_request == null
+    steps:
+      - name: Look for duplicate issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // ---- Settings ----------------------------------------------------
+            const THRESHOLD   = 0.75;   // 0..1 – how similar an issue must be to count as a duplicate
+            const MAX_MATCHES = 3;      // how many duplicates to list at most
+            const ADD_LABEL   = true;   // add the "duplicate" label
+            const MARKER      = '<!-- duplicate-issue-bot -->';
+            // ------------------------------------------------------------------
+
+            const { owner, repo } = context.repo;
+            const issue = context.payload.issue;
+
+            // Don't comment twice (e.g. when an issue is reopened)
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: issue.number, per_page: 100,
+            });
+            if (comments.some(c => c.body && c.body.includes(MARKER))) {
+              core.info('Duplicate comment already exists, skipping.');
+              return;
+            }
+
+            // ---- Similarity helpers ------------------------------------------
+            const normalize = s => (s || '')
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+
+            // Dice coefficient on character bigrams – tolerant of typos and word order
+            const bigrams = s => {
+              const t = normalize(s).replace(/ /g, '');
+              const map = new Map();
+              for (let i = 0; i < t.length - 1; i++) {
+                const bg = t.slice(i, i + 2);
+                map.set(bg, (map.get(bg) || 0) + 1);
+              }
+              return { map, size: Math.max(t.length - 1, 0) };
+            };
+            const dice = (a, b) => {
+              const A = bigrams(a), B = bigrams(b);
+              if (A.size === 0 || B.size === 0) return normalize(a) === normalize(b) ? 1 : 0;
+              let overlap = 0;
+              for (const [bg, n] of A.map) overlap += Math.min(n, B.map.get(bg) || 0);
+              return (2 * overlap) / (A.size + B.size);
+            };
+
+            // Jaccard similarity on words – used for the issue body
+            const jaccard = (a, b) => {
+              const A = new Set(normalize(a).split(' ').filter(w => w.length > 2));
+              const B = new Set(normalize(b).split(' ').filter(w => w.length > 2));
+              if (A.size === 0 || B.size === 0) return 0;
+              let inter = 0;
+              for (const w of A) if (B.has(w)) inter++;
+              return inter / (A.size + B.size - inter);
+            };
+
+            const score = other => {
+              const titleScore = dice(issue.title, other.title);
+              const hasBodies = (issue.body || '').length > 30 && (other.body || '').length > 30;
+              if (!hasBodies) return titleScore;
+              const bodyScore = jaccard(issue.body, other.body);
+              // The body can only raise the score, never lower it
+              return Math.max(titleScore, (titleScore + bodyScore) / 2);
+            };
+
+            // ---- Compare with all older issues -------------------------------
+            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'all', per_page: 100,
+            });
+
+            const matches = allIssues
+              .filter(i => !i.pull_request)                 // no PRs
+              .filter(i => i.number < issue.number)         // only older issues are the "original"
+              .filter(i => !i.labels.some(l => (l.name || l) === 'duplicate')) // point to originals, not other duplicates
+              .map(i => ({ i, s: score(i) }))
+              .filter(m => m.s >= THRESHOLD)
+              .sort((a, b) => b.s - a.s)
+              .slice(0, MAX_MATCHES);
+
+            if (matches.length === 0) {
+              core.info('No duplicates found.');
+              return;
+            }
+
+            // ---- Comment in English and German -------------------------------
+            const list = matches
+              .map(m => `- #${m.i.number} — ${m.i.title} (${Math.round(m.s * 100)}%, ${m.i.state})`)
+              .join('\n');
+
+            const body = [
+              MARKER,
+              '### 🔁 Duplicate issue / Doppeltes Issue',
+              '',
+              '**English:** This is a duplicated issue. It appears to be a duplicate of:',
+              list,
+              '',
+              'Please continue the discussion in the original issue. If this is not a duplicate, let us know and we will reopen or remove the label.',
+              '',
+              '---',
+              '',
+              '**Deutsch:** Dies ist ein doppeltes Issue. Es scheint ein Duplikat zu sein von:',
+              list,
+              '',
+              'Bitte führe die Diskussion im ursprünglichen Issue weiter. Falls es sich nicht um ein Duplikat handelt, gib uns Bescheid, dann entfernen wir das Label wieder.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: issue.number, body,
+            });
+
+            if (ADD_LABEL) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number: issue.number, labels: ['duplicate'],
+                });
+              } catch (e) {
+                core.warning(`Could not add label: ${e.message}`);
+              }
+            }
+
+            core.info(`Marked #${issue.number} as duplicate of ${matches.map(m => '#' + m.i.number).join(', ')}`);
