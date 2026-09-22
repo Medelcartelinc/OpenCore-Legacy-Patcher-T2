@@ -5,6 +5,8 @@ import plistlib
 import subprocess
 import rich
 from pathlib import Path
+from wx.tools.img2py import img2py
+from ci_tooling.build_modules.create_assets import AssetsCreator
 
 from opencore_legacy_patcher.volume import generate_copy_arguments
 from opencore_legacy_patcher.support import subprocess_wrapper
@@ -229,29 +231,10 @@ class GenerateApplication:
         """
         Embed resources
         """
-        resources_dir = self._application_output / "Contents" / "Resources"
-        resources_dir.mkdir(parents=True, exist_ok=True)
-
-        app_icons_dir = Path("payloads/Resources/AppIcons")
-        if not app_icons_dir.is_dir():
-            raise FileNotFoundError(f"AppIcons directory not found: {app_icons_dir}")
-
-        # Iterate the directory's entries - a Path is not itself iterable, which is
-        # where "'PosixPath' object is not iterable" came from.
-        #
-        # Copy everything in here rather than filtering on *.icns. OC-Patcher.png
-        # backs constants.app_icon_path_png, which embed_readme() rewrites the
-        # README's image URL to point at, and Assets.car is what hands macOS the app
-        # icon the same way Apple's own apps do. An extension filter silently drops
-        # both and the failure only shows up at runtime.
-        for file in sorted(app_icons_dir.iterdir()):
-            if file.name.startswith("."):
-                continue
-            subprocess_wrapper.run_and_verify(
-                generate_copy_arguments(str(file), str(resources_dir)),
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-
+        # TODO: fix this crazy workaround to get this to work. don't ask me why this is the only way it will work
+        subprocess.run(["chmod", "+x", "./ci_tooling/build_modules/create_assets.command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["./ci_tooling/build_modules/create_assets.command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
 
 
 
