@@ -260,7 +260,7 @@ class UpdateFrame(wx.Frame):
         # A cancelled install (user dismissed the admin prompt) leaves the system
         # untouched, so return to the main menu instead of taking the app down.
         if is_cancelled and self._return_to_parent():
-            logging.info("Aktualisierung abgebrochen, zurueck zum Hauptmenue")
+            logging.info("Aktualisierung abgebrochen, zurueck zum Hauptmenü")
             logging.info("Update cancelled, returning to the main menu")
             return
 
