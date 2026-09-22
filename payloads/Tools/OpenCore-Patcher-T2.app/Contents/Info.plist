@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>OpenCore-Patcher</string>
+	<string>OpenCore-Patcher-T2</string>
 	<key>CFBundleExecutable</key>
 	<string>OpenCore-Patcher</string>
 	<key>CFBundleIconFile</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>OpenCore-Patcher</string>
+	<string>OpenCore-Patcher-T2</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>LSMinimumSystemVersion</key>
