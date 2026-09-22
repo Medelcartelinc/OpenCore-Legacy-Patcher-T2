@@ -136,7 +136,13 @@ class UpdateFrame(wx.Frame):
             global_constants=self.constants,
             download_obj=download_obj,
             item_name=self.version_label,
-            download_icon=str(self.constants.app_icon_path)
+            download_icon=str(self.constants.app_icon_path),
+            cancel_message=(
+                "Are you sure you want to cancel the update?\n\n"
+                "Staying on an older version of OpenCore Legacy Patcher means you "
+                "won't get the latest fixes, which can include security fixes. "
+                "Running outdated software may leave your Mac exposed to known issues."
+            )
         )
 
         if download_obj.download_complete is not True:
