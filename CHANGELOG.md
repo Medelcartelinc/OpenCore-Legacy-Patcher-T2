@@ -1,7 +1,36 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
-## 4.0.0.190004 - 4.0.0 alpha 19.4
+## 4.0.0.19004.1 - 4.0.0 alpha 19.4.1
+Warning: when updating from 4.0.0.190004 or an earlier release, the updater will fail at the install phase and fall back to an in-place upgrade, in which case here, it reinstalls the app completely rather than updating it.
 This release:
 - moves the install directory from /Library/Application Support/Dortania (shared with Dortania's patcher) to /Library/Application Support/albert-mueller/OpenCore-Patcher-T2, and renames the Privileged Helper Tool to /Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper. The PKG installer and uninstaller remove our copies from the old locations (Dortania's own files are left alone, and the Dortania folder is only deleted if it ends up empty); the auto-patcher keeps using an old-location install until the new PKG has been installed
+- from this release onwards, macOS 10.13.6 High Sierra is now a hard minimum requirement
+- fixes a bug where CatalinaBCM5701Ethernet gets injected on non-CatalinaBCM5701Ethernet hardware, including T2 Macs
+- fixes 1 vulnerability:
+gui_update.py:
+
+         self.progress_bar = wx.Gauge(self.frame, range=100, pos=(10, 50), size=(300, 20))
+                self.progress_bar.Centre(wx.HORIZONTAL)
+                self.progress_bar_animation = gui_support.GaugePulseCallback(self.constants, self.progress_bar)
+        
+                # Instantiating timer variables for the exit countdown
+                self.timer_countdown = 5
+                self.exit_timer = wx.Timer(self)
+                self.Bind(wx.EVT_TIMER, self._on_exit_timer_tick, self.exit_timer)
+        
+                # Wait for payloads to mount if they haven't already
+                # Without this, if the GUI starts before the background unpack thread finishes,
+                # self.constants.payload_path will still point to the read-only DMG inside the app bundle
+                # instead of the writable /var/folders/... overlay.
+                while gui_support.PayloadMount(self.constants, self).is_unpack_finished() is False:
+                    wx.Yield()
+                    time.sleep(self.constants.thread_sleep_interval)
+        
+                file_name = "OpenCore-Patcher.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg" # <- an attacker could upload to GitHub a fake OpenCore-Patcher.pkg.zip that contains alpha 17 or older to launch downgrade attacks
+
+Impact: an attacker could upload OpenCore-Patcher.pkg.zip in a malicious fork or a compromised repository a fake OpenCore-Patcher.pkg.zip that contains alpha 17 or older version to exploit already known vulnerabilities. This vulnerability is fixed by ensuring it checks for OpenCore-Patcher-T2.pkg.zip and not for the old name.
+
+## 4.0.0.190004 - 4.0.0 alpha 19.4
+This release:
 - fixes a bug where upon trying to open the Statistics menu, it displays AttributeError: 'Panel' object has no attribute 'AdjustScrollbars' albeit opening the menu successfully
 - fixes a CI/CD bug where checking for the version number before starting to build the patcher fails on macOS 10.15 Catalina and older due to these macOS versions missing openssl3 - now a check is added if the host has openssl3 and if not, it will try to install openssl3 via Homebrew on newer macOS versions like Big Sur, and MacPorts on macOS Catalina and older. If Homebrew or MacPorts is not installed but the host lacks openssl3, it will throw an immediate error and stop building the app.
 - removes most emojis from gui_settings.py to improve macOS 10.15 Catalina and older versions compatability
