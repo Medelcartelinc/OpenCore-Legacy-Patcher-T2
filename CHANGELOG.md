@@ -1,4 +1,187 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190004 - 4.0.0 alpha 19.4
+This release:
+- fixes a bug where upon trying to open the Statistics menu, it displays AttributeError: 'Panel' object has no attribute 'AdjustScrollbars' albeit opening the menu successfully
+- fixes a CI/CD bug where checking for the version number before starting to build the patcher fails on macOS 10.15 Catalina and older due to these macOS versions missing openssl3 - now a check is added if the host has openssl3 and if not, it will try to install openssl3 via Homebrew on newer macOS versions like Big Sur, and MacPorts on macOS Catalina and older. If Homebrew or MacPorts is not installed but the host lacks openssl3, it will throw an immediate error and stop building the app.
+- removes most emojis from gui_settings.py to improve macOS 10.15 Catalina and older versions compatability
+- fixes quite a lot of vulnerabilities:
+sign_notarize.py (the file that handles signing the certificates for OpenCore Legacy Patcher T2):
+
+        class SignAndNotarize:
+        
+            def __init__(self, path: Path, signing_identity: str = None, notarization_apple_id: str = None, notarization_password: str = None, notarization_team_id: str = None, entitlements: str = None) -> None:
+                """
+                Initialize credentials, preferring environment variables to protect memory footprint.
+                """
+                self._path = Path(path).resolve()  # Force absolute path normalization
+                self._entitlements = entitlements
+        
+                # Fallback patterns targeting environment strings natively to mitigate exposure windows
+                self._signing_identity = signing_identity or os.environ.get("MACOS_SIGNING_IDENTITY")
+                self._notarization_apple_id = notarization_apple_id or os.environ.get("NOTARIZATION_APPLE_ID")
+                self._notarization_password = notarization_password or os.environ.get("NOTARIZATION_APP_PASSWORD")
+                self._notarization_team_id = notarization_team_id or os.environ.get("NOTARIZATION_TEAM_ID")
+        
+            def sign_and_notarize(self) -> None:
+                """
+                Sign and Notarize with explicit verification constraints
+                """
+                if not self._signing_identity:
+                    rich.print("[yellow]Signing identity not provided. Skipping signing pipeline.[/yellow]")
+                    return
+        
+                if not self._path.exists():
+                    raise FileNotFoundError(f"Target binary asset payload path missing: {self._path}")
+        
+                rich.print(f"Signing {self._path.name}...") # <- an attacker could sign a malicious application in a random path via this path traversal vulnerability
+        
+                try:
+                    if self._path.suffix.lower() == ".pkg":
+                        signer = macos_pkg_builder.utilities.signing.SignPackage(
+                            identity=self._signing_identity,
+                            pkg=self._path,
+                        )
+                        signer.sign()
+                    else:
+                        extra_args = {"entitlements": self._entitlements} if self._entitlements else {}
+                        signer = mac_signing_buddy.Sign(
+                            identity=self._signing_identity,
+                            file=self._path,
+                            **extra_args,
+                        )
+                        signer.sign()
+                except Exception as e:
+                    # Prevent cascade into un-signed asset submission
+                    raise RuntimeError(f"Cryptographic signature step critically failed: {e}")
+        
+                if all([self._notarization_apple_id, self._notarization_password, self._notarization_team_id]):
+                    rich.print(f"Notarizing {self._path.name} via Apple Developer API...")
+
+Impact: an attacker could exploit this path traversal vulnerability to sign a malicious application inside a random path and exploit the victim's Apple Developer certificate for distributing malware. This could result in a very bad situation where the developer looses the certificate because an attacker has gained access to their computer to abuse for malware operation and brick the Priveleged Helper Tool when the certificates get revoked so the attackers take leverage of this to launch DoS attacks without touching the repository. This vulnerability is fixed by checking if self._path.exists() and only if the path exists, only then it will sign. Otherwise, it will leave the application unsigned.
+
+gui_usb_install.py (used for Test-B type test for OpenCore EFIs):
+
+    def _update_choices(self):
+            if not self.available_efis:
+                self._append_log("No EFI partitions found.")
+                self.status_text.SetLabel("No EFI partitions found.")
+                return
+                
+            choices = list(self.available_efis.keys()) # <- an attacker could bypass the if not self.available_efis to trick the patcher into displaying Select a drive to install OpenCore to crash the app and launch DoS attacks
+            self.disk_choice.SetItems(choices)
+            self.disk_choice.Enable()
+            self.status_text.SetLabel("Select a drive to install OpenCore.")
+            self._append_log("Please select a target drive from the dropdown.")
+
+Impact: an attacker could delete the  if not self.available_efis condition to force the patcher to try to show the Select a drive to install OpenCore, in which case the app would simply crash so the attacker launches DoS attacks. This vulnerability is fixed by ensuring the Select a drive to install OpenCore only if it meets the if self.available_efis condition.
+
+gui_cache_os_update.py (the process that runs sometimes if a macOS update has been detected):
+
+          if not Path(self.constants.kdk_download_path).exists():
+                      logging.error("KDK download path does not exist")
+                      return
+          
+                  self._set_status("Installing Kernel Debug Kit...") # <- an attacker could install a malicious KDK from a random path
+          
+                  self.kdk_install_result = False
+                  def _install_kdk_thread():
+                      self.kdk_install_result = kdk_handler.KernelDebugKitUtilities().install_kdk_dmg(
+                          self.constants.kdk_download_path, only_install_backup=True
+                      )
+          
+                  install_thread = threading.Thread(target=_install_kdk_thread)
+                  install_thread.start()
+                  gui_support.wait_for_thread(install_thread)
+          
+                  if self.kdk_install_result is False:
+                      logging.error("Failed to install KDK")
+                      return
+          
+                  logging.info("KDK installed successfully") # <- an attacker could lie about the KDK installation status
+
+Impact: an attacker could install a malicious KDK, or worse, malware posing as one from a random path via this path traversal vulnerability by deleting the if not Path(self.constants.kdk_download_path).exists() condition. Furthermore, an attacker could lie about the KDK installation status. This is fixed by ensuring the KDK only ever gets installed if the KDK has already been downloaded via the if self.kdk_checksum_result is True and Path(self.constants.kdk_download_path).exists() condition, and only prints KDK installed successfully if the kdkd_install_result is True under an else condition.
+
+        if self.metallib_install_result is False:
+                    logging.error("Failed to install Metallib")
+                    return
+        
+                logging.info("Metallib installed successfully") # <- an attacker could manipulate the Metallibs install status to launch DoS attacks by crashing the process with File not found error
+
+Impact: an attacker could manipulate the Metallibs installation status by deleting the if self.metallib_install_result is False condition so it doesn't return unconditionally to cause the patcher to stop at File not found error to launch DoS attacks. This vulnerability is fixed by showing the Metallib installed successfully message only if elif self.metallib_install_result is True.
+
+gui_settings.py (the application settings menu):
+
+        def oc_build_selection(self, event: wx.Event) -> None:
+                value = event.GetEventObject().GetStringSelection()
+                if value == "Standard / Safe Build":
+                    logging.info("Updating OC build: Standard")
+                    self.constants.build_profile = "standard"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "standard")
+                    return
+                elif value == "💬 Ask Each Time":
+                    logging.info("Updating OC build: None")
+                    self.constants.build_profile = ""
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "")
+                    return
+                elif value == "[LEVEL-B] Experimental GPU":
+                    logging.info("Updating OC build: Level-B")
+                    self.constants.build_profile = "test_b"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_b")
+                    return
+                elif value == "[LEVEL-C] Experimental Tahoe (Native SMBIOS)":
+                    logging.info("Updating OC build: Level-C")
+                    self.constants.build_profile = "test_c"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_c")
+                    return
+                elif value == "[LEVEL-C] Experimental Spoof T2 (MacBookPro16,1)":
+                    logging.info("Updating OC build: Level-C (Spoofed)")
+                    self.constants.build_profile = "test_c_spoofed"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_c_spoofed")
+                    return
+                elif value == "[LEVEL-D] All-In-One Tahoe (Wi-Fi + Audio + GPU + T1)":
+                    logging.info("Updating OC build: Level-D")
+                    self.constants.build_profile = "test_d"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_d")
+                    return
+            # <- an else condition is missing, an attacker could set a specially crafted value to cause the Settings menu to crash
+
+Impact: an attacker could set a specially crafted value, like set value to s to crash the application or worse, execute arbitary code:
+
+ def oc_build_selection(self, event: wx.Event) -> None:
+                value = s
+                if value == "Standard / Safe Build":
+                    logging.info("Updating OC build: Standard")
+                    self.constants.build_profile = "standard"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "standard")
+                    return
+                elif value == "💬 Ask Each Time":
+                    logging.info("Updating OC build: None")
+                    self.constants.build_profile = ""
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "")
+                    return
+                elif value == "[LEVEL-B] Experimental GPU":
+                    logging.info("Updating OC build: Level-B")
+                    self.constants.build_profile = "test_b"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_b")
+                    return
+                elif value == "[LEVEL-C] Experimental Tahoe (Native SMBIOS)":
+                    logging.info("Updating OC build: Level-C")
+                    self.constants.build_profile = "test_c"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_c")
+                    return
+                elif value == "[LEVEL-C] Experimental Spoof T2 (MacBookPro16,1)":
+                    logging.info("Updating OC build: Level-C (Spoofed)")
+                    self.constants.build_profile = "test_c_spoofed"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_c_spoofed")
+                    return
+                elif value == "[LEVEL-D] All-In-One Tahoe (Wi-Fi + Audio + GPU + T1)":
+                    logging.info("Updating OC build: Level-D")
+                    self.constants.build_profile = "test_d"
+                    global_settings.GlobalEnviromentSettings().write_property("GUI:oc_build", "test_d")
+                    return
+             elif value == s:
+                    logging.info("Executing arbitary code, exploit successful")
+
 ## 4.0.0.190003 - 4.0.0 alpha 19.3
 This release:
 - fixes a bug where uninstalling OpenCore Legacy Patcher T2 could remove OpenCore Legacy Patcher (Dortania) components
