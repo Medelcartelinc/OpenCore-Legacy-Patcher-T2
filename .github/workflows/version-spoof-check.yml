@@ -256,7 +256,7 @@ jobs:
                 MARKER,
                 '### ⚠️ Possible version spoofing / Mögliche Versionsfälschung',
                 '',
-                `**English:** This PR may be pretending to be a newer version than it actually contains. The check of commit \`${short}\` found:`,
+                `**English:** @albert-mueller, @gandolf243 This PR may be pretending to be a newer version than it actually contains. The check of commit \`${short}\` found:`,
                 '',
                 list(false),
                 '',
