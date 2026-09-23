@@ -156,19 +156,21 @@ class SysPatchHelpers:
         if installed_path.read_bytes() != patched:
             raise Exception("Failed to patch AppleHDAController.kext: patched binary did not persist on the system volume")
 
-        # Re-sign the kext ad-hoc so kmutil does not reject it during kernel cache rebuild
+        # Re-sign the kext ad-hoc so kmutil does not reject it during kernel cache rebuild.
+        # The binary has already been modified at this point, so its old signature is
+        # invalid: a failed re-sign leaves a kext kmutil will drop, which is the same
+        # silent "patched but no audio" result as a failed write. Treat it as fatal.
         kext_bundle = installed_path.parent.parent.parent
         logging.info(f"- Re-signing {kext_bundle.name} with ad-hoc signature")
         try:
-            result = subprocess_wrapper.run_as_root(
+            subprocess_wrapper.run_as_root_and_verify(
                 ["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none", str(kext_bundle)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT
             )
-            if result.returncode != 0:
-                output = result.stdout.decode(errors="replace").strip() if result.stdout else ""
-                logging.warning(f"- codesign returned non-zero ({result.returncode}): {output}")
         except Exception as e:
-            logging.warning(f"- codesign failed (non-fatal): {e}")
+            logging.error(f"- Failed to re-sign {kext_bundle.name}: {e}")
+            logging.exception("Stack Trace:")
+            raise Exception(f"Failed to re-sign AppleHDAController.kext: {e}")
 
 
 
