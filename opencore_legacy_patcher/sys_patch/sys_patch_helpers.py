@@ -80,7 +80,7 @@ class SysPatchHelpers:
         # Construct the target path safely
         relative_path = Path("10.13.6/System/Library/Extensions/AppleIntelSNBGraphicsFB.kext/Contents/MacOS/AppleIntelSNBGraphicsFB")
         path = source_path / relative_path
-        
+
         # Verify the resolved path is still within the expected source directory (prevent directory escape)
         try:
             path.relative_to(source_path)
@@ -88,7 +88,7 @@ class SysPatchHelpers:
             logging.error(f"Path traversal detected: {path} is outside {source_path}")
             logging.exception("Stack Trace:")
             raise Exception("Path traversal attack detected!")
-        
+
         if not path.exists():
             logging.error(f"Error: Could not find {path}")
             logging.exception("Stack Trace:")
@@ -129,8 +129,17 @@ class SysPatchHelpers:
         logging.info("- Applying macOS Tahoe AppleHDAController binary patch (ml_cpu_int_event_time -> mach_absolute_time)")
         patched = data.replace(b"_ml_cpu_int_event_time\0", b"_mach_absolute_time\0\0\0\0")
 
+<<<<<<< HEAD
         # The kext is root:wheel 0644 on the mounted system volume — an unprivileged
         # write_bytes() fails with EACCES. Stage in a temp dir and copy over with root.
+=======
+        # The kext was just installed onto the mounted system volume by a root-privileged
+        # copy, so it is root:wheel 0644. The patcher process itself runs unprivileged
+        # (every other root-volume write goes through the privileged helper), so writing
+        # it directly with Python fails with EACCES. Stage the patched binary in a private
+        # temp dir and let root copy it over the original. cp into an existing file
+        # rewrites its contents in place, keeping the original owner and mode.
+>>>>>>> upstream/main
         temp_dir = None
         try:
             temp_dir = tempfile.mkdtemp(prefix="oclp-applehda-")
@@ -148,11 +157,22 @@ class SysPatchHelpers:
             if temp_dir:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
+<<<<<<< HEAD
         # Verify the copy actually landed
         if installed_path.read_bytes() != patched:
             raise Exception("Failed to patch AppleHDAController.kext: patched binary did not persist on the system volume")
 
         # Re-sign — fatal if it fails: a bad signature means kmutil drops the kext silently
+=======
+        # Make sure the copy actually landed before re-signing
+        if installed_path.read_bytes() != patched:
+            raise Exception("Failed to patch AppleHDAController.kext: patched binary did not persist on the system volume")
+
+        # Re-sign the kext ad-hoc so kmutil does not reject it during kernel cache rebuild.
+        # The binary has already been modified at this point, so its old signature is
+        # invalid: a failed re-sign leaves a kext kmutil will drop, which is the same
+        # silent "patched but no audio" result as a failed write. Treat it as fatal.
+>>>>>>> upstream/main
         kext_bundle = installed_path.parent.parent.parent
         logging.info(f"- Re-signing {kext_bundle.name} with ad-hoc signature")
         try:
@@ -271,7 +291,7 @@ class SysPatchHelpers:
             return
 
         logging.info("Disabling WindowServer Caching")
-        
+
         # Use glob to find matching paths and remove them without shell expansion
         window_server_paths = glob.glob("/private/var/folders/*/*/*/WindowServer/com.apple.WindowServer")
         if window_server_paths:
@@ -281,7 +301,7 @@ class SysPatchHelpers:
                 except Exception as e:
                     logging.error(f"Failed to remove WindowServer cache at {path}: {e}")
                     logging.exception("Stack Trace:")
-        
+
         # Disable writing to WindowServer folder
         window_server_dirs = glob.glob("/private/var/folders/*/*/*/WindowServer")
         if window_server_dirs:
@@ -291,7 +311,7 @@ class SysPatchHelpers:
                 except Exception as e:
                     logging.warning(f"Failed to set immutable flag on {path}: {e}")
                     logging.exception("Stack Trace:")
-        
+
         # Reference:
         #   To reverse write lock:
         #   'chflags nouchg /private/var/folders/*/*/*/WindowServer'
@@ -396,7 +416,7 @@ class SysPatchHelpers:
 
             src_dir = LIBRARY_DIR / file.name
             dest_lib_dir = DEST_DIR / "lib"
-            
+
             if not dest_lib_dir.exists():
                 # Validate that generate_copy_arguments returns a valid result
                 copy_args = generate_copy_arguments(str(src_dir / "lib"), str(DEST_DIR / ""))
@@ -404,7 +424,7 @@ class SysPatchHelpers:
                     logging.error(f"Failed to generate copy arguments for {src_dir}/lib")
                     logging.exception("Stack Trace:")
                     raise Exception(f"Failed to generate copy arguments for {src_dir}/lib")
-                
+
                 try:
                     result = subprocess_wrapper.run_as_root_and_verify(copy_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                     if result and result.returncode != 0:

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 
-OCLP_PRIVILEGED_HELPER = "/Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper"
+OCLP_PRIVILEGED_HELPER = "/Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper"
 OCLP_PRIVILEGED_HELPER_EXPECTED_MODE = 0o4755
 
 ADMIN_PASSWORD_PROMPT_MESSAGE = (
@@ -120,7 +120,7 @@ def _helper_path_is_safe_to_repair() -> bool:
         logging.error(f"Could not stat Privileged Helper Tool: {error}")
         return False
     except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, den Priveleged Helper Tool einen unerwartetes Fehler auszulösen, um beliebiges Code auszuführen
-        logging.error(f"Could not stat Privileged Helper Tool due to unexpected error: {error}")
+        logging.error(f"Could not stat Privileged Helper Tool due to unexpected error: {e}")
         logging.exception("Stack Trace:")
         return False
 
