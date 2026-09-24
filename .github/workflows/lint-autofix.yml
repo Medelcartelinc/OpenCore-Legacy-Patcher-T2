@@ -112,7 +112,7 @@ jobs:
 
             Checks after fixing: **${{ steps.final.outputs.result }}**
 
-            > Syntax repairs are AI-generated. Please review the diff before merging.
+            > @albert-mueller, @gandolf243 Syntax repairs are AI-generated. Please review the diff before merging.
 
       # 5) Keep the run red if something couldn't be fixed
       - name: Fail if problems remain
