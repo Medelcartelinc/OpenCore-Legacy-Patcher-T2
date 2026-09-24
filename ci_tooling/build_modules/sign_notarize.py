@@ -4,6 +4,7 @@ sign_notarize.py: Sign and Notarize a file securely
 
 import logging
 import os
+import sys
 from pathlib import Path
 import mac_signing_buddy
 import macos_pkg_builder
@@ -38,7 +39,7 @@ class SignAndNotarize:
         # behebt eine kritische Sicherheitlücke, die erlaubt Angreifern, die elif not self._path.exists(): zu entfernen, um Apps in beliebigen Verzeichnisses einen bösartigen Apps zu unterschreiben und dann Malware zu verbreiten
         if self._path.exists():
             rich.print(f"Signing {self._path.name}...")
-         
+
             try:
                 if self._path.suffix.lower() == ".pkg":
                     signer = macos_pkg_builder.utilities.signing.SignPackage(
@@ -58,10 +59,10 @@ class SignAndNotarize:
                 # Prevent cascade into un-signed asset submission
                 rich.print("[red]Cryptographic signature step critically failed.[/red]")
                 raise RuntimeError(f"Cryptographic signature step critically failed: {e}")
-           
+
             if all([self._notarization_apple_id, self._notarization_password, self._notarization_team_id]):
                 rich.print(f"Notarizing {self._path.name} via Apple Developer API...")
-                
+
                 try:
                     # Underlying wrapper invokes Apple's notarytool binary or API
                     notarizer = mac_signing_buddy.Notarize(
@@ -77,8 +78,8 @@ class SignAndNotarize:
                     sys.exit(3)
             else:
                 rich.print("[yellow]Notarization credentials not completely provided. Skipping notarization.[/yellow]")
-          
+
             rich.print(f"[green]Successfully secured and verified {self._path.name}[/green]")
-        
+
         elif not self._path.exists():
             raise FileNotFoundError(f"Target binary asset payload path missing: {self._path}")

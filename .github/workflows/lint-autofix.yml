@@ -32,13 +32,13 @@ jobs:
         run: |
           pip install --quiet ruff pyyaml pytest
           sudo apt-get update -qq
-          sudo apt-get install -y -qq shellcheck
+          sudo apt-get install -y -qq shellcheck zsh
 
       # 1) Safe, automatic fixes only (whitespace) – never touches vendored files
       - name: Auto-fix
         shell: bash
         run: |
-          ruff check . --select W291,W293 --fix --exit-zero --extend-exclude "$RUFF_EXCLUDE"
+          ruff check . --select W291,W293 --fix --unsafe-fixes --exit-zero --extend-exclude "$RUFF_EXCLUDE"
           git ls-files -z -- '*.sh' '*.command' '*.yml' '*.yaml' \
               ':!payloads/**' ':!NEW_EFI_*/**' ':!Releases/**' \
             | xargs -0 -r sed -i 's/[[:space:]]*$//'
@@ -59,9 +59,19 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::Shell syntax"
+          # .command/.sh files may be Python or zsh – dispatch on the shebang
           while IFS= read -r -d '' f; do
-            bash -n "$f" || fail=1
-            shellcheck -S error "$f" || fail=1
+            shebang=$(head -n1 "$f")
+            case "$shebang" in
+              *python*)
+                python -m py_compile "$f" || fail=1 ;;
+              *zsh*)
+                if command -v zsh >/dev/null; then zsh -n "$f" || fail=1
+                else echo "zsh not installed – skipping $f"; fi ;;
+              *)
+                bash -n "$f" || fail=1
+                shellcheck -S error "$f" || fail=1 ;;
+            esac
           done < <(git ls-files -z -- '*.sh' '*.command' "${EXCL[@]}")
           echo "::endgroup::"
 

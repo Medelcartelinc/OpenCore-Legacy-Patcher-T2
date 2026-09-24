@@ -120,7 +120,7 @@ def _helper_path_is_safe_to_repair() -> bool:
         logging.error(f"Could not stat Privileged Helper Tool: {error}")
         return False
     except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, den Priveleged Helper Tool einen unerwartetes Fehler auszulösen, um beliebiges Code auszuführen
-        logging.error(f"Could not stat Privileged Helper Tool due to unexpected error: {error}")
+        logging.error(f"Could not stat Privileged Helper Tool due to unexpected error: {e}")
         logging.exception("Stack Trace:")
         return False
 

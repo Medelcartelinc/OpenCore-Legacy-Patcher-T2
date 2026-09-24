@@ -154,7 +154,7 @@ class PatcherSupportPkgMount:
                 logging.error(f"- Could not remove incomplete Universal-Binaries.dmg: {error}")
                 return False
             except Exception as e:
-                logging.error(f"- Could not remove incomplete Universal-Binaries.dmg due to an unexpected error {error}.")
+                logging.error(f"- Could not remove incomplete Universal-Binaries.dmg due to an unexpected error: {e}")
                 logging.exception("Stack Trace:")
                 return False
 
