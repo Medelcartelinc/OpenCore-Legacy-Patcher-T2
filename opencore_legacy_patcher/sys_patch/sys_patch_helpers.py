@@ -9,6 +9,7 @@ import subprocess
 import sys
 import shutil
 import glob
+import tempfile
 
 from typing import Union
 from pathlib import Path
@@ -126,27 +127,50 @@ class SysPatchHelpers:
             return
 
         logging.info("- Applying macOS Tahoe AppleHDAController binary patch (ml_cpu_int_event_time -> mach_absolute_time)")
+        patched = data.replace(b"_ml_cpu_int_event_time\0", b"_mach_absolute_time\0\0\0\0")
+
+        # The kext was just installed onto the mounted system volume by a root-privileged
+        # copy, so it is root:wheel 0644. The patcher process itself runs unprivileged
+        # (every other root-volume write goes through the privileged helper), so writing
+        # it directly with Python fails with EACCES. Stage the patched binary in a private
+        # temp dir and let root copy it over the original. cp into an existing file
+        # rewrites its contents in place, keeping the original owner and mode.
+        temp_dir = None
         try:
-            patched = data.replace(b"_ml_cpu_int_event_time\0", b"_mach_absolute_time\0\0\0\0")
-            installed_path.write_bytes(patched)
-        except (OSError, IOError) as e:
+            temp_dir = tempfile.mkdtemp(prefix="oclp-applehda-")
+            staged_path = Path(temp_dir) / "AppleHDAController"
+            staged_path.write_bytes(patched)
+            subprocess_wrapper.run_as_root_and_verify(
+                ["/bin/cp", str(staged_path), str(installed_path)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+        except Exception as e:
             logging.error(f"- Failed to patch AppleHDAController binary: {e}")
             logging.exception("Stack Trace:")
             raise Exception(f"Failed to patch AppleHDAController.kext: {e}")
+        finally:
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
-        # Re-sign the kext ad-hoc so kmutil does not reject it during kernel cache rebuild
+        # Make sure the copy actually landed before re-signing
+        if installed_path.read_bytes() != patched:
+            raise Exception("Failed to patch AppleHDAController.kext: patched binary did not persist on the system volume")
+
+        # Re-sign the kext ad-hoc so kmutil does not reject it during kernel cache rebuild.
+        # The binary has already been modified at this point, so its old signature is
+        # invalid: a failed re-sign leaves a kext kmutil will drop, which is the same
+        # silent "patched but no audio" result as a failed write. Treat it as fatal.
         kext_bundle = installed_path.parent.parent.parent
         logging.info(f"- Re-signing {kext_bundle.name} with ad-hoc signature")
         try:
-            result = subprocess_wrapper.run_as_root(
+            subprocess_wrapper.run_as_root_and_verify(
                 ["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none", str(kext_bundle)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT
             )
-            if result.returncode != 0:
-                output = result.stdout.decode(errors="replace").strip() if result.stdout else ""
-                logging.warning(f"- codesign returned non-zero ({result.returncode}): {output}")
         except Exception as e:
-            logging.warning(f"- codesign failed (non-fatal): {e}")
+            logging.error(f"- Failed to re-sign {kext_bundle.name}: {e}")
+            logging.exception("Stack Trace:")
+            raise Exception(f"Failed to re-sign AppleHDAController.kext: {e}")
 
 
 
