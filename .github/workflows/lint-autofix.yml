@@ -1,0 +1,107 @@
+name: Lint, Test & Auto-Fix
+
+on:
+  push:
+    branches: ['**', '!autofix/**']   # don't loop on our own fix branches
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Vendored / generated content that must never be rewritten
+  RUFF_EXCLUDE: payloads,NEW_EFI_*,Releases
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tools
+        run: |
+          pip install --quiet ruff pyyaml pytest
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+
+      # 1) Safe, automatic fixes only (whitespace) – never touches vendored files
+      - name: Auto-fix
+        shell: bash
+        run: |
+          ruff check . --select W291,W293 --fix --exit-zero --extend-exclude "$RUFF_EXCLUDE"
+          git ls-files -z -- '*.sh' '*.command' '*.yml' '*.yaml' \
+              ':!payloads/**' ':!NEW_EFI_*/**' ':!Releases/**' \
+            | xargs -0 -r sed -i 's/[[:space:]]*$//'
+
+      # 2) Syntax checks + tests on the (fixed) code
+      - name: Syntax checks & tests
+        id: checks
+        continue-on-error: true
+        shell: bash
+        run: |
+          fail=0
+          EXCL=(':!payloads/**' ':!NEW_EFI_*/**' ':!Releases/**')
+
+          echo "::group::Python syntax"
+          git ls-files -z -- '*.py' "${EXCL[@]}" | xargs -0 -r python -m py_compile || fail=1
+          # Only real errors: syntax, undefined names, invalid comparisons, etc.
+          ruff check . --select E9,F63,F7,F82 --extend-exclude "$RUFF_EXCLUDE" || fail=1
+          echo "::endgroup::"
+
+          echo "::group::Shell syntax"
+          while IFS= read -r -d '' f; do
+            bash -n "$f" || fail=1
+            shellcheck -S error "$f" || fail=1
+          done < <(git ls-files -z -- '*.sh' '*.command' "${EXCL[@]}")
+          echo "::endgroup::"
+
+          echo "::group::YAML / JSON"
+          git ls-files -z -- '*.yml' '*.yaml' "${EXCL[@]}" | xargs -0 -r -n1 \
+            python -c 'import sys,yaml; list(yaml.safe_load_all(open(sys.argv[1])))' || fail=1
+          git ls-files -z -- '*.json' "${EXCL[@]}" | xargs -0 -r -n1 \
+            sh -c 'python -m json.tool "$0" > /dev/null' || fail=1
+          echo "::endgroup::"
+
+          echo "::group::Tests"
+          # Only a dedicated tests/ folder; root test_*.py are macOS-only helper scripts
+          if [ -d tests ]; then
+            pytest -q tests; rc=$?
+            if [ $rc -ne 0 ] && [ $rc -ne 5 ]; then fail=1; fi
+          else
+            echo "No tests/ directory – skipping."
+          fi
+          echo "::endgroup::"
+
+          exit $fail
+
+      # 3) If the auto-fix changed anything, push a branch and open a PR
+      - name: Open PR with fixes
+        if: github.event_name != 'pull_request'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: autofix/${{ github.ref_name }}
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          commit-message: 'chore: automatic lint & syntax fixes'
+          title: 'Auto-fix: lint & syntax (${{ github.ref_name }})'
+          body: |
+            Automatic fixes from run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+            Remaining checks after fixing: **${{ steps.checks.outcome }}**
+
+      # 4) Keep the run red if something couldn't be fixed automatically
+      - name: Fail if problems remain
+        if: steps.checks.outcome == 'failure'
+        run: |
+          echo "::error::Some checks still fail after auto-fix – see the log above."
+          exit 1
