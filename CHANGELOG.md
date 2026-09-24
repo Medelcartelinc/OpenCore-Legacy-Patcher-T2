@@ -1,4 +1,9 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190004.3 - 4.0.0 alpha 19.4.3
+This release:
+- fixes a bug where Audio on non-T2 Macs may not work after injecting root patches exactly for the audio
+- removes an extra space after echo in revert_snapshot.command
+
 ## 4.0.0.19004.1 - 4.0.0 alpha 19.4.1
 Warning: when updating from 4.0.0.190004 or an earlier release, the updater will fail at the install phase and fall back to an in-place upgrade, in which case here, it reinstalls the app completely rather than updating it.
 This release:
