@@ -28,5 +28,6 @@ if __name__ == '__main__':
         print("-" * 60)
         logging.exception("Stack Trace:")
         print("="*60)
-        input("\nPress ENTER to close this window...")
+        if sys.stdin and sys.stdin.isatty():
+            input("\nPress ENTER to close this window...")
         sys.exit(3)
