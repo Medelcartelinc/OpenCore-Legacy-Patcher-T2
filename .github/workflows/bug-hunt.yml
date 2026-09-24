@@ -125,12 +125,27 @@ jobs:
       # 2) Claude looks for real bugs and edits files in place (no commits/pushes).
       #    Uses the Claude Code CLI directly: anthropics/claude-code-action does not
       #    support `push` events ("Unsupported event type: push").
-      - name: Install Claude Code
+      # Without the secret the CLI fails with "Not logged in - Please run /login".
+      # Skip the AI step with a clear warning instead; the exec-bit PR still opens.
+      - name: Check API key
+        id: key
         if: steps.scope.outputs.mode != 'none'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=ANTHROPIC_API_KEY missing::Add it under Settings > Secrets and variables > Actions > New repository secret. AI bug hunt skipped."
+          fi
+
+      - name: Install Claude Code
+        if: steps.key.outputs.present == 'true'
         run: npm install -g @anthropic-ai/claude-code
 
       - name: AI bug hunt
-        if: steps.scope.outputs.mode != 'none'
+        if: steps.key.outputs.present == 'true'
         timeout-minutes: 30
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
