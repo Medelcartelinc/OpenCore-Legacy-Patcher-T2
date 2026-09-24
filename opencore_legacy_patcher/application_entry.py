@@ -274,7 +274,7 @@ class OpenCoreLegacyPatcher:
             if global_settings.GlobalEnviromentSettings().write_property("AllowAutoUpdates", False) is True:
                 logging.info("Automatic updates disabled via --disable_auto_update")
             else:
-                logging.warning("Automatic updates are disabled for this launch, but the choice could not be stored")
+                logging.error("Automatic updates are disabled for this launch, but the choice could not be stored")
 
         if self.constants.computer.build_model is None:
             logging.info(f"Initializing build_model to native host: {self.computer.real_model}")
