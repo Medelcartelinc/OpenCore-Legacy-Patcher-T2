@@ -754,13 +754,16 @@ class PatchSysVolume:
                 logging.error(f"- Failed to patch GPU compiler libraries: {e}")
                 logging.exception("Stack Trace:")
 
-        # AppleHDA Tahoe: patch binary on system volume and re-sign after installation
+        # AppleHDA Tahoe: patch binary on system volume and re-sign after installation.
+        # Fatal: continuing would rebuild kernel collections and seal a snapshot with a
+        # kext that cannot link (or has an invalid signature), reporting success with no audio.
         if "Modern Audio" in required_patches:
             try:
                 sys_patch_helpers.SysPatchHelpers(self.constants).tahoe_applehda_patch(self.mount_location)
             except Exception as e:
                 logging.error(f"- Failed to apply AppleHDA Tahoe patch: {e}")
                 logging.exception("Stack Trace:")
+                raise
 
         self._write_patchset(required_patches)
 
