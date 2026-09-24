@@ -34,14 +34,32 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck zsh
 
-      # 1) Safe, deterministic fixes (whitespace) - never touches vendored files
-      - name: Auto-fix whitespace
+      # 1) Deterministic fixes (before any AI) - never touches vendored files
+      - name: Auto-fix (deterministic)
         shell: bash
         run: |
-          ruff check . --select W291,W293 --fix --exit-zero --extend-exclude "$RUFF_EXCLUDE"
-          git ls-files -z -- '*.sh' '*.command' '*.yml' '*.yaml' \
-              ':!payloads/**' ':!NEW_EFI_*/**' ':!Releases/**' \
+          EXCL=(':!payloads/**' ':!NEW_EFI_*/**' ':!Releases/**')
+
+          # Whitespace, inside docstrings too (hence --unsafe-fixes, limited to W291/W293)
+          ruff check . --select W291,W293 --fix --unsafe-fixes --exit-zero --extend-exclude "$RUFF_EXCLUDE"
+          # Syntax-level issues with a mechanical fix:
+          #   W605 invalid escape sequence (SyntaxWarning now, SyntaxError in future Python)
+          #   F632 `is` / `is not` against a literal (SyntaxWarning)
+          ruff check . --select W605,F632 --fix --exit-zero --extend-exclude "$RUFF_EXCLUDE"
+          # Undefined names that are clearly a missing stdlib import (sys.exit without import sys, ...)
+          python3 .github/scripts/fix_missing_imports.py "$RUFF_EXCLUDE"
+
+          # Shell: trailing whitespace + shellcheck's own error-level autofixes (sh/bash only)
+          git ls-files -z -- '*.sh' '*.command' '*.yml' '*.yaml' "${EXCL[@]}" \
             | xargs -0 -r sed -i 's/[[:space:]]*$//'
+          while IFS= read -r -d '' f; do
+            case "$(head -n1 "$f")" in *python*|*zsh*) continue ;; esac
+            patch=$(shellcheck -S error -f diff "$f" 2>/dev/null) || true
+            if [ -n "$patch" ]; then
+              if printf '%s\n' "$patch" | git apply -; then echo "shellcheck fixed: $f"
+              else echo "::warning::could not apply shellcheck fix to $f"; fi
+            fi
+          done < <(git ls-files -z -- '*.sh' '*.command' "${EXCL[@]}")
 
       # 2) Syntax checks + tests
       - name: Syntax checks & tests

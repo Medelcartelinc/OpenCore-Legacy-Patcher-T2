@@ -16,7 +16,8 @@ record() {  # record <kind> <file> <error>
   fail=1
 }
 
-is_zsh() { head -n1 "$1" | grep -q 'zsh'; }
+is_zsh()    { head -n1 "$1" | grep -q 'zsh'; }
+is_python() { head -n1 "$1" | grep -q 'python'; }
 
 echo "::group::Python syntax"
 while IFS= read -r -d '' f; do
@@ -24,13 +25,19 @@ while IFS= read -r -d '' f; do
   if ! err=$(python3 -c 'import sys; compile(open(sys.argv[1],"rb").read(), sys.argv[1], "exec")' "$f" 2>&1); then
     echo "::error file=$f::$err"; record python "$f" "$err"
   fi
-done < <(git ls-files -z -- '*.py' "${EXCL[@]}")
+done < <(
+  git ls-files -z -- '*.py' "${EXCL[@]}"
+  # .command/.sh files with a python shebang are Python, not shell
+  while IFS= read -r -d '' c; do is_python "$c" && printf '%s\0' "$c"; done \
+    < <(git ls-files -z -- '*.sh' '*.command' "${EXCL[@]}")
+)
 # Report-only: undefined names, invalid comparisons, etc.
 ruff check . --select E9,F63,F7,F82 --extend-exclude "$RUFF_EXCLUDE" || fail=1
 echo "::endgroup::"
 
 echo "::group::Shell syntax"
 while IFS= read -r -d '' f; do
+  is_python "$f" && continue   # checked in the Python section
   if is_zsh "$f"; then sh_bin=zsh; else sh_bin=bash; fi
   if ! err=$($sh_bin -n "$f" 2>&1); then
     echo "::error file=$f::$err"; record shell "$f" "$err"
