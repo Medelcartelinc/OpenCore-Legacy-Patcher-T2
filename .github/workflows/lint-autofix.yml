@@ -34,67 +34,50 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck zsh
 
-      # 1) Safe, automatic fixes only (whitespace) – never touches vendored files
-      - name: Auto-fix
+      # 1) Safe, deterministic fixes (whitespace) - never touches vendored files
+      - name: Auto-fix whitespace
         shell: bash
         run: |
-          ruff check . --select W291,W293 --fix --unsafe-fixes --exit-zero --extend-exclude "$RUFF_EXCLUDE"
+          ruff check . --select W291,W293 --fix --exit-zero --extend-exclude "$RUFF_EXCLUDE"
           git ls-files -z -- '*.sh' '*.command' '*.yml' '*.yaml' \
               ':!payloads/**' ':!NEW_EFI_*/**' ':!Releases/**' \
             | xargs -0 -r sed -i 's/[[:space:]]*$//'
 
-      # 2) Syntax checks + tests on the (fixed) code
+      # 2) Syntax checks + tests
       - name: Syntax checks & tests
         id: checks
         continue-on-error: true
+        run: bash .github/scripts/syntax_check.sh "$RUNNER_TEMP/failures.jsonl"
+
+      # 3) Let Claude repair syntax errors (only on pushes, where secrets exist)
+      - name: AI syntax repair
+        id: ai
+        if: steps.checks.outcome == 'failure' && github.event_name != 'pull_request'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 .github/scripts/ai_syntax_fix.py "$RUNNER_TEMP/failures.jsonl" "$RUNNER_TEMP/ai_summary.md"
+
+      - name: Re-check after repair
+        id: recheck
+        if: steps.ai.outcome == 'success'
+        continue-on-error: true
+        run: bash .github/scripts/syntax_check.sh
+
+      - name: Collect result
+        id: final
+        if: always()
         shell: bash
         run: |
-          fail=0
-          EXCL=(':!payloads/**' ':!NEW_EFI_*/**' ':!Releases/**')
+          r="${{ steps.recheck.outcome }}"
+          if [ -z "$r" ] || [ "$r" = skipped ]; then r="${{ steps.checks.outcome }}"; fi
+          echo "result=$r" >> "$GITHUB_OUTPUT"
+          {
+            echo 'summary<<EOF_SUMMARY'
+            cat "$RUNNER_TEMP/ai_summary.md" 2>/dev/null || true
+            echo 'EOF_SUMMARY'
+          } >> "$GITHUB_OUTPUT"
 
-          echo "::group::Python syntax"
-          git ls-files -z -- '*.py' "${EXCL[@]}" | xargs -0 -r python -m py_compile || fail=1
-          # Only real errors: syntax, undefined names, invalid comparisons, etc.
-          ruff check . --select E9,F63,F7,F82 --extend-exclude "$RUFF_EXCLUDE" || fail=1
-          echo "::endgroup::"
-
-          echo "::group::Shell syntax"
-          # .command/.sh files may be Python or zsh – dispatch on the shebang
-          while IFS= read -r -d '' f; do
-            shebang=$(head -n1 "$f")
-            case "$shebang" in
-              *python*)
-                python -m py_compile "$f" || fail=1 ;;
-              *zsh*)
-                if command -v zsh >/dev/null; then zsh -n "$f" || fail=1
-                else echo "zsh not installed – skipping $f"; fi ;;
-              *)
-                bash -n "$f" || fail=1
-                shellcheck -S error "$f" || fail=1 ;;
-            esac
-          done < <(git ls-files -z -- '*.sh' '*.command' "${EXCL[@]}")
-          echo "::endgroup::"
-
-          echo "::group::YAML / JSON"
-          git ls-files -z -- '*.yml' '*.yaml' "${EXCL[@]}" | xargs -0 -r -n1 \
-            python -c 'import sys,yaml; list(yaml.safe_load_all(open(sys.argv[1])))' || fail=1
-          git ls-files -z -- '*.json' "${EXCL[@]}" | xargs -0 -r -n1 \
-            sh -c 'python -m json.tool "$0" > /dev/null' || fail=1
-          echo "::endgroup::"
-
-          echo "::group::Tests"
-          # Only a dedicated tests/ folder; root test_*.py are macOS-only helper scripts
-          if [ -d tests ]; then
-            pytest -q tests; rc=$?
-            if [ $rc -ne 0 ] && [ $rc -ne 5 ]; then fail=1; fi
-          else
-            echo "No tests/ directory – skipping."
-          fi
-          echo "::endgroup::"
-
-          exit $fail
-
-      # 3) If the auto-fix changed anything, push a branch and open a PR
+      # 4) If anything changed, push a branch and open a PR
       - name: Open PR with fixes
         if: github.event_name != 'pull_request'
         uses: peter-evans/create-pull-request@v7
@@ -102,16 +85,20 @@ jobs:
           branch: autofix/${{ github.ref_name }}
           base: ${{ github.ref_name }}
           delete-branch: true
-          commit-message: 'chore: automatic lint & syntax fixes'
-          title: 'Auto-fix: lint & syntax (${{ github.ref_name }})'
+          commit-message: 'chore: automatic syntax & lint fixes'
+          title: 'Auto-fix: syntax & lint (${{ github.ref_name }})'
           body: |
             Automatic fixes from run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
-            Remaining checks after fixing: **${{ steps.checks.outcome }}**
+            ${{ steps.final.outputs.summary }}
 
-      # 4) Keep the run red if something couldn't be fixed automatically
+            Checks after fixing: **${{ steps.final.outputs.result }}**
+
+            > Syntax repairs are AI-generated. Please review the diff before merging.
+
+      # 5) Keep the run red if something couldn't be fixed
       - name: Fail if problems remain
-        if: steps.checks.outcome == 'failure'
+        if: steps.final.outputs.result == 'failure'
         run: |
-          echo "::error::Some checks still fail after auto-fix – see the log above."
+          echo "::error::Some checks still fail after auto-fix - see the log above."
           exit 1
