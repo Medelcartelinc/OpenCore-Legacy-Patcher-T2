@@ -122,19 +122,21 @@ jobs:
                   f.write('## Executable bits\n' + '\n'.join(fixed) + '\n\n')
           print('\n'.join(fixed) or 'All scripts/binaries executable.')
 
-      # 2) Claude looks for real bugs and edits files in place (no commits/pushes)
+      # 2) Claude looks for real bugs and edits files in place (no commits/pushes).
+      #    Uses the Claude Code CLI directly: anthropics/claude-code-action does not
+      #    support `push` events ("Unsupported event type: push").
+      - name: Install Claude Code
+        if: steps.scope.outputs.mode != 'none'
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: AI bug hunt
         if: steps.scope.outputs.mode != 'none'
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          claude_args: |
-            --model claude-sonnet-5
-            --max-turns ${{ steps.scope.outputs.turns }}
-            --allowedTools Read,Edit,Write,Glob,Grep,Bash(python3:*),Bash(ruff:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status)
-            --disallowedTools Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(git reset:*)
-          prompt: |
+        timeout-minutes: 30
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TURNS: ${{ steps.scope.outputs.turns }}
+          BUDGET: ${{ steps.scope.outputs.mode == 'diff' && '2' || '6' }}
+          PROMPT: |
             You are reviewing the OpenCore Legacy Patcher T2 fork (Python 3.13, wxPython GUI, macOS-only runtime).
             The CI runner is Linux, so you cannot run the app; find bugs by reading code.
 
@@ -167,6 +169,15 @@ jobs:
             Finally, write (append) a Markdown report to ${{ env.REPORT }} with sections
             "## Fixed" (per bug: file:line, symptom, cause, fix) and "## Suspected (not changed)".
             If you found nothing, write "## Fixed\nNo confirmed bugs found."
+        run: |
+          claude -p "$PROMPT" \
+            --model claude-sonnet-5 \
+            --max-turns "$TURNS" \
+            --max-budget-usd "$BUDGET" \
+            --permission-mode dontAsk \
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(python3:*),Bash(ruff:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status)" \
+            --disallowedTools "Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(git reset:*)" \
+            --output-format text < /dev/null
 
       # 3) Safety net: every changed Python file must still compile, else drop Claude's edits
       - name: Validate changes
