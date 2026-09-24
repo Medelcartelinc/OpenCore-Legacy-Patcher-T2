@@ -215,7 +215,11 @@ class OpenCoreLegacyPatcher:
         # Generate binary data
         launcher_script = None
         launcher_binary = sys.executable
-        if "python" in launcher_binary:
+        # PyInstaller sets sys.frozen in the built app, so a self-built and
+        # installed OpenCore-Patcher-T2.app is never treated as "from source",
+        # even if its path happens to contain "python" (the substring check
+        # alone matches the whole path, e.g. ~/python-projects/.../dist/).
+        if not getattr(sys, "frozen", False) and "python" in launcher_binary:
             # We're running from source.
             # BUGFIX: __file__ here is this module's own path (application_entry.py),
             # which never contains "main.py", so the replace() below never fired -

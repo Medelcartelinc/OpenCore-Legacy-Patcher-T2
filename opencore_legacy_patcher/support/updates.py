@@ -133,6 +133,27 @@ class CheckBinaryUpdates:
             logging.info("Automatic updates are disabled in the settings.")
             return None
 
+        # Running from source (OpenCore-Patcher-GUI.command / python3 from the
+        # Terminal): launcher_script is only set in that case, see
+        # application_entry.py. An automatic check would end in
+        # on_update(manual=False) -> gui_update.UpdateFrame, which silently
+        # downloads and installs the packaged PKG - i.e. it installs the app
+        # even when it was never installed, and the source checkout is not
+        # what gets updated anyway. So automatic updates are off for every
+        # from-source session. Deliberately not written to "AllowAutoUpdates":
+        # this depends on how this one process was launched, not on a user
+        # choice, and the installed app (and its auto-patcher/macos-update
+        # daemons) must keep the stored setting. It also has to be checked
+        # here rather than by setting constants.auto_update once at startup,
+        # because GenerateDefaults() re-reads "AllowAutoUpdates" whenever the
+        # target model changes (gui_model_change.py, arguments.py).
+        # Manual checks (Settings > "Check for updates") stay possible - they
+        # always ask first.
+        if self.constants.launcher_script and manual is False:
+            logging.info("Running from source - automatic updates are disabled for this session.")
+            self.last_error = "Running from source - automatic updates are disabled for this session."
+            return None
+
         if manual is False:
             next_update_check = global_settings.GlobalEnviromentSettings().read_property("NextUpdateCheck")
             if next_update_check is not None:
