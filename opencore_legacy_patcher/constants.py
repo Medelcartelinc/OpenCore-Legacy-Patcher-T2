@@ -16,7 +16,7 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.190004.3"
+        self.patcher_version:                 str = "4.0.0.190004.4"
         self.patcher_version_label=self.patcher_version
         self.patcher_support_pkg_version:     str = "2.0.3"  # PatcherSupportPkg
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania · T2 fork © 2026 Albert Müller"
@@ -27,13 +27,6 @@ class Constants:
         # identifier makes Launchpad display only whichever of the two patchers was
         # registered first (see issue #395).
         self.bundle_identifier:               str = "io.github.albert-mueller.opencore-legacy-patcher-t2"
-
-        # Versions
-        self.lilu_version:               str = "1.7.2"  #      Lilu
-        self.whatevergreen_version:      str = "1.7.0"  #      WhateverGreen
-        self.airportbcrmfixup_version:   str = "2.2.0"  #      AirportBrcmFixup
-        self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
-        self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         # URLs
         self.url_patcher_support_pkg:         str = "https://github.com/albert-mueller/PatcherSupportPkg/releases/download/"
@@ -86,6 +79,8 @@ class Constants:
         self.cslvfixup_version:          str = "2.6.1"  #      CSLVFixup
         self.autopkg_version:            str = "1.0.4"  #      AutoPkgInstaller
         self.cryptexfixup_version:       str = "1.0.5"  #      CryptexFixup
+        self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
+        self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         ## Acidanthera - Albert Mueller Modified
         self.restrictevents_t2_version: str = "1.1.6-T2"  #RestrictEvents-T2
@@ -187,7 +182,6 @@ class Constants:
         self.next_update_check:         str = "" # Value of when the ext update will be
         self.build_profile:             str = "standard"  # "standard" or "test_b" — gates TEST-B GPU modifications
         self.app_mode:                  str = "albert"    # "albert" or "matteo"
-        self.experimental_version:      str = "5.0.0"     # Matteo's version string
         self.wxpython_variant:          bool = False  # Determine if using wxPython variant
         self.has_checked_updates:       bool = False  # Determine if check for updates has been run
         self.root_patcher_succeeded:    bool = False  # Determine if root patcher succeeded
