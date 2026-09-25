@@ -28,13 +28,6 @@ class Constants:
         # registered first (see issue #395).
         self.bundle_identifier:               str = "io.github.albert-mueller.opencore-legacy-patcher-t2"
 
-        # Versions
-        self.lilu_version:               str = "1.7.2"  #      Lilu
-        self.whatevergreen_version:      str = "1.7.0"  #      WhateverGreen
-        self.airportbcrmfixup_version:   str = "2.2.0"  #      AirportBrcmFixup
-        self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
-        self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
-
         # URLs
         self.url_patcher_support_pkg:         str = "https://github.com/albert-mueller/PatcherSupportPkg/releases/download/"
         self.guide_link:                      str = "https://dortania.github.io/OpenCore-Legacy-Patcher/"
@@ -86,6 +79,8 @@ class Constants:
         self.cslvfixup_version:          str = "2.6.1"  #      CSLVFixup
         self.autopkg_version:            str = "1.0.4"  #      AutoPkgInstaller
         self.cryptexfixup_version:       str = "1.0.5"  #      CryptexFixup
+        self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
+        self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         ## Acidanthera - Albert Mueller Modified
         self.restrictevents_t2_version: str = "1.1.6-T2"  #RestrictEvents-T2
