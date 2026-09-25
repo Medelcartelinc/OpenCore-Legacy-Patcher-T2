@@ -182,7 +182,6 @@ class Constants:
         self.next_update_check:         str = "" # Value of when the ext update will be
         self.build_profile:             str = "standard"  # "standard" or "test_b" — gates TEST-B GPU modifications
         self.app_mode:                  str = "albert"    # "albert" or "matteo"
-        self.experimental_version:      str = "5.0.0"     # Matteo's version string
         self.wxpython_variant:          bool = False  # Determine if using wxPython variant
         self.has_checked_updates:       bool = False  # Determine if check for updates has been run
         self.root_patcher_succeeded:    bool = False  # Determine if root patcher succeeded
