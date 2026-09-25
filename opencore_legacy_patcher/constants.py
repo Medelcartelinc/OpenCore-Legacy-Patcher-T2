@@ -3,7 +3,6 @@ constants.py: Defines versioning, file paths and other settings for the patcher
 """
 
 import logging
-import sys
 from pathlib   import Path
 from typing    import Optional
 from packaging import version
@@ -55,7 +54,7 @@ class Constants:
 
         self.custom_installer_url:            str = "https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2"
         self.custom_installer_version=self.patcher_version
-        self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
+        self.installer_pkg_url:               str = f"{self.repo_link.rstrip('/')}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
         # https://github.com/albert-mueller/OpenCorePkg-add-T2-support
@@ -70,7 +69,7 @@ class Constants:
         self.whatevergreen_navi_version: str = "1.7.0-Navi"  # WhateverGreen (Navi Patch)
         self.airportbcrmfixup_version:   str = "2.2.0"  #      AirPortBrcmFixup
         self.nvmefix_version:            str = "1.1.3"  #      NVMeFix
-        self.applealc_version:           str = "1.6.7"  #      AppleALC
+        self.applealc_version:           str = "1.9.7"  #      AppleALC
         self.restrictevents_version:     str = "1.1.6"  #      RestrictEvents
         self.featureunlock_version:      str = "1.1.8"  #      FeatureUnlock
         self.debugenhancer_version:      str = "1.1.0"  #      DebugEnhancer
@@ -289,7 +288,7 @@ class Constants:
         self.force_quad_thread:      bool = False #  Force quad thread mode (cpus=4)
         self.set_alc_usage:          bool = True  #  Set AppleALC usage
         self.allow_modern_audio:     bool = True  #  Restore AppleHDA.kext on macOS Tahoe (Apple dropped analog audio for non-T2 audio routing)
-        self.allow_3rd_party_drives: bool = True  #  Allow ThridPartyDrives quirk
+        self.allow_3rd_party_drives: bool = True  #  Allow ThirdPartyDrives quirk
         self.allow_nvme_fixing:      bool = True  #  Allow NVMe Kernel Space Patches
         self.apfs_trim_timeout:      bool = True  #  Set APFS Trim timeout
         self.custom_sip_value:        int = None  #  Set custom SIP value
@@ -319,7 +318,7 @@ class Constants:
             logging.info("You won't receive automatic updates.")
             return True
         except Exception as e:
-            logging.error("We could not confirm whether you're using a special version.")
+            logging.error(f"We could not confirm whether you're using a special version: {e}")
             logging.info("You won't receive any updates to prevent an attacker from abusing the update API for malware delivery or denial of service attacks.")
             return True
 
@@ -454,7 +453,7 @@ class Constants:
 
     @property
     def efi_disabler_path(self):
-        return self.payload_kexts_path / Path(f"Acidanthera/EFICheckDisabler.zip")
+        return self.payload_kexts_path / Path("Acidanthera/EFICheckDisabler.zip")
 
     @property
     def bcm570_path(self):
@@ -716,7 +715,7 @@ class Constants:
     # Build Location
     @property
     def build_path(self):
-        if self.oc_build_path == None:
+        if self.oc_build_path is None:
             return self.current_path / Path("Build-Folder/")
         else:
             return self.oc_build_path.parent
@@ -828,7 +827,7 @@ class Constants:
 
     @property
     def ocvalidate_path(self):
-        return self.payload_path / Path(f"OpenCore/ocvalidate")
+        return self.payload_path / Path("OpenCore/ocvalidate")
 
     @property
     def oclp_helper_path(self):
@@ -841,19 +840,18 @@ class Constants:
     # Icons
     @property
     def icns_resource_path(self):
-        if self.launcher_script:
+        # Running from source (or launcher binary not yet known): use the repo payloads
+        if self.launcher_script or not self.launcher_binary:
             return self.payload_path / Path("Resources/AppIcons")
         return Path(self.launcher_binary).parent.parent / Path("Resources")
 
 
     @property
     def patch_icon_path(self):
-       if self.detected_os > os_data.os_data.tahoe:
-           return self.icns_resource_path / Path("OC-Patch-Wrench.icns")
-       elif self.detected_os < os_data.os_data.big_sur:
-           return self.icns_resource_path / Path("OC-Patch-WrenchAndScrewDriver.icns")
-       else:
-            return self.icns_resource_path / Path(f"OC-Patch-{self.detected_os}.icns")
+        if self.detected_os < os_data.os_data.big_sur:
+            return self.icns_resource_path / Path("OC-Patch-WrenchAndScrewDriver.icns")
+        # There is no "OC-Patch-Wrench.icns" - newer OSes than Tahoe reuse the newest icon
+        return self.icns_resource_path / Path(f"OC-Patch-{min(self.detected_os, os_data.os_data.tahoe)}.icns")
 
 
     @property
