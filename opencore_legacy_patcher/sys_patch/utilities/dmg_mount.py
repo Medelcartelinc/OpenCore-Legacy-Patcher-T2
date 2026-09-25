@@ -62,6 +62,7 @@ class PatcherSupportPkgMount:
             )
         except Exception as e:
             logging.error(f"- Failed to check if DMG is encrypted: {e}")
+            logging.exception("Stack Trace:")
             return True
         output = result.stdout.decode(errors="ignore").lower()
         # hdiutil has printed both "encrypted: YES/NO" and "encrypted: 1/0" across releases.
