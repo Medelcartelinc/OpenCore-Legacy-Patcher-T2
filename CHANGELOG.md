@@ -1,5 +1,6 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.19004.5 - 4.0.0 alpha 19.4.5
+This release:
 - fixes a bug in constants.py where AppleALC was set to version 1.6.7 instead of 1.9.7
 - fixes a bug where the root patching icon pointed to OC-Patch-Wrench.icns on macOS versions newer than Tahoe, a file that doesn't exist; newer versions now reuse the newest available icon (OC-Patch-25.icns)
 - fixes a bug where the AutoPkg-Assets-T2.pkg download link contained a double slash ("...Patcher-T2//releases/download/...") because repo_link already ends with a slash
