@@ -1,7 +1,9 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190004.4 - 4.0.0 alpha 19.4.4
 This release:
-- fixes 5 vulnerabilities in ci_tooling/installer_backups/macOS_Installer_Backup.command (the internal CI script that backs up macOS installers from Apple's catalogs and AppleDB):
+- fixes a bug in constants.py where there were duplicated constants for AirportBrcmFixup, WhateverGreen and Lilu, which could lead to installing the wrong version, not injecting it at all or cause erratic/unintended behavior
+- removes the self.experimental_version constant, as it is now dead
+- fixes 5 vulnerabilities in ci_tooling/installer_backups/macOS_Installer_Backup.command (the internal CI script that backs up macOS installers from Apple's catalogs and AppleDB) and 1 vulnerability in dmg_mount.py (the process responsible for mounting Universal-Binaries.dmg):
 
 1. Path traversal / arbitrary file write:
 
@@ -63,6 +65,29 @@ Impact: both polling loops spun without sleeping, pinning a CPU core for the ent
 
 - the installer backup script now refuses to run if the /Volumes/macOS Installers backup volume isn't mounted, so it can no longer fill the boot disk by accident when used with --first-run
 - replaces a mutable default argument in the installer backup script with a tuple
+
+1. Brute force via exceeding the maximum amount of password attempts:
+
+                for i in range(3):
+            key = self._request_decryption_key(i)
+            output = self._run_hdiutil(
+                Path(self.constants.overlay_psp_path_dmg),
+                Path(self.constants.payload_path / "DortaniaInternal"),
+                password=key
+            )
+
+            if output.returncode != 0:
+                logging.info("- Failed to mount DortaniaInternal resources")
+                subprocess_wrapper.log(output)
+                if "Authentication error" not in output.stdout.decode():
+                    self._display_authentication_error()
+                if i == 2: # <- if the attempts are more than 2, an attacker could still have infinite amount of attempts to crack the password
+                    self._display_too_many_attempts()
+                    sys.exit(3)
+                continue
+
+Impact: an attacker could bypass the if i==2 condition by attempting 1 more time to brute force the password of Universal-Binaries.dmg to have infinite amount of attempts to brute force the password. This vulnerability is fixed by changing if i == 2 to if i >=2 to ensure if there are more attempts than 2, it doesn't fall through the cracks.
+
 
 ## 4.0.0.190004.3 - 4.0.0 alpha 19.4.3
 This release:
