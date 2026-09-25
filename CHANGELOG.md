@@ -3,6 +3,7 @@
 This release:
 - fixes a bug in constants.py where there were duplicated constants for AirportBrcmFixup, WhateverGreen and Lilu, which could lead to installing the wrong version, not injecting it at all or cause erratic/unintended behavior
 - removes the self.experimental_version constant, as it is now dead
+- now, when running the code from source by launching the GUI via a non-compiled application, it will no longer fetch updates automatically - this has led to replacing or installing OpenCore Legacy Patcher T2 automatically on the system.
 - fixes 5 vulnerabilities in ci_tooling/installer_backups/macOS_Installer_Backup.command (the internal CI script that backs up macOS installers from Apple's catalogs and AppleDB) and 1 vulnerability in dmg_mount.py (the process responsible for mounting Universal-Binaries.dmg):
 
 1. Path traversal / arbitrary file write:
