@@ -25,7 +25,7 @@ ADMIN_PASSWORD_PROMPT_MESSAGE = (
     "You will only be asked once - it is kept in memory until the app quits."
 )
 ADMIN_PASSWORD_RETRY_MESSAGE = "Incorrect password, please try again. " + ADMIN_PASSWORD_PROMPT_MESSAGE
-ADMIN_PASSWORD_MAX_ATTEMPTS = 3
+ADMIN_PROMPT_MAX_ATTEMPTS = 3
 
 # Session-wide administrator credential cache (Issue #356).
 #
@@ -471,7 +471,7 @@ def obtain_admin_password(admin_password_prompt: Optional[Callable[..., str]] = 
             _cached_admin_password = ""
             return _cached_admin_password
 
-        for attempt in range(ADMIN_PASSWORD_MAX_ATTEMPTS):
+        for attempt in range(ADMIN_PROMPT_MAX_ATTEMPTS):
             message = ADMIN_PASSWORD_PROMPT_MESSAGE if attempt == 0 else ADMIN_PASSWORD_RETRY_MESSAGE
             if admin_password_prompt is None:
                 password = request_admin_password(_admin_prompt_icon_path, message=message)
@@ -488,7 +488,7 @@ def obtain_admin_password(admin_password_prompt: Optional[Callable[..., str]] = 
                 logging.info("Administrator password accepted, reusing it for this session")
                 return _cached_admin_password
 
-            logging.info(f"Administrator password rejected by sudo (attempt {attempt + 1}/{ADMIN_PASSWORD_MAX_ATTEMPTS})")
+            logging.info(f"Administrator password rejected by sudo (attempt {attempt + 1}/{ADMIN_PROMPT_MAX_ATTEMPTS})")
 
         _admin_password_cancelled = False
         _sudo_elevation_failed = True
