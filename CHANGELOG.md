@@ -4,6 +4,12 @@ This release:
 - fixes a bug in constants.py where there were duplicated constants for AirportBrcmFixup, WhateverGreen and Lilu, which could lead to installing the wrong version, not injecting it at all or cause erratic/unintended behavior
 - removes the self.experimental_version constant, as it is now dead
 - now, when running the code from source by launching the GUI via a non-compiled application, it will no longer fetch updates automatically - this has led to replacing or installing OpenCore Legacy Patcher T2 automatically on the system.
+- fixes a bug in constants.py where AppleALC was set to version 1.6.7 while only 1.9.7 is shipped in payloads/Kexts/Acidanthera, so every OpenCore build that injects AppleALC failed because the kext zip could not be found
+- fixes a bug where the root patching icon pointed to OC-Patch-Wrench.icns on macOS versions newer than Tahoe, a file that doesn't exist; newer versions now reuse the newest available icon (OC-Patch-25.icns)
+- fixes a bug where the AutoPkg-Assets-T2.pkg download link contained a double slash ("...Patcher-T2//releases/download/...") because repo_link already ends with a slash
+- fixes a crash (TypeError) in icns_resource_path when neither the launcher script nor the launcher binary was known yet; it now falls back to payloads/Resources/AppIcons
+- the special build check now logs the actual error message when the version can't be checked
+- removes an unused import and cleans up minor code issues in constants.py
 - fixes 5 vulnerabilities in ci_tooling/installer_backups/macOS_Installer_Backup.command (the internal CI script that backs up macOS installers from Apple's catalogs and AppleDB) and 1 vulnerability in dmg_mount.py (the process responsible for mounting Universal-Binaries.dmg):
 
 1. Path traversal / arbitrary file write:
