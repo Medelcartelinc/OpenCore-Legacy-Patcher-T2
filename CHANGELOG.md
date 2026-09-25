@@ -1,4 +1,69 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190004.4 - 4.0.0 alpha 19.4.4
+This release:
+- fixes 5 vulnerabilities in ci_tooling/installer_backups/macOS_Installer_Backup.command (the internal CI script that backs up macOS installers from Apple's catalogs and AppleDB):
+
+1. Path traversal / arbitrary file write:
+
+        installer_name = f"{installer['Version']} ({installer['Build']})" # <- Version and Build come unvalidated from api.appledb.dev
+        ...
+        result = self._downloader(url=installer["Link"], path=Path(self._os_table[installer['OS']], installer_name), name=installer_name)
+        ...
+        _base_name = f"{_version} ({_build})"
+        ...
+        result = subprocess.run(["/bin/mv", file, Path(directory, _name)]) # <- same unvalidated values used as the rename target
+
+Impact: an attacker controlling or compromising an AppleDB entry could set the version or build to something like ../../../../Users/<user>/Library/LaunchAgents/evil (or an absolute path, which pathlib uses as-is) to write a downloaded file or move a backup anywhere the script can write, including locations that lead to code execution. This vulnerability is fixed by validating every version and build string against a strict allow-list (_safe_component, _safe_build) and by confirming that every download and rename destination resolves inside the backup directory (_inside). Entries that fail validation are skipped.
+
+2. Untrusted download sources and unverified AppleDB downloads:
+
+        installers[item["build"]] = {
+            ...
+            "Link":      entry["url"], # <- any host, any scheme, including plain http://
+            ...
+            "integrity": None,         # <- AppleDB downloads were never verified
+        }
+
+Impact: an attacker could point an AppleDB entry to a server of their own, or intercept a plain HTTP download, to plant a trojaned InstallAssistant.pkg or Restore.ipsw in the installer archive, which is then treated as a known-good Apple installer. This vulnerability is fixed by only accepting HTTPS downloads from Apple CDN hosts (_TRUSTED_HOSTS; plain HTTP on those hosts is upgraded to HTTPS, and URLs with credentials or unexpected ports are rejected), and by verifying AppleDB downloads against the hash published for the source (sha2-256/sha256/sha1) when one is available. Downloads without a hash now print a clear "integrity NOT verified" warning.
+
+3. Chunklist validation bypass:
+
+        if chunk_obj.status == integrity_verification.ChunklistStatus.FAILURE:
+            print(chunk_obj.error_msg)
+            print(f"Validating {name} against chunklist: chunk {chunk_obj.current_chunk} failed")
+            for file in [installer_path, chunklist]:
+                result = subprocess.run(["/bin/rm", "-f", file])
+                ...
+                                                 # <- no return here, execution falls through
+        print(f"Validating {name} against chunklist: chunk {chunk_obj.total_chunks} passed")
+        return True
+
+Impact: a tampered installer that failed chunklist validation was still reported as "passed" and the function returned True, so any code relying on the result would treat the corrupted or malicious installer as valid. Any status other than FAILURE also passed. This vulnerability is fixed by returning False after a failed validation and by only accepting an explicit ChunklistStatus.SUCCESS.
+
+4. Silent overwrites of existing backups:
+
+        result = subprocess.run(["/bin/mv", file, Path(directory, _name)]) # <- mv overwrites the target without asking
+
+Impact: the rename step matches files by substring on the build number, so a crafted or duplicated AppleDB build value could rename several files onto the same name and destroy already verified installers. This vulnerability is fixed by refusing to overwrite any existing file when downloading, when moving empty downloads to "Dead URLs", and when renaming. The /bin/rm and /bin/mv subprocess calls were replaced with Path.unlink() and Path.rename(), and symlinks in the backup directories are skipped.
+
+5. Denial of service via busy-waiting and malformed data:
+
+        while chunk_obj.status == integrity_verification.ChunklistStatus.IN_PROGRESS:
+            print(...) # <- no sleep, pins a CPU core for the whole validation
+        ...
+        while dl_obj.is_active():
+            if dl_obj.get_percent() in percentages_displayed: # <- float compared against a set of ints, almost never matches
+                continue
+        ...
+            "Variant":   "Beta" if item["beta"] else "Public", # <- KeyError on a single malformed entry aborts the whole run
+            ...
+            "Date":      item["released"],
+
+Impact: both polling loops spun without sleeping, pinning a CPU core for the entire multi-GB download or validation and printing thousands of progress lines per second, and a single malformed AppleDB entry (missing beta or released, unexpected version string) crashed the entire backup run. This vulnerability is fixed by sleeping between polls, only printing progress when the percentage changes, and skipping malformed AppleDB entries instead of aborting.
+
+- the installer backup script now refuses to run if the /Volumes/macOS Installers backup volume isn't mounted, so it can no longer fill the boot disk by accident when used with --first-run
+- replaces a mutable default argument in the installer backup script with a tuple
+
 ## 4.0.0.190004.3 - 4.0.0 alpha 19.4.3
 This release:
 - fixes a bug where Audio on non-T2 Macs may not work after injecting root patches exactly for the audio
