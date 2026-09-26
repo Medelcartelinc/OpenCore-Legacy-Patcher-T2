@@ -63,7 +63,7 @@ jobs:
               'Thanks for asking! Unfortunately, support for macOS 27 Golden Gate or any later version is **not possible** with this patcher, and it will not be added.',
               '',
               '**Why:**',
-              '- Golden Gate is the first macOS release that runs **only on Apple silicon** (M1 and newer). macOS 26 Tahoe is the last version for Intel Macs.',
+              '- Golden Gate is the first macOS release that runs **only on Apple silicon** (M1 and newer). macOS 26 Tahoe is the last version for Intel Macs. Refer to this issue in the official OpenCore Legacy Patcher here: https://github.com/dortania/OpenCore-Legacy-Patcher/issues/1183 ',
               '- Apple no longer ships an Intel (x86_64) build of the operating system: the kernel, kexts, system frameworks and bootloader are Apple silicon (arm64) only.',
               '- OpenCore Legacy Patcher works by booting an existing **Intel** build of macOS and restoring or patching drivers for older hardware. When there is no Intel build at all, there is nothing to patch — making it run would mean recompiling macOS itself, which is not possible.',
               '- The T2 chip does not help here: it is a separate security coprocessor running bridgeOS, not a CPU that can run macOS.',
