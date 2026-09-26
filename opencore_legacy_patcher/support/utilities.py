@@ -13,6 +13,7 @@ import binascii
 import plistlib
 import subprocess
 import py_sip_xnu
+import Security
 
 from pathlib import Path
 
@@ -678,3 +679,97 @@ def check_cli_args():
         return None
     else:
         return args
+
+def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reason: str = "OpenCore-Patcher-T2 needs your administrative permission", confirm_button: str ="OK", deny_button: str = "Cancel"):
+    """
+    run the give action as root without using the Privileged Helper Tool
+
+    * action: an array of what is to be executed in which the first value is the program/command to be executed and the last value is optional arguments
+    * reason: the message that tells the user why they are seeing this format it like this: why you are seeing this (e.g "OpenCore-Patcher-T2 needs your administrative permission") and what will happen (e.g "to verify that you are an admin")
+    * confirm_button: the name of the OK button that is desplayed to the user if the default doesn't work
+    * deny_button: the name of the Cancel button that is deplayed to user if the default doesn't work
+
+    Note: Deliberately does NOT go through run_as_root() (i.e. the helper
+    tool itself), since a helper tool missing its setuid bit can't elevate
+    itself - that's precisely the problem being repaired here.
+
+    """
+    status, auth_ref = Security.AuthorizationCreate(
+        None,
+        None,
+        Security.kAuthorizationFlagDefaults,
+        None
+    )
+
+    if status != Security.errAuthorizationSuccess:
+        logging.error(f"AuthorizationCreate failed with status {status}")
+        return False
+
+    try:
+        rights = (
+            Security.AuthorizationItem(
+                Security.kAuthorizationRightExecute,
+                0,
+                None,
+                0
+            ),
+        )
+        prompt = bytes(reason)
+        environment = (
+            Security.AuthorizationItem(
+                Security.kAuthorizationEnvironmentPrompt,
+                len(prompt),
+                prompt,
+                0
+            ),
+        )
+
+        status, authorized_rights = Security.AuthorizationCopyRights(
+            auth_ref,
+            rights,
+            environment,
+            (
+                Security.kAuthorizationFlagInteractionAllowed
+                | Security.kAuthorizationFlagExtendRights
+            ),
+            None,
+        )
+
+        if status == Security.errAuthorizationCanceled:
+            logging.info("User canceled the request")
+            return False
+
+        if status != Security.errAuthorizationSuccess:
+            logging.error(f"AuthorizationCopyRights failed with status {status}")
+            return False
+
+
+        status, _ = Security.AuthorizationExecuteWithPrivileges(
+            auth_ref,
+            bytes(action),
+            Security.kAuthorizationFlagDefaults,
+            bytes(args),
+            None,
+        )
+
+        if status == Security.errAuthorizationCanceled:
+            logging.info("User canceled the request")
+            return False
+
+        if status != Security.errAuthorizationSuccess:
+            logging.error(f"AuthorizationExecuteWithPrivileges failed with status {status}")
+            return False
+
+        logging.info("Running as root succeeded")
+        return True
+
+    except Exception:
+        logging.error("Running as root failed.")
+        logging.exception("Stack Trace:")
+        return False
+
+    finally:
+        Security.AuthorizationFree(
+           auth_ref,
+           Security.kAuthorizationFlagDefaults
+        )

