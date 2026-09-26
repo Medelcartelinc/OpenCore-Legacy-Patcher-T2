@@ -4,7 +4,9 @@
 # (no model picked in the issue form, "not applicable" picked for a real Mac
 # problem, or an issue opened without the form). Accepts a model identifier
 # (e.g. Macmini8,1) or a name with a year (e.g. "Mac mini 2018").
-# Security/malicious-site reports, feature requests and Hackintosh reports
+# Issues that aren't bug reports (icons/artwork, ideas, questions opened
+# without the form), security/malicious-site reports, feature requests and
+# Hackintosh reports
 # (handled by ask-for-hackintosh-specs.yml) are skipped. The bot comment and
 # label are removed automatically once the model is added (by editing the
 # issue or replying).
@@ -79,6 +81,15 @@ jobs:
             if (SECURITY_RE.test(issueText)) return cleanUp('Skipped: security / malicious-site report');
             const issueType = section(/issue type|typ fehler/i);
             if (issueType && /suggestion|empfehlung|feature/i.test(issueType)) return cleanUp('Skipped: feature suggestion');
+            // Only bug reports need a Mac model: the bug form, the "bug" label, or
+            // a blank issue that reads like a problem report. Artwork, icons,
+            // ideas, questions etc. opened without the form are left alone.
+            const usedForm = /^###\s+(mac model|mac-modell|macos|issue type|typ fehler)/im.test(body);
+            const BUG_RE = /\b(bug|panic\w*|crash\w*|boot\w*|freez\w*|froze|hang(s|ing)?|hängt|stuck|error\w*|fehler\w*|fail\w*|broken|kaputt|not working|(doesn'?t|does not|won'?t|will not|can'?t|cannot) (work|boot|start|install|open|load)|black screen|kext|kernel)\b/i;
+            const NON_BUG_TITLE_RE = /\b(icons?|logos?|artwork|wallpapers?|themes?|design|mockup|feature|suggestion|idea|proposal|request|translation|question|frage)\b/i;
+            const isBugReport = labels.includes('bug') || usedForm ||
+              (BUG_RE.test(issueText) && !NON_BUG_TITLE_RE.test(title));
+            if (!isBugReport) return cleanUp('Skipped: not a bug report');
             // Hackintoshes: ask-for-hackintosh-specs.yml already asks for the SMBIOS
             const HACKINTOSH_RE = /\b(hackintosh\w*|hackintosch|hackbook|non[- ]apple (pc|hardware|machine)|not an? (real|genuine) mac|custom[- ]built pc|amd hackintosh)\b/i;
             if (HACKINTOSH_RE.test(issueText)) return cleanUp('Skipped: Hackintosh report');

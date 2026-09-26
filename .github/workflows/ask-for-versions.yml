@@ -2,7 +2,8 @@
 #
 # Asks the reporter for their exact macOS and OpenCore Legacy Patcher versions
 # when an issue doesn't contain them (or only says "latest", "new", "N/A", ...).
-# Security reports are skipped. The bot comment and label are removed
+# Security reports and issues that aren't bug reports (icons/artwork, ideas,
+# questions opened without the form) are skipped. The bot comment and label are removed
 # automatically once the versions are added (by editing the issue or replying).
 
 name: Ask for missing version info
@@ -42,15 +43,32 @@ jobs:
             const body = issue.body || '';
             const labels = (issue.labels || []).map(l => (typeof l === 'string' ? l : l.name).toLowerCase());
 
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find(c => c.user.type === 'Bot' && (c.body || '').includes(MARKER));
+            const issueText = `${title}\n${body}`;
+
+            async function cleanUp(reason) {
+              if (existing) await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
+              if (labels.includes(LABEL)) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: LABEL }).catch(() => {});
+              }
+              core.info(reason);
+            }
+
             // ---- 1. Skip security reports and non-bug issues ----------------
             const SKIP_LABELS = ['security', 'vulnerability', 'enhancement', 'feature request', 'question', 'documentation'];
-            if (labels.some(l => SKIP_LABELS.includes(l))) {
-              return core.info('Skipped: issue has a skip label');
-            }
+            if (labels.some(l => SKIP_LABELS.includes(l))) return cleanUp('Skipped: issue has a skip label');
             const SECURITY_RE = /\b(security|vulnerab\w*|cve-\d{4}-\d+|ghsa-[\w-]+|exploit\w*|rce|remote code execution|code injection|command injection|privilege escalation)\b/i;
-            if (SECURITY_RE.test(title) || SECURITY_RE.test(body)) {
-              return core.info('Skipped: looks like a security report');
-            }
+            if (SECURITY_RE.test(issueText)) return cleanUp('Skipped: looks like a security report');
+            // Only bug reports need versions: the bug form, the "bug" label, or
+            // a blank issue that reads like a problem report. Artwork, icons,
+            // ideas, questions etc. opened without the form are left alone.
+            const usedForm = /^###\s+(mac model|mac-modell|macos|issue type|typ fehler)/im.test(body);
+            const BUG_RE = /\b(bug|panic\w*|crash\w*|boot\w*|freez\w*|froze|hang(s|ing)?|hängt|stuck|error\w*|fehler\w*|fail\w*|broken|kaputt|not working|(doesn'?t|does not|won'?t|will not|can'?t|cannot) (work|boot|start|install|open|load)|black screen|kext|kernel)\b/i;
+            const NON_BUG_TITLE_RE = /\b(icons?|logos?|artwork|wallpapers?|themes?|design|mockup|feature|suggestion|idea|proposal|request|translation|question|frage)\b/i;
+            const isBugReport = labels.includes('bug') || usedForm ||
+              (BUG_RE.test(issueText) && !NON_BUG_TITLE_RE.test(title));
+            if (!isBugReport) return cleanUp('Skipped: not a bug report');
 
             // ---- 2. Version patterns ----------------------------------------
             // macOS: 10.15.7, 13.6, 26.6.1 ... or a build number like 25G76 / 25G5065a
@@ -73,7 +91,6 @@ jobs:
             }
 
             // Also count replies from the issue author
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
             const authorText = comments
               .filter(c => c.user.login === issue.user.login)
               .map(c => c.body || '')
@@ -96,22 +113,14 @@ jobs:
 
             const missing = [];
             if (!hasMacOS) {
-              missing.push('**macOS version**, ideally with the build number (e.g. `26.6.1 (25G76)`). You can find it under  → About This Mac, or by running `sw_vers` in Terminal.');
+              missing.push('**macOS version**, ideally with the build number (e.g. `26.6.1 (25G76)`). You can find it under  → About This Mac, or by running `sw_vers` in Terminal.');
             }
             if (!hasPatcher) {
               missing.push('**OpenCore Legacy Patcher version** (e.g. `4.0.0.18009`), shown in the app\'s main window. If you built from source, the commit hash works too.');
             }
 
-            const existing = comments.find(c => c.user.type === 'Bot' && (c.body || '').includes(MARKER));
-
             // ---- 3. All good: clean up --------------------------------------
-            if (missing.length === 0) {
-              if (existing) await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
-              if (labels.includes(LABEL)) {
-                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: LABEL }).catch(() => {});
-              }
-              return core.info('All versions present');
-            }
+            if (missing.length === 0) return cleanUp('All versions present');
 
             // ---- 4. Ask (or update the existing request) --------------------
             const text = [
