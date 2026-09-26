@@ -10,8 +10,9 @@
   forks): deletes it, blocks the author.
 
 Links to non-malicious GitHub forks, links to sites without downloads
-(docs, Apple Support, screenshots, logs) and reports *about* malicious
-sites/forks are not removed.
+(docs, Apple Support, screenshots, logs), evidence shared by reporters
+(videos, logs, EFI folders on Google Drive/Dropbox/...) and reports *about*
+malicious sites/forks are not removed.
 Every removal is recorded in moderation/flagged-issues.md.
 Standard library only."""
 import json
@@ -51,10 +52,20 @@ PIPE_TO_SHELL_RE = re.compile(
 DECODE_TO_SHELL_RE = re.compile(
     r"\bbase64\s+(-d|-D|--decode)\b[^\n]*\|\s*(sudo\s+)?(ba|z|da)?sh\b"
     r"|\becho\s+['\"]?[A-Za-z0-9+/=]{60,}['\"]?\s*\|\s*base64\b", re.I)
-# Direct links to downloadable files / installers
+# Direct links to downloadable files
 DOWNLOAD_PATH_RE = re.compile(
     r"\.(zip|rar|7z|dmg|pkg|mpkg|iso|img|app|exe|msi|sh|command|tar|gz|tgz|xz|bz2)$", re.I)
-# File hosts: any link there is treated as a download
+# ... of which these are things a reader would install or run (not videos, logs or EFI zips)
+INSTALLER_PATH_RE = re.compile(r"\.(dmg|pkg|mpkg|app|exe|msi|sh|command)$", re.I)
+# Wording that pushes readers to download/run something
+# Phrases, not single words: "still not working", "the fix didn't help" must not match
+LURE_RE = re.compile(
+    r"\b(download (this|it|here|now|the (fix|build|patch|tool|installer|update))|"
+    r"(install|run|open|try) (this|my) (fix|build|patch|tool|installer|app|version|script|update)|"
+    r"(fixed|patched|working|cracked|updated) (build|version|installer|patcher|app|kext|tool)|"
+    r"here'?s (the|a|my) (fix|build|patch|tool|installer|solution)|"
+    r"fixed it for (you|everyone)|get it here)\b", re.I)
+# File hosts: links there count as downloads
 FILE_HOSTS = (
     "mediafire.com", "mega.nz", "mega.io", "drive.google.com", "docs.google.com",
     "dropbox.com", "dropboxusercontent.com", "onedrive.live.com", "1drv.ms",
@@ -120,7 +131,7 @@ def host_matches(host, domains):
 
 
 def download_links(text):
-    """Links to non-GitHub/Apple sites that point at a download or a file host."""
+    """(host, is_installer) for links to non-GitHub/Apple sites that point at a download or a file host."""
     found = []
     for m in URL_RE.finditer(text):
         host = m.group(1).lower().split(":")[0]
@@ -128,12 +139,17 @@ def download_links(text):
         if host_matches(host, TRUSTED_DOWNLOAD_HOSTS):
             continue
         if host_matches(host, FILE_HOSTS) or DOWNLOAD_PATH_RE.search(path):
-            found.append(host)
+            found.append((host, bool(INSTALLER_PATH_RE.search(path))))
     return found
 
 
-def malware_heuristic(text):
-    """Returns a short reason if the text matches a strong malware pattern, else None."""
+def malware_heuristic(text, by_reporter):
+    """Returns a short reason if the text matches a strong malware pattern, else None.
+
+    by_reporter: the text was written by the person who opened the issue (the issue
+    itself or their own reply). Reporters share evidence - videos, logs, EFI folders -
+    on file hosts, so a download link alone never counts for them.
+    """
     for m in PIPE_TO_SHELL_RE.finditer(text):
         if not is_trusted_url(m.group(2)):
             return "download from untrusted URL piped to a shell"
@@ -141,12 +157,18 @@ def malware_heuristic(text):
         return "obfuscated (base64) command"
     if ARCHIVE_PASSWORD_RE.search(text):
         return "password-protected archive"
-    if download_links(text) and not WARNING_RE.search(text):
-        return "download link to a non-GitHub site"
+    links = download_links(text)
+    if links and not WARNING_RE.search(text):
+        installer = any(inst for _, inst in links)
+        lure = bool(LURE_RE.search(text))
+        # Reporter: only an installer link *and* "download/run this fix" wording
+        # Someone else replying: an installer link *or* such wording is enough
+        if (installer and lure) if by_reporter else (installer or lure):
+            return "download offered from a non-GitHub site"
     return None
 
 
-def claude_verdict(text, kind):
+def claude_verdict(text, kind, by_reporter):
     """Returns {"category": <one of CATEGORIES>, "reason": str} or None if unavailable."""
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
@@ -154,7 +176,9 @@ def claude_verdict(text, kind):
     prompt = (
         f"You are a content moderator for the open-source GitHub repository {REPO} "
         "(OpenCore Legacy Patcher T2, a tool for installing newer macOS on older Macs). "
-        f"Classify the {kind} text below into exactly one category:\n\n"
+        + ("The text was written by the person who opened the issue. " if by_reporter else
+           "The text was written by someone other than the person who opened the issue. ")
+        + f"Classify the {kind} text below into exactly one category:\n\n"
         '- "hate_speech": attacks, slurs or dehumanising language targeting people for race, '
         "ethnicity, nationality, religion, sex, gender identity, sexual orientation, disability "
         "or similar.\n"
@@ -173,6 +197,10 @@ def claude_verdict(text, kind):
         "Links to other GitHub forks are \"none\" unless the fork itself is malicious. Links to "
         "websites that don't offer downloads (documentation, Apple Support, forums, screenshots, "
         "log or paste sites) and Apple's own downloads (apple.com) are \"none\". "
+        "Evidence shared for a bug report is \"none\" even on a file host like Google Drive or "
+        "Dropbox: videos of the boot or panic, screenshots, logs, crash reports, EFI folders or "
+        "config files. A file-host link is \"malware\" only when it offers software, installers, "
+        "builds or \"fixes\" for readers to download and run. "
         "Reports that WARN about a malicious site, fork or download (even if they include the URL) "
         'are "none". Swearing or frustration about the software itself '
         "(\"this damn installer keeps failing\") is \"none\" as long as the issue describes a real "
@@ -262,12 +290,13 @@ def main():
         text = f"{issue.get('title', '')}\n\n{issue.get('body') or ''}"
         where = f"#{issue['number']}"
 
-    verdict = claude_verdict(text, kind)
+    by_reporter = user["login"] == issue["user"]["login"]
+    verdict = claude_verdict(text, kind, by_reporter)
     if verdict is not None:
         category, reason, method = verdict["category"], verdict["reason"], "Claude"
     else:
         hits = wordlist_hits(text)
-        heuristic = malware_heuristic(text)
+        heuristic = malware_heuristic(text, by_reporter)
         if hits:
             category, reason, method = HATE, f"{len(hits)} blocked term(s)", "word list"
         elif heuristic:
