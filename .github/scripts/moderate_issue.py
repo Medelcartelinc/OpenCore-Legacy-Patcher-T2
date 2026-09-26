@@ -5,10 +5,13 @@
 - Abuse (insults, profanity or harassment aimed at the maintainer, contributors
   or other people, with no genuine bug report): deletes it, blocks the author.
 - Malware (luring readers into downloading or running malicious/untrusted
-  software or commands, e.g. fake "fix" archives, obfuscated commands piped
-  to a shell, fake download sites): deletes it, blocks the author.
+  software or commands: links to non-GitHub sites or file hosts offering
+  downloads/installers, obfuscated commands piped to a shell, malicious
+  forks): deletes it, blocks the author.
 
-Reports *about* malicious sites/forks are not removed.
+Links to non-malicious GitHub forks, links to sites without downloads
+(docs, Apple Support, screenshots, logs) and reports *about* malicious
+sites/forks are not removed.
 Every removal is recorded in moderation/flagged-issues.md.
 Standard library only."""
 import json
@@ -48,6 +51,23 @@ PIPE_TO_SHELL_RE = re.compile(
 DECODE_TO_SHELL_RE = re.compile(
     r"\bbase64\s+(-d|-D|--decode)\b[^\n]*\|\s*(sudo\s+)?(ba|z|da)?sh\b"
     r"|\becho\s+['\"]?[A-Za-z0-9+/=]{60,}['\"]?\s*\|\s*base64\b", re.I)
+# Direct links to downloadable files / installers
+DOWNLOAD_PATH_RE = re.compile(
+    r"\.(zip|rar|7z|dmg|pkg|mpkg|iso|img|app|exe|msi|sh|command|tar|gz|tgz|xz|bz2)$", re.I)
+# File hosts: any link there is treated as a download
+FILE_HOSTS = (
+    "mediafire.com", "mega.nz", "mega.io", "drive.google.com", "docs.google.com",
+    "dropbox.com", "dropboxusercontent.com", "onedrive.live.com", "1drv.ms",
+    "gofile.io", "pixeldrain.com", "anonfiles.com", "sendspace.com", "4shared.com",
+    "wetransfer.com", "we.tl", "transfer.sh", "file.io", "filebin.net", "uploadhaven.com",
+    "terabox.com", "workupload.com", "krakenfiles.com", "catbox.moe", "sourceforge.net",
+)
+# Hosts whose downloads are fine: GitHub (incl. non-malicious forks) and Apple
+TRUSTED_DOWNLOAD_HOSTS = ("github.com", "githubusercontent.com", "apple.com")
+# A post that warns about a site is a report, not a lure
+WARNING_RE = re.compile(
+    r"\b(malicious|malware|fake|scam\w*|phishing|typosquat\w*|impersonat\w*|virus|trojan|"
+    r"b[öo]sartig\w*|gef[äa]lscht\w*|schadsoftware)\b", re.I)
 ARCHIVE_PASSWORD_RE = re.compile(
     r"\.(zip|rar|7z|dmg|pkg)\b[\s\S]{0,200}?\b(pass(word)?|pw|passwort|kennwort)\s*[:=]"
     r"|\b(pass(word)?|pw|passwort|kennwort)\s*[:=][\s\S]{0,200}?\.(zip|rar|7z|dmg|pkg)\b", re.I)
@@ -95,6 +115,23 @@ def is_trusted_url(url):
     return host in ("albert-mueller.github.io", "dortania.github.io")
 
 
+def host_matches(host, domains):
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def download_links(text):
+    """Links to non-GitHub/Apple sites that point at a download or a file host."""
+    found = []
+    for m in URL_RE.finditer(text):
+        host = m.group(1).lower().split(":")[0]
+        path = (m.group(2) or "").split("?")[0].split("#")[0].rstrip(".,;)")
+        if host_matches(host, TRUSTED_DOWNLOAD_HOSTS):
+            continue
+        if host_matches(host, FILE_HOSTS) or DOWNLOAD_PATH_RE.search(path):
+            found.append(host)
+    return found
+
+
 def malware_heuristic(text):
     """Returns a short reason if the text matches a strong malware pattern, else None."""
     for m in PIPE_TO_SHELL_RE.finditer(text):
@@ -104,6 +141,8 @@ def malware_heuristic(text):
         return "obfuscated (base64) command"
     if ARCHIVE_PASSWORD_RE.search(text):
         return "password-protected archive"
+    if download_links(text) and not WARNING_RE.search(text):
+        return "download link to a non-GitHub site"
     return None
 
 
@@ -123,12 +162,17 @@ def claude_verdict(text, kind):
         "people (e.g. calling them names, wishing the project or its author failure, threats), "
         "where the issue does not contain a genuine bug report, question or feature request.\n"
         '- "malware": tries to get readers to download, install or run malicious or untrusted '
-        "software or commands: e.g. a \"fix\" or \"patched build\" linking to an archive or installer "
-        "on a file host or unrelated site, password-protected archives, obfuscated or base64-encoded "
-        "commands, curl/wget output piped to a shell from an unknown domain, links to fake download "
-        "sites or fake forks of this project.\n"
+        "software or commands: any link to a website or file host outside GitHub that offers "
+        "downloads or installers (e.g. a \"fix\", \"patched build\" or \"OCLP download\" on "
+        "Mediafire, MEGA, Google Drive, Dropbox or a personal site), password-protected archives, "
+        "obfuscated or base64-encoded commands, curl/wget output piped to a shell from an unknown "
+        "source, or links to a malicious GitHub fork (a fake or typosquatted copy of this project, "
+        "or one shipping modified builds with malware).\n"
         '- "none": everything else. Ordinary diagnostic commands (sudo diskutil, log show, sysctl, '
         f"csrutil, nvram ...) and links to {REPO}, dortania or acidanthera on GitHub are \"none\". "
+        "Links to other GitHub forks are \"none\" unless the fork itself is malicious. Links to "
+        "websites that don't offer downloads (documentation, Apple Support, forums, screenshots, "
+        "log or paste sites) and Apple's own downloads (apple.com) are \"none\". "
         "Reports that WARN about a malicious site, fork or download (even if they include the URL) "
         'are "none". Swearing or frustration about the software itself '
         "(\"this damn installer keeps failing\") is \"none\" as long as the issue describes a real "
