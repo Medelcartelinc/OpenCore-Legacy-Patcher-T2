@@ -4,9 +4,8 @@
 # (no model picked in the issue form, "not applicable" picked for a real Mac
 # problem, or an issue opened without the form). Accepts a model identifier
 # (e.g. Macmini8,1) or a name with a year (e.g. "Mac mini 2018").
-# Issues that aren't bug reports (icons/artwork, ideas, questions opened
-# without the form), security/malicious-site reports, feature requests and
-# Hackintosh reports
+# Suggestions / change requests (also icon or artwork contributions),
+# security/malicious-site reports, feature requests and Hackintosh reports
 # (handled by ask-for-hackintosh-specs.yml) are skipped. The bot comment and
 # label are removed automatically once the model is added (by editing the
 # issue or replying).
@@ -79,17 +78,20 @@ jobs:
             if (labels.some(l => SKIP_LABELS.includes(l))) return cleanUp('Skipped: skip label');
             const SECURITY_RE = /\b(security|vulnerab\w*|cve-\d{4}-\d+|ghsa-[\w-]+|exploit\w*|rce|remote code execution|code injection|command injection|privilege escalation|malware|malicious|typosquat\w*|phishing)\b/i;
             if (SECURITY_RE.test(issueText)) return cleanUp('Skipped: security / malicious-site report');
+            // Suggestions, change requests and contributions (icons, artwork, ...)
+            // don't need a Mac model or versions. Everything else, including
+            // issues opened without the form, is treated as a problem report.
+            const usedForm = /^###\s+(mac model|mac-modell|issue type|typ fehler)/im.test(body);
+            const SUGGEST_RE = /\b(suggest\w*|feature request|request(ing)? (a |an |the )?(feature|change|option)|would be (nice|great|cool|awesome)|(could|can) you (please )?add|please add|propos(e|al|ing)|vorschlag\w*|vorschlagen|wäre (schön|toll|cool|super))\b|bitte hinzufügen/i;
+            const SUGGEST_TITLE_RE = /\b(icons?|logos?|artwork|wallpapers?|themes?|design|mockup|features?|ideas?|idee|improvements?|verbesserung\w*|changes?|enhancements?|translations?)\b|änderung|übersetzung/i;
+            const PROBLEM_RE = /\b(bug|panic\w*|crash\w*|boot\w*|freez\w*|froze|hang(s|ing)?|hängt|stuck|error\w*|fehler\w*|fail\w*|broken|kaputt|missing|fehlt|not (working|showing|loading)|(doesn'?t|does not|won'?t|will not|can'?t|cannot) (work|boot|start|install|open|load|show)|black screen|kext|kernel)\b/i;
+            // Titles like "Add ...", "Change ...", "[Feature] ..." are requests even if they mention booting etc.
+            const REQUEST_TITLE_RE = /^\s*\[(feature|suggestion|request|idea|vorschlag)\]|^\s*(add|change|make|allow|improve|implement|replace|rename|support for|option to|füge|ergänze|ändere)\b/i;
             const issueType = section(/issue type|typ fehler/i);
-            if (issueType && /suggestion|empfehlung|feature/i.test(issueType)) return cleanUp('Skipped: feature suggestion');
-            // Only bug reports need a Mac model: the bug form, the "bug" label, or
-            // a blank issue that reads like a problem report. Artwork, icons,
-            // ideas, questions etc. opened without the form are left alone.
-            const usedForm = /^###\s+(mac model|mac-modell|macos|issue type|typ fehler)/im.test(body);
-            const BUG_RE = /\b(bug|panic\w*|crash\w*|boot\w*|freez\w*|froze|hang(s|ing)?|hängt|stuck|error\w*|fehler\w*|fail\w*|broken|kaputt|not working|(doesn'?t|does not|won'?t|will not|can'?t|cannot) (work|boot|start|install|open|load)|black screen|kext|kernel)\b/i;
-            const NON_BUG_TITLE_RE = /\b(icons?|logos?|artwork|wallpapers?|themes?|design|mockup|feature|suggestion|idea|proposal|request|translation|question|frage)\b/i;
-            const isBugReport = labels.includes('bug') || usedForm ||
-              (BUG_RE.test(issueText) && !NON_BUG_TITLE_RE.test(title));
-            if (!isBugReport) return cleanUp('Skipped: not a bug report');
+            const isSuggestion = usedForm
+              ? !!issueType && /suggestion|empfehlung|feature/i.test(issueType)
+              : SUGGEST_RE.test(issueText) || REQUEST_TITLE_RE.test(title) || (SUGGEST_TITLE_RE.test(title) && !PROBLEM_RE.test(issueText));
+            if (isSuggestion) return cleanUp('Skipped: suggestion / change request');
             // Hackintoshes: ask-for-hackintosh-specs.yml already asks for the SMBIOS
             const HACKINTOSH_RE = /\b(hackintosh\w*|hackintosch|hackbook|non[- ]apple (pc|hardware|machine)|not an? (real|genuine) mac|custom[- ]built pc|amd hackintosh)\b/i;
             if (HACKINTOSH_RE.test(issueText)) return cleanUp('Skipped: Hackintosh report');
