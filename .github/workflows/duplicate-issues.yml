@@ -3,6 +3,10 @@ name: Duplicate Issue Check
 on:
   issues:
     types: [opened, reopened]
+  # Daily automatic check of ALL existing open issues (text check for all,
+  # AI check only for recently updated issues to save GitHub Models quota)
+  schedule:
+    - cron: '17 3 * * *'   # every day at 03:17 UTC
   # Manual run: checks ALL existing open issues for duplicates (backfill)
   workflow_dispatch:
     inputs:
@@ -32,7 +36,7 @@ jobs:
   check-duplicates:
     runs-on: ubuntu-latest
     # Ignore pull requests (they also trigger issue events in some cases)
-    if: github.event_name == 'workflow_dispatch' || github.event.issue.pull_request == null
+    if: github.event_name != 'issues' || github.event.issue.pull_request == null
     steps:
       - name: Look for duplicate issues
         uses: actions/github-script@v8
@@ -54,14 +58,18 @@ jobs:
             const AI_MAX_CANDIDATES = 300;   // how many of the newest older issues to compare
             const AI_BATCH_SIZE     = 50;    // issues per request (keeps requests under the token limit)
             const AI_BACKFILL_DELAY = 4500;  // ms between AI requests in a backfill (GitHub Models rate limit)
+            const SCHEDULE_AI_DAYS  = 2;     // scheduled run: AI check only for issues updated in the last N days
             // ------------------------------------------------------------------
 
             const { owner, repo } = context.repo;
 
             // ---- Mode --------------------------------------------------------
-            const IS_BACKFILL = context.eventName === 'workflow_dispatch';
+            const IS_MANUAL   = context.eventName === 'workflow_dispatch';
+            const IS_SCHEDULE = context.eventName === 'schedule';
+            const IS_BACKFILL = IS_MANUAL || IS_SCHEDULE;
             const inputs      = context.payload.inputs || {};
-            const DRY_RUN     = IS_BACKFILL && String(inputs.dry_run) !== 'false';
+            // Scheduled runs act for real; manual runs default to a dry run
+            const DRY_RUN     = IS_MANUAL && String(inputs.dry_run) !== 'false';
             const MAX_ISSUES  = IS_BACKFILL ? Math.max(0, Number(inputs.max_issues) || 0) : 0;
             let   aiEnabled   = AI_ENABLED && !(IS_BACKFILL && String(inputs.use_ai) === 'false');
             const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -224,7 +232,7 @@ jobs:
             const knownDuplicates = new Set(allIssues.filter(isLabelledDuplicate).map(i => i.number));
 
             // ---- Check one issue; returns its matches (empty if none/skipped) --
-            async function checkIssue(issue) {
+            async function checkIssue(issue, useAi = true) {
               // Don't comment twice (e.g. when an issue is reopened)
               const comments = await github.paginate(github.rest.issues.listComments, {
                 owner, repo, issue_number: issue.number, per_page: 100,
@@ -245,7 +253,7 @@ jobs:
                 .filter(m => m.s >= THRESHOLD);
 
               // 2) If nothing was found, ask the AI (catches other languages)
-              if (matches.length === 0 && aiEnabled && candidates.length > 0) {
+              if (matches.length === 0 && useAi && aiEnabled && candidates.length > 0) {
                 const aiFound = await aiFindDuplicates(issue, candidates.slice(0, AI_MAX_CANDIDATES));
                 matches = candidates
                   .filter(i => aiFound.has(i.number))
@@ -343,13 +351,18 @@ jobs:
               .sort((a, b) => a.number - b.number);
             if (MAX_ISSUES > 0) targets = targets.slice(0, MAX_ISSUES);
 
-            core.info(`Backfill: checking ${targets.length} open issue(s)` +
+            // Scheduled runs: every issue gets the cheap text check, but only recently
+            // updated ones get the AI check (the rest were already AI-checked when opened)
+            const aiCutoff = Date.now() - SCHEDULE_AI_DAYS * 24 * 60 * 60 * 1000;
+            const wantsAi = i => !IS_SCHEDULE || new Date(i.updated_at).getTime() >= aiCutoff;
+
+            core.info(`${IS_SCHEDULE ? 'Scheduled check' : 'Backfill'}: checking ${targets.length} open issue(s)` +
               `${DRY_RUN ? ' (dry run, nothing will be changed)' : ''}, AI check ${aiEnabled ? 'on' : 'off'}.`);
 
             const rows = [];
             for (const issue of targets) {
               try {
-                const matches = await checkIssue(issue);
+                const matches = await checkIssue(issue, wantsAi(issue));
                 if (matches.length > 0) {
                   rows.push([
                     `#${issue.number}`,
@@ -363,7 +376,7 @@ jobs:
             }
 
             await core.summary
-              .addHeading(`Duplicate backfill${DRY_RUN ? ' (dry run)' : ''}`)
+              .addHeading(`${IS_SCHEDULE ? 'Scheduled duplicate check' : 'Duplicate backfill'}${DRY_RUN ? ' (dry run)' : ''}`)
               .addRaw(`Checked ${targets.length} open issue(s), ` +
                 `${rows.length} ${DRY_RUN ? 'would be' : 'were'} marked as duplicate.`, true)
               .addTable([
