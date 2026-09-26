@@ -694,6 +694,8 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reaso
     itself - that's precisely the problem being repaired here.
 
     """
+    #TODO: set the input strings to a encoding of utf-8
+    return_args = f"{action} {args}"
     status, auth_ref = Security.AuthorizationCreate(
         None,
         None,
@@ -703,7 +705,7 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reaso
 
     if status != Security.errAuthorizationSuccess:
         logging.error(f"AuthorizationCreate failed with status {status}")
-        return False
+        return subprocess.CompletedProcess(args=return_args, returncode=int(status))
 
     try:
         rights = (
@@ -714,7 +716,7 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reaso
                 0
             ),
         )
-        prompt = bytes(reason)
+        prompt = bytes(reason, encoding="utf-8")
         environment = (
             Security.AuthorizationItem(
                 Security.kAuthorizationEnvironmentPrompt,
@@ -737,36 +739,36 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reaso
 
         if status == Security.errAuthorizationCanceled:
             logging.info("User canceled the request")
-            return False
+            return subprocess.CompletedProcess(args=return_args, returncode=1)
 
         if status != Security.errAuthorizationSuccess:
             logging.error(f"AuthorizationCopyRights failed with status {status}")
-            return False
+            return subprocess.CompletedProcess(args=return_args, returncode=int(status))
 
 
         status, _ = Security.AuthorizationExecuteWithPrivileges(
             auth_ref,
-            bytes(action),
+            bytes(action, encoding="utf-8"),
             Security.kAuthorizationFlagDefaults,
-            bytes(args),
+            bytes(args, encoding="utf-8"),
             None,
         )
 
         if status == Security.errAuthorizationCanceled:
             logging.info("User canceled the request")
-            return False
+            return subprocess.CompletedProcess(args=return_args, returncode=1)
 
         if status != Security.errAuthorizationSuccess:
             logging.error(f"AuthorizationExecuteWithPrivileges failed with status {status}")
-            return False
+            return subprocess.CompletedProcess(args=return_args, returncode=int(status))
 
         logging.info("Running as root succeeded")
-        return True
+        return subprocess.CompletedProcess(args=return_args, returncode=0)
 
     except Exception:
         logging.error("Running as root failed.")
         logging.exception("Stack Trace:")
-        return False
+        return subprocess.CompletedProcess(args=return_args, returncode=0)
 
     finally:
         Security.AuthorizationFree(
