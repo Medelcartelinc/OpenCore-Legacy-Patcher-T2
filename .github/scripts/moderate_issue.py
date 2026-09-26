@@ -3,7 +3,7 @@
 
 - Hate speech: deletes the issue, blocks the author.
 - Abuse (insults, profanity or harassment aimed at the maintainer, contributors
-  or other people, with no genuine bug report): deletes the issue, does not block.
+  or other people, with no genuine bug report): deletes the issue, blocks the author.
 
 Every removal is recorded in moderation/flagged-issues.md.
 Standard library only."""
@@ -160,11 +160,8 @@ def main():
         return
 
     action = remove_issue(issue)
-    if category == HATE:
-        block_status, _ = gh("PUT", f"/user/blocks/{user['login']}")
-        blocked = "✅" if block_status == 204 else f"❌ ({block_status})"
-    else:
-        blocked = "— (abuse: not blocked)"
+    block_status, _ = gh("PUT", f"/user/blocks/{user['login']}")
+    blocked = "✅" if block_status == 204 else f"❌ ({block_status})"
 
     label = CATEGORY_LABEL[category]
     row = "| " + " | ".join([
