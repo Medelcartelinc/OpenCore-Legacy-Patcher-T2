@@ -13,7 +13,7 @@ on:
       dry_run:
         description: 'Dry run: only list duplicates in the run summary, do not comment, label or close'
         type: boolean
-        default: true
+        default: false
       use_ai:
         description: 'Also use the cross-language AI check (uses GitHub Models quota)'
         type: boolean
@@ -68,8 +68,9 @@ jobs:
             const IS_SCHEDULE = context.eventName === 'schedule';
             const IS_BACKFILL = IS_MANUAL || IS_SCHEDULE;
             const inputs      = context.payload.inputs || {};
-            // Scheduled runs act for real; manual runs default to a dry run
-            const DRY_RUN     = IS_MANUAL && String(inputs.dry_run) !== 'false';
+            // Scheduled and manual runs comment + close automatically; a manual run
+            // only does a dry run when "dry_run" is ticked
+            const DRY_RUN     = IS_MANUAL && String(inputs.dry_run) === 'true';
             const MAX_ISSUES  = IS_BACKFILL ? Math.max(0, Number(inputs.max_issues) || 0) : 0;
             let   aiEnabled   = AI_ENABLED && !(IS_BACKFILL && String(inputs.use_ai) === 'false');
             const sleep = ms => new Promise(r => setTimeout(r, ms));
