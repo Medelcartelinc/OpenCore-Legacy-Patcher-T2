@@ -1,0 +1,43 @@
+name: Moderate issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write   # commit the tracking file
+  issues: write
+
+# Serialize runs so commits to the tracking file never collide
+concurrency:
+  group: moderation-log
+  cancel-in-progress: false
+
+jobs:
+  moderate:
+    # Never moderate yourself or collaborators
+    if: ${{ !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check issue, delete, block
+        env:
+          GH_TOKEN: ${{ secrets.MODERATION_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REPO: ${{ github.repository }}
+        run: python .github/scripts/moderate_issue.py
+
+      - name: Commit tracking file
+        run: |
+          if [ -n "$(git status --porcelain moderation/)" ]; then
+            git config user.name "moderation-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add moderation/
+            git commit -m "Moderation: log removed issue [skip ci]"
+            git push
+          fi

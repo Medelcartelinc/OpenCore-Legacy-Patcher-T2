@@ -1,0 +1,3 @@
+# One term per line, case-insensitive, matched as whole words.
+# Used as a fallback when ANTHROPIC_API_KEY is not set (or the API call fails).
+# Lines starting with # are ignored.
