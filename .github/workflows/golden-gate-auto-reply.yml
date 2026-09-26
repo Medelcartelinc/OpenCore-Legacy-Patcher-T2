@@ -33,7 +33,7 @@ jobs:
         with:
           script: |
             // Issue text is read from the payload inside JS, never interpolated
-            // into a shell/script via ${{ }}, so it cannot inject code.
+            // into the script via a workflow expression, so it cannot inject code.
             const issue = context.payload.issue;
             const labels = (issue.labels || []).map(l => l.name);
             if (labels.includes('bot-ignore')) return;
