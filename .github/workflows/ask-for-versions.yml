@@ -119,7 +119,7 @@ jobs:
 
             const missing = [];
             if (!hasMacOS) {
-              missing.push('**macOS version**, ideally with the build number (e.g. `26.6.1 (25G76)`). You can find it under  → About This Mac, or by running `sw_vers` in Terminal.');
+              missing.push('**macOS version**, ideally with the build number (e.g. `26.6.1 (25G76)`). You can find it under  → About This Mac, or by running `sw_vers` in Terminal. <img width="431" height="641" alt="Image" src="https://github.com/user-attachments/assets/e87b151b-aafa-4307-be99-fa9e1203e6b6" />');
             }
             if (!hasPatcher) {
               missing.push('**OpenCore Legacy Patcher version** (e.g. `4.0.0.19004.5`), shown in the app\'s main window. If you built from source, the commit hash works too. <img width="812" height="677" alt="Image" src="https://github.com/user-attachments/assets/9fa812d4-650b-4cf7-9f44-6a75c63b7c65" /> ');
