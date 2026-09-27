@@ -869,9 +869,10 @@ class Constants:
         """
         True when running on macOS 26 Tahoe or newer with Dark Mode active.
         """
-        if self.detected_os < os_data.os_data.tahoe:
+        if self.detected_os >= os_data.os_data.tahoe:
+            return self.system_is_dark_mode()
+        else:
             return False
-        return self.system_is_dark_mode()
 
     @staticmethod
     def system_is_dark_mode() -> bool:
