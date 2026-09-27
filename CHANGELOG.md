@@ -16,7 +16,125 @@ This release:
         - payloads/OpenCore/Update-OpenCore.command
 
 - fixes a false positive where some security tools, like CodeQL and other specialized security tools may flag the rejected-attempt log line because it interpolates ADMIN_PASSWORD_MAX_ATTEMPTS, whose name matches the 'password' heuristic. The value is only the retry limit (3), not a credential.
-- fixes a vulnerability where when the Priveleged Helper Tool uses a Debug build, an attacker could execute arbitary commands via Living-off-the-land (LoTL) techniques.
+- fixes a vulnerability where when the Priveleged Helper Tool uses a Debug build, an attacker could execute arbitary commands via Living-off-the-land (LoTL) techniques. https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2/issues/17 . This is fixed by trusting only these commands and nothing else:
+
+
+                        /*
+                            Command allowlist
+                            ------------------------------------------------
+                            The helper used to execute ANY path it was given as root. In a DEBUG build
+                            (no certificate check) that meant any local process could run anything as
+                            root. Every command is now resolved with realpath() and must match one of
+                            the binaries the app actually needs. All entries are SIP-protected system
+                            paths, so they cannot be swapped out by an unprivileged attacker.
+                        
+                            Keep this list in sync with the run_as_root() call sites in the Python app.
+                            A rejected command returns OCLP_PHT_ERROR_COMMAND_NOT_ALLOWED; the app then
+                            falls back to its normal administrator-password prompt for that command.
+                        */
+                        static NSSet<NSString *> *allowedCommands(void) {
+                            static NSSet *set = nil;
+                            static dispatch_once_t once;
+                            dispatch_once(&once, ^{
+                                set = [NSSet setWithArray:@[
+                                    @"/bin/chmod",
+                                    @"/bin/cp",
+                                    @"/bin/launchctl",
+                                    @"/bin/mkdir",
+                                    @"/bin/mv",
+                                    @"/bin/rm",
+                                    @"/bin/sh",
+                                    @"/sbin/mount",
+                                    @"/sbin/umount",
+                                    @"/usr/bin/chflags",
+                                    @"/usr/bin/codesign",
+                                    @"/usr/bin/defaults",
+                                    @"/usr/bin/hdiutil",
+                                    @"/usr/bin/killall",
+                                    @"/usr/bin/kmutil",
+                                    @"/usr/bin/rsync",
+                                    @"/usr/bin/tar",
+                                    @"/usr/bin/touch",
+                                    @"/usr/bin/xar",
+                                    @"/usr/sbin/bless",
+                                    @"/usr/sbin/chown",
+                                    @"/usr/sbin/diskutil",
+                                    @"/usr/sbin/installer",
+                                    @"/usr/sbin/kcditto",
+                                    @"/usr/sbin/kextcache",
+                                ]];
+                            });
+                            return set;
+                        }
+                        
+                        /*
+                            Commands that are a direct "run arbitrary code as root" primitive
+                            (script interpreter, package installer with its own install scripts).
+                            Refused outright in DEBUG builds, because there the caller is not verified.
+                        */
+                        static NSSet<NSString *> *debugForbiddenCommands(void) {
+                            static NSSet *set = nil;
+                            static dispatch_once_t once;
+                            dispatch_once(&once, ^{
+                                set = [NSSet setWithArray:@[
+                                    @"/bin/sh",
+                                    @"/usr/sbin/installer",
+                                ]];
+                            });
+                            return set;
+                        }
+                        
+                        NSString *resolveCommandPath(const char *rawPath) {
+                            // Only absolute paths - never rely on PATH lookup.
+                            if (rawPath == NULL || rawPath[0] != '/') {
+                                return nil;
+                            }
+                            char resolved[PATH_MAX];
+                            if (realpath(rawPath, resolved) == NULL) {
+                                return nil;
+                            }
+                            struct stat st;
+                            if (stat(resolved, &st) != 0 || !S_ISREG(st.st_mode)) {
+                                return nil;
+                            }
+                            return [NSString stringWithUTF8String:resolved];
+                        }
+                        
+                        BOOL isCommandAllowed(NSString *command, NSArray<NSString *> *arguments, NSDictionary *helperSigningInformation) {
+                            if ([allowedCommands() containsObject:command]) {
+                                #ifdef DEBUG
+                                if ([debugForbiddenCommands() containsObject:command]) {
+                                    return NO;
+                                }
+                                #endif
+                        
+                                // /bin/sh is only used to run the generated Installer.sh:
+                                // exactly one argument, and no options such as -c.
+                                if ([command isEqualToString:@"/bin/sh"]) {
+                                    if (arguments.count != 1 || [arguments[0] hasPrefix:@"-"]) {
+                                        return NO;
+                                    }
+                                }
+                                return YES;
+                            }
+                        
+                            // RSRRepair ships inside the app bundle, so its path is not fixed.
+                            // Accept it only if it carries the same signing certificates as this helper.
+                            // (Unsigned DEBUG builds have no certificates, so this is always refused there.)
+                            if ([[command lastPathComponent] isEqualToString:@"RSRRepair"]) {
+                                NSDictionary *commandSigningInformation = getSigningInformationFromPath(command);
+                                NSArray *helperCertificates  = helperSigningInformation[@"certificates"];
+                                NSArray *commandCertificates = commandSigningInformation[@"certificates"];
+                                if (helperCertificates.count > 0 &&
+                                    commandCertificates.count > 0 &&
+                                    [helperCertificates isEqualToArray:commandCertificates]) {
+                                    return YES;
+                                }
+                            }
+                        
+                            return NO;
+                        }
+
 
 ## 4.0.0.19004.5 - 4.0.0 alpha 19.4.5
 This release:
