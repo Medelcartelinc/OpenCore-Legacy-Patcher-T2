@@ -73,8 +73,19 @@ class MainFrame(wx.Frame):
         """
         event.Skip()
         try:
-            if getattr(self, "logo", None):
-                self.logo.SetBitmap(wx.Bitmap(str(self.constants.app_icon_path), wx.BITMAP_TYPE_ICON))
+            logo = getattr(self, "logo", None)
+            icon_path = str(self.constants.app_icon_path)
+            # Only touch the logo if the icon actually changes. Before Tahoe (and on
+            # Tahoe in Light Mode) the path stays the same, so nothing needs redrawing.
+            if logo and icon_path != getattr(self, "_logo_icon_path", None):
+                logo.SetBitmap(wx.Bitmap(icon_path, wx.BITMAP_TYPE_ICON))
+                # SetBitmap() resizes the control to the bitmap's native size (up to
+                # 1024x1024 for an .icns), which blew the logo up over the whole window.
+                # Restore the original 128x128 box and re-centre it.
+                logo.SetSize((128, 128))
+                logo.SetPosition((-1, 0))
+                logo.Centre(wx.HORIZONTAL)
+                self._logo_icon_path = icon_path
             gui_support.update_dock_icon(self.constants)
         except Exception:
             logging.exception("Failed to update app icon after appearance change")
@@ -89,6 +100,8 @@ class MainFrame(wx.Frame):
         logo = wx.StaticBitmap(self, bitmap=wx.Bitmap(str(self.constants.app_icon_path), wx.BITMAP_TYPE_ICON), pos=(-1, 0), size=(128, 128))
         logo.Centre(wx.HORIZONTAL)
         self.logo = logo
+        self._logo_icon_path = str(self.constants.app_icon_path)
+        self.Unbind(wx.EVT_SYS_COLOUR_CHANGED, handler=self._on_appearance_changed)
         self.Bind(wx.EVT_SYS_COLOUR_CHANGED, self._on_appearance_changed)
 
         # Title label
