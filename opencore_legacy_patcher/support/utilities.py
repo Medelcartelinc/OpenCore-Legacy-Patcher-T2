@@ -680,22 +680,23 @@ def check_cli_args():
     else:
         return args
 
-def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reason: str = "OpenCore-Patcher-T2 needs your administrative permission", confirm_button: str ="OK", deny_button: str = "Cancel"):
+def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reason: str = "OpenCore-Patcher-T2 needs your administrative permission", confirm_button: str ="OK", deny_button: str = "Cancel"):
     """
     run the give action as root without using the Privileged Helper Tool
 
-    * action: an array of what is to be executed in which the first value is the program/command to be executed and the last value is optional arguments
+    * action: a str path to the progra being executed
+    * args: a list of all the arguments to be sent to the program
     * reason: the message that tells the user why they are seeing this format it like this: why you are seeing this (e.g "OpenCore-Patcher-T2 needs your administrative permission") and what will happen (e.g "to verify that you are an admin")
     * confirm_button: the name of the OK button that is desplayed to the user if the default doesn't work
-    * deny_button: the name of the Cancel button that is deplayed to user if the default doesn't work
-
-    Note: Deliberately does NOT go through run_as_root() (i.e. the helper
-    tool itself), since a helper tool missing its setuid bit can't elevate
-    itself - that's precisely the problem being repaired here.
-
+    * deny_button: the name of the Cancel button that is desplayed to the user if the default doesn't work
     """
-    #TODO: set the input strings to a encoding of utf-8
-    return_args = f"{action} {args}"
+    if args is None:
+        return_args = action
+    else:
+        byte_args: list = []
+        for arg in args:
+            byte_args.append(bytes(arg, encoding="utf-8"))
+        return_args = f"{action} {str(byte_args)}"
     status, auth_ref = Security.AuthorizationCreate(
         None,
         None,
@@ -704,8 +705,7 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reaso
     )
 
     if status != Security.errAuthorizationSuccess:
-        logging.error(f"AuthorizationCreate failed with status {status}")
-        return subprocess.CompletedProcess(args=return_args, returncode=int(status))
+        return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCreate failed with status {status}")
 
     try:
         rights = (
@@ -738,37 +738,40 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: str =None, reaso
         )
 
         if status == Security.errAuthorizationCanceled:
-            logging.info("User canceled the request")
-            return subprocess.CompletedProcess(args=return_args, returncode=1)
+            return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
 
         if status != Security.errAuthorizationSuccess:
-            logging.error(f"AuthorizationCopyRights failed with status {status}")
-            return subprocess.CompletedProcess(args=return_args, returncode=int(status))
-
-
-        status, _ = Security.AuthorizationExecuteWithPrivileges(
-            auth_ref,
-            bytes(action, encoding="utf-8"),
-            Security.kAuthorizationFlagDefaults,
-            bytes(args, encoding="utf-8"),
-            None,
-        )
+            return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCopyRights failed with status {status}")
+        
+        if args is None or args == "":
+            status, _ = Security.AuthorizationExecuteWithPrivileges(
+                auth_ref,
+                bytes(action, encoding="utf-8"),
+                Security.kAuthorizationFlagDefaults,
+                b'',
+                None,
+            )
+        else:
+            status, _ = Security.AuthorizationExecuteWithPrivileges(
+                auth_ref,
+                bytes(action, encoding="utf-8"),
+                Security.kAuthorizationFlagDefaults,
+                byte_args,
+                None,
+            )
 
         if status == Security.errAuthorizationCanceled:
-            logging.info("User canceled the request")
-            return subprocess.CompletedProcess(args=return_args, returncode=1)
+            return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
 
         if status != Security.errAuthorizationSuccess:
-            logging.error(f"AuthorizationExecuteWithPrivileges failed with status {status}")
-            return subprocess.CompletedProcess(args=return_args, returncode=int(status))
-
-        logging.info("Running as root succeeded")
-        return subprocess.CompletedProcess(args=return_args, returncode=0)
+            return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationExecuteWithPrivileges failed with status {status}")
+# fix the success logic of mount root volume
+        return subprocess.CompletedProcess(args=return_args, returncode=0, stdout="Running as root succeeded")
 
     except Exception:
-        logging.error("Running as root failed.")
+        logging.error("Running as root failed")
         logging.exception("Stack Trace:")
-        return subprocess.CompletedProcess(args=return_args, returncode=0)
+        return subprocess.CompletedProcess(args=return_args, returncode=0, stderr="Running as root failed")
 
     finally:
         Security.AuthorizationFree(

@@ -183,18 +183,24 @@ def privileged_helper_needs_setuid_repair() -> bool:
         return False
 
 
-def repair_privileged_helper_permissions() -> bool:
+def repair_privileged_helper_permissions():
 
         if not _helper_path_is_safe_to_repair():
             return False
 
-        prompt = b"OpenCore Legacy Patcher T2 needs administrator permission to repair the permissions of its privileged helper tool."
+        prompt = "OpenCore Legacy Patcher T2 needs administrator permission to repair the permissions of its privileged helper tool."
 
-        utilities.get_admin_permission(
-            action=[b"/bin/chmod", f"{oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:]} {OCLP_PRIVILEGED_HELPER}".encode("utf-8")],
+        result=utilities.get_admin_permission(
+            action="/bin/chmod", 
+            args=[f"{oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:]} {OCLP_PRIVILEGED_HELPER}".encode("utf-8")],
             reason=prompt,
             # the defaults for the buttons are ok, so we would touch them
         )
+        if result.returncode == 0:
+            return True
+        else:
+            return False
+
 
 
 
@@ -259,11 +265,9 @@ def run_as_root(*args, **kwargs):
             logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
     elif not Path(OCLP_PRIVILEGED_HELPER).exists():
         logging.warning(f"Privileged Helper Tool not found at {OCLP_PRIVILEGED_HELPER}.")
-    args=""
-    for arg in kwargs:
-        args+=f"{arg} "
-
-    return utilities.get_admin_permission(action=_command, args=f"{kwargs}")
+    process =_command[0]
+    _command.remove(process)
+    return utilities.get_admin_permission(action=process, args=_command)
 
 
 
@@ -341,10 +345,9 @@ def mount_dmg(
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
-    args=""
-    for arg in cmd.remove(cmd[0]):
-        args+= f"{arg} "
-    utilities.get_admin_permission(action=cmd[0], args=arg, reason=admin_password_prompt)
+    action = cmd[0]
+    cmd.remove(action)
+    utilities.get_admin_permission(action=action, args=cmd, reason=admin_password_prompt)
 
 
 def verify(process_result: subprocess.CompletedProcess) -> None:
