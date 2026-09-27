@@ -1,4 +1,8 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190004.6 - 4.0.0 alpha 19.4.6
+This release:
+- adds a dark variant of the app icon (OC-Patcher-Dark.icns) that is used on macOS 26 Tahoe and newer when Dark Mode is active: in the main menu logo, in the Dock while the app is running, and in the app's dialogs (admin prompts, update and auto-patcher dialogs). Switching between Light and Dark Mode while the app is open updates the icon immediately. If the dark icon file is missing, the regular icon is used.
+
 ## 4.0.0.19004.5 - 4.0.0 alpha 19.4.5
 This release:
 - fixes a bug in constants.py where AppleALC was set to version 1.6.7 instead of 1.9.7

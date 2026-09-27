@@ -67,13 +67,29 @@ class MainFrame(wx.Frame):
 
         self._preflight_checks()
 
+    def _on_appearance_changed(self, event: wx.Event) -> None:
+        """
+        Swap the logo and Dock icon when the user toggles Light/Dark Mode while the app is open
+        """
+        event.Skip()
+        try:
+            if getattr(self, "logo", None):
+                self.logo.SetBitmap(wx.Bitmap(str(self.constants.app_icon_path), wx.BITMAP_TYPE_ICON))
+            gui_support.update_dock_icon(self.constants)
+        except Exception:
+            logging.exception("Failed to update app icon after appearance change")
+
+
     def _generate_elements(self) -> None:
         """
         Generate UI elements for the main menu
         """
         # Logo
-        logo = wx.StaticBitmap(self, bitmap=wx.Bitmap(str(self.constants.icns_resource_path / "OC-Patcher.icns"), wx.BITMAP_TYPE_ICON), pos=(-1, 0), size=(128, 128))
+        # Uses the dark app icon on macOS 26 Tahoe+ in Dark Mode (see constants.app_icon_path)
+        logo = wx.StaticBitmap(self, bitmap=wx.Bitmap(str(self.constants.app_icon_path), wx.BITMAP_TYPE_ICON), pos=(-1, 0), size=(128, 128))
         logo.Centre(wx.HORIZONTAL)
+        self.logo = logo
+        self.Bind(wx.EVT_SYS_COLOUR_CHANGED, self._on_appearance_changed)
 
         # Title label
         title_label = wx.StaticText(self, label=self.constants.patcher_name, pos=(-1, 128))

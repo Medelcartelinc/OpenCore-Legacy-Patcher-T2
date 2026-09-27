@@ -856,7 +856,48 @@ class Constants:
 
     @property
     def app_icon_path(self):
+        # macOS 26 Tahoe and newer in Dark Mode get the dark variant of the app icon.
+        # Falls back to the regular icon if the dark file is missing (e.g. an older build).
+        if self.use_dark_app_icon:
+            dark_icon = self.icns_resource_path / Path("OC-Patcher-Dark.icns")
+            if dark_icon.exists():
+                return dark_icon
         return self.icns_resource_path / Path("OC-Patcher.icns")
+
+    @property
+    def use_dark_app_icon(self) -> bool:
+        """
+        True when running on macOS 26 Tahoe or newer with Dark Mode active.
+        """
+        if self.detected_os < os_data.os_data.tahoe:
+            return False
+        return self.system_is_dark_mode()
+
+    @staticmethod
+    def system_is_dark_mode() -> bool:
+        """
+        Determine whether the current appearance is Dark Mode.
+
+        Prefers NSApp's effective appearance (accurate for "Auto" and for live
+        switches while the GUI is running). Without an NSApplication instance
+        (CLI, auto-patcher, privileged contexts) the AppleInterfaceStyle global
+        preference is read instead. Any failure is treated as Light Mode.
+        """
+        try:
+            from AppKit import NSApp, NSAppearanceNameAqua, NSAppearanceNameDarkAqua
+            app = NSApp()
+            if app is not None:
+                match = app.effectiveAppearance().bestMatchFromAppearancesWithNames_([NSAppearanceNameAqua, NSAppearanceNameDarkAqua])
+                return match == NSAppearanceNameDarkAqua
+        except Exception:
+            pass
+
+        try:
+            from Foundation import NSUserDefaults
+            style = NSUserDefaults.standardUserDefaults().stringForKey_("AppleInterfaceStyle")
+            return style is not None and str(style).lower() == "dark"
+        except Exception:
+            return False
 
     @property
     def app_icon_path_png(self):

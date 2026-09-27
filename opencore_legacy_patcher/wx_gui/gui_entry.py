@@ -110,6 +110,9 @@ class EntryPoint:
         NSApplication.sharedApplication()
         NSApp().activateIgnoringOtherApps_(True)
 
+        # Dark app icon in the Dock on macOS 26 Tahoe+ when Dark Mode is active
+        gui_support.update_dock_icon(self.constants)
+
 
     def start(self, entry: SupportedEntryPoints = gui_mode_selector.ModeSelectorFrame, start_patching: bool = False) -> None:
         """
