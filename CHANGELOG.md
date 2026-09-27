@@ -1,7 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190004.6 - 4.0.0 alpha 19.4.6
 This release:
-- adds a dark variant of the app icon (OC-Patcher-Dark.icns) that is used on macOS 26 Tahoe and newer when Dark Mode is active: in the main menu logo, in the Dock while the app is running, and in the app's dialogs (admin prompts, update and auto-patcher dialogs). Switching between Light and Dark Mode while the app is open updates the icon immediately. If the dark icon file is missing, the regular icon is used. Thx @coolkid418
+- adds a dark variant of the app icon (OC-Patcher-Dark.icns) that is used on macOS 26 Tahoe and newer when Dark Mode is active: in the main menu logo, in the Dock while the app is running, and in the app's dialogs (admin prompts, update and auto-patcher dialogs). Switching between Light and Dark Mode while the app is open updates the icon immediately. If the dark icon file is missing, the regular icon is used. Thx @coolkid418 https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/issues/435
 - fixes a bug where when running one of the following files, it says Permission denied:
         - .github/scripts/syntax_check.sh
         - Build-Project.command
