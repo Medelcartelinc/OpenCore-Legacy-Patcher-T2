@@ -72,6 +72,7 @@ class PrivilegedHelperErrorCodes(enum.IntEnum):
     OCLP_PHT_ERROR_COMMAND_MISSING             = 168
     OCLP_PHT_ERROR_COMMAND_FAILED              = 169
     OCLP_PHT_ERROR_CATCH_ALL                   = 170
+    OCLP_PHT_ERROR_COMMAND_NOT_ALLOWED         = 171
 
 
 # Errors that will not go away by retrying within this session: the helper (or the app
@@ -867,7 +868,7 @@ def __resolve_privileged_helper_errors(return_code: int) -> Optional[str]:
     """
     Attempt to resolve Privileged Helper Tool error codes.
 
-    Returns the enum name for one of our sentinel codes (160-170), or None for any
+    Returns the enum name for one of our sentinel codes (160-171), or None for any
     other exit code - callers distinguish "the helper itself failed" from "the wrapped
     command failed" on exactly this None check.
     """
