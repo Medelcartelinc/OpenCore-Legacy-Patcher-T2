@@ -172,8 +172,11 @@ class PatchSysVolume:
             bool: True if mount successful, False otherwise
         """
         logging.debug("Attempting to mount root volume")
-        return self.mount_obj.mount()
-
+        if self.mount_obj.mount() == None:
+            return False
+        else:
+            return True
+ 
 
     def _unmount_root_vol(self) -> None:
         """Unmount root volume gracefully."""
