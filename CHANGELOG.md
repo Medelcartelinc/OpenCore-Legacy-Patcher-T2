@@ -1,7 +1,22 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190004.6 - 4.0.0 alpha 19.4.6
 This release:
-- adds a dark variant of the app icon (OC-Patcher-Dark.icns) that is used on macOS 26 Tahoe and newer when Dark Mode is active: in the main menu logo, in the Dock while the app is running, and in the app's dialogs (admin prompts, update and auto-patcher dialogs). Switching between Light and Dark Mode while the app is open updates the icon immediately. If the dark icon file is missing, the regular icon is used.
+- adds a dark variant of the app icon (OC-Patcher-Dark.icns) that is used on macOS 26 Tahoe and newer when Dark Mode is active: in the main menu logo, in the Dock while the app is running, and in the app's dialogs (admin prompts, update and auto-patcher dialogs). Switching between Light and Dark Mode while the app is open updates the icon immediately. If the dark icon file is missing, the regular icon is used. Thx @coolkid418
+- fixes a bug where when running one of the following files, it says Permission denied:
+        - .github/scripts/syntax_check.sh
+        - Build-Project.command
+        - Tools/backup_state.command
+        - Tools/kdk_remove.command
+        - ci_tooling/installer_backups/macOS_Installer_Backup.command
+        - ci_tooling/privileged_helper_tool/create-signing-certificate.sh
+        - ci_tooling/privileged_helper_tool/install.sh
+        - install-OpenCore-T1.command
+        - payloads/Kexts/Tools/ResourceConverter.sh
+        - payloads/Kexts/Update-Kexts.command
+        - payloads/OpenCore/Update-OpenCore.command
+
+- fixes a false positive where some security tools, like CodeQL and other specialized security tools may flag the rejected-attempt log line because it interpolates ADMIN_PASSWORD_MAX_ATTEMPTS, whose name matches the 'password' heuristic. The value is only the retry limit (3), not a credential.
+- fixes a vulnerability where when the Priveleged Helper Tool uses a Debug build, an attacker could execute arbitary commands via Living-off-the-land (LoTL) techniques.
 
 ## 4.0.0.19004.5 - 4.0.0 alpha 19.4.5
 This release:
