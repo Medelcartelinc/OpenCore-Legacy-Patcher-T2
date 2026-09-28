@@ -13,6 +13,7 @@ import binascii
 import plistlib
 import subprocess
 import py_sip_xnu
+import Security
 
 from pathlib import Path
 
@@ -678,3 +679,102 @@ def check_cli_args():
         return None
     else:
         return args
+
+def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reason: str = "OpenCore-Patcher-T2 needs your administrative permission", confirm_button: str ="OK", deny_button: str = "Cancel"):
+    """
+    run the give action as root without using the Privileged Helper Tool
+
+    * action: a str path to the progra being executed
+    * args: a list of all the arguments to be sent to the program
+    * reason: the message that tells the user why they are seeing this format it like this: why you are seeing this (e.g "OpenCore-Patcher-T2 needs your administrative permission") and what will happen (e.g "to verify that you are an admin")
+    * confirm_button: the name of the OK button that is desplayed to the user if the default doesn't work
+    * deny_button: the name of the Cancel button that is desplayed to the user if the default doesn't work
+    """
+    if args is None:
+        return_args = action
+    else:
+        byte_args: list = []
+        for arg in args:
+            byte_args.append(bytes(arg, encoding="utf-8"))
+        return_args = f"{action} {str(byte_args)}"
+    status, auth_ref = Security.AuthorizationCreate(
+        None,
+        None,
+        Security.kAuthorizationFlagDefaults,
+        None
+    )
+
+    if status != Security.errAuthorizationSuccess:
+        return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCreate failed with status {status}")
+
+    try:
+        rights = (
+            Security.AuthorizationItem(
+                Security.kAuthorizationRightExecute,
+                0,
+                None,
+                0
+            ),
+        )
+        prompt = bytes(reason, encoding="utf-8")
+        environment = (
+            Security.AuthorizationItem(
+                Security.kAuthorizationEnvironmentPrompt,
+                len(prompt),
+                prompt,
+                0
+            ),
+        )
+
+        status, authorized_rights = Security.AuthorizationCopyRights(
+            auth_ref,
+            rights,
+            environment,
+            (
+                Security.kAuthorizationFlagInteractionAllowed
+                | Security.kAuthorizationFlagExtendRights
+            ),
+            None,
+        )
+
+        if status == Security.errAuthorizationCanceled:
+            return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
+
+        if status != Security.errAuthorizationSuccess:
+            return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCopyRights failed with status {status}")
+
+        if args is None or args == "":
+            status, _ = Security.AuthorizationExecuteWithPrivileges(
+                auth_ref,
+                bytes(action, encoding="utf-8"),
+                Security.kAuthorizationFlagDefaults,
+                b'',
+                None,
+            )
+        else:
+            status, _ = Security.AuthorizationExecuteWithPrivileges(
+                auth_ref,
+                bytes(action, encoding="utf-8"),
+                Security.kAuthorizationFlagDefaults,
+                byte_args,
+                None,
+            )
+
+        if status == Security.errAuthorizationCanceled:
+            return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
+
+        if status != Security.errAuthorizationSuccess:
+            return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationExecuteWithPrivileges failed with status {status}")
+# fix the success logic of mount root volume
+        return subprocess.CompletedProcess(args=return_args, returncode=0, stdout="Running as root succeeded")
+
+    except Exception:
+        logging.error("Running as root failed")
+        logging.exception("Stack Trace:")
+        return subprocess.CompletedProcess(args=return_args, returncode=0, stderr="Running as root failed")
+
+    finally:
+        Security.AuthorizationFree(
+           auth_ref,
+           Security.kAuthorizationFlagDefaults
+        )
