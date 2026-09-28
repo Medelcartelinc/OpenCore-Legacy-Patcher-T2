@@ -146,17 +146,17 @@ class MainFrame(wx.Frame):
                 "OpenCore": {
                     "function": self.on_oc_settings,
                     "description": ["Settings to prepares provided drives to be", "able to boot unsupported macOSes."],
-                    "icon": str(self.constants.icns_resource_path / "OC-Build.icns"),
+                    "icon": str(self.constants.app_icons_resource_path / "OC-Build.png"),
                 },
                 "Settings": {
                     "function": self.on_settings,
                     "description": ["App settings"],
-                    "icon": str(self.constants.icns_resource_path / "Settings.icns"),
+                    "icon": str(self.constants.app_icons_resource_path / "Settings.png"),
                 },
                 "Create macOS Installer": {
                     "function": self.on_create_macos_installer,
                     "description": ["Download and flash a macOS", "Installer for your system."],
-                    "icon": str(self.constants.icns_resource_path / "OC-Installer.icns"),
+                    "icon": str(self.constants.app_icons_resource_path / "OC-Installer.png"),
                 },
                 "macOS Configuration": {
                     "function": self.on_macos_config,
@@ -166,7 +166,7 @@ class MainFrame(wx.Frame):
                 "Help": {
                     "function": self.on_help,
                     "description": ["Resources for OpenCore Legacy", "Patcher-T2."],
-                    "icon": str(self.constants.icns_resource_path / "OC-Support.icns"),
+                    "icon": str(self.constants.app_icons_resource_path / "OC-Support.png"),
                 }
         }
 
