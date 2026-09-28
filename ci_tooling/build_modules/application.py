@@ -234,7 +234,7 @@ class GenerateApplication:
         # TODO: fix this crazy workaround to get this to work. don't ask me why this is the only way it will work
         subprocess.run(["chmod", "+x", "./ci_tooling/build_modules/create_assets.command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(["./ci_tooling/build_modules/create_assets.command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
+
 
 
 

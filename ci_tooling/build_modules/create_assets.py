@@ -11,8 +11,8 @@ class AssetsCreator():
         self.python_file = "./dist/OpenCore-Patcher-T2.app/Contents/Resources/Assets"
         with open(self.python_file, "w") as f:
             f.writelines([
-                "# THIS FILE IS AUTO-GENERATED. DO NOT EDIT!\n", 
-                "# EDITING MAY RESULT IN SUDDEN TERMINATION OF THE RUNNING KERNEL!!\n", 
+                "# THIS FILE IS AUTO-GENERATED. DO NOT EDIT!\n",
+                "# EDITING MAY RESULT IN SUDDEN TERMINATION OF THE RUNNING KERNEL!!\n",
                 "from wx.lib.embeddedimage import PyEmbeddedImage\n"
             ])
         app_icons_dir = Path("payloads/Resources/AppIcons")
@@ -29,4 +29,3 @@ class AssetsCreator():
                 shutil.copy(src=str(file), dst="./dist/OpenCore-Patcher-T2.app/Contents/Resources/")
 if __name__ == "__main__":
     AssetsCreator()
-        
