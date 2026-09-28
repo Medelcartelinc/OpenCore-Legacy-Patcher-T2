@@ -909,6 +909,10 @@ class Constants:
 
     @property
     def app_icon_path_png(self):
+        if self.use_dark_app_icon:
+            dark_icon = self.icns_resource_path / Path("OC-Patcher-Dark.png")
+            if dark_icon.exists():
+                return dark_icon
         return self.app_icons_resource_path / Path("OC-Patcher.png")
 
     @property
