@@ -4,9 +4,9 @@ import shutil
 import plistlib
 import subprocess
 import rich
+import base64
+import json
 from pathlib import Path
-from wx.tools.img2py import img2py
-from ci_tooling.build_modules.create_assets import AssetsCreator
 
 from opencore_legacy_patcher.volume import generate_copy_arguments
 from opencore_legacy_patcher.support import subprocess_wrapper
@@ -231,10 +231,22 @@ class GenerateApplication:
         """
         Embed resources
         """
-        # TODO: fix this crazy workaround to get this to work. don't ask me why this is the only way it will work
-        subprocess.run(["chmod", "+x", "./ci_tooling/build_modules/create_assets.command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        subprocess.run(["./ci_tooling/build_modules/create_assets.command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+        self.app_icons_dir = Path("payloads/Resources/AppIcons")
+        self.output_dir = Path("dist/OpenCore-Patcher-T2.app/Contents/Resources")
+        self.assets_file = self.output_dir / "OpenCore-Patcher-T2.assets"
+        self.assets = {}
+        
+        for file in sorted(self.app_icons_dir.glob("*.png")):
+            with open(file, "rb") as f:
+                image_data = base64.b64encode(f.read()).decode("ascii")
+        
+            self.assets[file.name] = {
+                "type": "png",
+                "data": image_data,
+            }
+        
+        with open(self.assets_file, "w", encoding="utf-8") as f:
+            json.dump(self.assets, f, separators=(",", ":"))
 
 
 
