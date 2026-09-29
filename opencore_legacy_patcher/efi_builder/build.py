@@ -205,7 +205,9 @@ class BuildOpenCore:
 
                 # Fetch template boot-args, scrub any accidental Lilu flags inherited from template plists
                 raw_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].get("boot-args", "")
-                scrubbed_args = " ".join([arg for arg in raw_args.split() if not arg.startswith("-lilu")])
+                # Also drop dart=0: it is only meant for pre-T2 targets and must not
+                # survive into a T2 config via the template or a previous build.
+                scrubbed_args = " ".join([arg for arg in raw_args.split() if not arg.startswith("-lilu") and arg != "dart=0"])
 
                 # Append required T2 args safely without compounding spaces
                 t2_args = "-ibtcompatbeta -revbeta revpatch=sbvmm"
@@ -242,6 +244,9 @@ class BuildOpenCore:
             is_core2_or_older = cpu_gen is not None and cpu_gen <= cpu_data.CPUGen.penryn.value
             if is_core2_or_older:
                 logging.info(f"- Skipping dart=0 for {self.model} (Core 2 Duo or older)")
+            elif is_t2:
+                # Defensive: this branch is non-T2 only, but never inject dart=0 on a T2 target
+                logging.info(f"- Skipping dart=0 for {self.model} (T2 Mac)")
             elif "dart=0" not in current_boot_args.split():
                 logging.info(f"- Appending dart=0 boot argument for pre-T2 target {self.model} to fix WiFi/Bluetooth issues on macOS Tahoe")
                 current_boot_args = f"{current_boot_args} dart=0".strip()
