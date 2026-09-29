@@ -21,7 +21,18 @@ from pathlib import Path
 
 
 ASSETS_FILE_NAME = "OpenCore-Patcher-T2.assets"
-ASSETS_FORMAT    = 1
+ASSETS_FORMAT = 1
+
+__all__ = [
+    "ASSETS_FILE_NAME",
+    "ASSETS_FORMAT",
+    "resolve_icon",
+    "exists",
+    "get_bytes",
+    "get_data_uri",
+    "get_bitmap",
+    "load_icon",
+]
 
 
 def _assets_file() -> Path:
@@ -71,6 +82,30 @@ def _load_assets() -> dict:
     return decoded
 
 
+def resolve_icon(icon) -> Path | None:
+    """
+    Resolve a caller-facing icon reference to a file-like object.
+
+    Returns the original path when it exists on disk, otherwise a synthetic Path
+    pointing at the matching asset name in the bundle, or None when neither match
+    exists. This keeps call sites simple and lets the rest of this module handle
+    the actual on-disk-vs-assets distinction.
+    """
+    icon = Path(str(icon))
+
+    if icon.is_absolute() and icon.exists():
+        return icon
+
+    if icon.name in _load_assets():
+        return icon
+
+    source_file = _source_icons_dir() / icon.name
+    if source_file.exists():
+        return source_file
+
+    return None
+
+
 def get_bytes(icon) -> bytes:
     """
     Return the raw bytes of an icon.
@@ -109,10 +144,35 @@ def exists(icon) -> bool:
     Use this instead of Path.exists() for PNGs: in the built app they are no
     longer real files in Contents/Resources.
     """
-    icon = Path(str(icon))
-    if icon.is_absolute() and icon.exists():
-        return True
-    return icon.name in _load_assets() or (_source_icons_dir() / icon.name).exists()
+    return resolve_icon(icon) is not None
+
+
+def load_icon(icon, *, kind: str = "bytes", size: tuple = None):
+    """
+    High-level icon loader.
+
+    This is the public API callers should use instead of assembling the on-disk,
+    source-file, and bundled-assets checks themselves.
+
+    kind:
+        - "bytes"      -> raw file bytes
+        - "data_uri"   -> base64 data: URI for a web view
+        - "bitmap"     -> wx.Bitmap, optionally rescaled to size=(w, h)
+        - "exists"     -> bool
+    """
+    if kind == "exists":
+        return exists(icon)
+
+    if kind == "bytes":
+        return get_bytes(icon)
+
+    if kind == "data_uri":
+        return get_data_uri(icon)
+
+    if kind == "bitmap":
+        return get_bitmap(icon, size=size)
+
+    raise ValueError(f"Unsupported icon kind: {kind!r}. Expected one of: bytes, data_uri, bitmap, exists")
 
 
 def _bitmap_type_for(path: Path):
