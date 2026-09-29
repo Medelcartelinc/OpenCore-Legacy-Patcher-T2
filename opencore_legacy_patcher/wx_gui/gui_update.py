@@ -2,9 +2,11 @@
 gui_update.py: Generate UI for updating the patcher
 """
 
+import re
 import wx
 import sys
 import time
+import shutil
 import logging
 import threading
 import subprocess
@@ -94,6 +96,14 @@ class UpdateFrame(wx.Frame):
         # still ships the original "OpenCore-Patcher.pkg" zipped up - keep expecting
         # whichever one this URL actually points to instead of hardcoding one name.
         self.pkg_download_path = self.constants.payload_path / ("OpenCore-Patcher.pkg" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg")
+        # The download is written here and _extract_update() reads it back from the
+        # same path. These used to be two different hardcoded names
+        # ("OpenCore-Patcher-T2.pkg.zip" vs "OpenCore-Patcher.pkg.zip"), so the ZIP
+        # route could never extract and then failed in the installer step.
+        self.download_path = Path(f"{self.pkg_download_path}.zip") if self.url.endswith(".zip") else self.pkg_download_path
+        # Filled in by the worker threads, read by _workflow_thread()
+        self._install_status: str = ""
+        self._install_error: str = ""
 
         logging.info(f"Update URL: {url}")
         logging.info(f"Update Version: {version_label}")
@@ -134,8 +144,7 @@ class UpdateFrame(wx.Frame):
             wx.Yield()
             time.sleep(self.constants.thread_sleep_interval)
 
-        file_name = "OpenCore-Patcher-T2.pkg.zip" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.pkg"
-        download_obj = network_handler.DownloadObject(self.url, self.constants.payload_path / file_name)
+        download_obj = network_handler.DownloadObject(self.url, self.download_path)
         download_frame = gui_download.DownloadFrame(
             self.frame,
             title=self.title,
@@ -177,36 +186,43 @@ class UpdateFrame(wx.Frame):
         """
         Background orchestrator thread. Keeps tasks entirely off the main loop,
         preventing GUI lockups and avoiding hazardous wx.Yield use.
+
+        The worker functions report their outcome through self._install_status
+        instead of calling sys.exit(): sys.exit() inside a thread only ends that
+        thread, so previously a failed install still fell through to
+        "Update complete!" and tried to launch an app that was never installed,
+        racing the error dialog.
         """
         # --- Phase 1: Extraction ---
+        logging.info("Extract update")
+        wx.CallAfter(self._update_status_label, "Extracting update...")
         try:
-            logging.info("Extract update")
-            wx.CallAfter(self._update_status_label, "Extracting update...")
-            thread = threading.Thread(target=self._extract_update)
-            thread.start()
-            gui_support.wait_for_thread(thread)
-        except Exception as e:
-            logging.error("It failed to extract the update, so it can't be installed.")
+            extracted = self._extract_update()
+        except Exception:
             logging.exception("Stack Trace:")
-            fallback_text = "Failed to extract the update. If you continue to have this issue, please manually download the update."
-            wx.CallAfter(self._handle_fatal_failure, fallback_text, "Critical Error!")
+            extracted = False
+        if not extracted:
+            logging.error("It failed to extract the update, so it can't be installed.")
+            message = self._install_error or "Failed to extract the update. If you continue to have this issue, please manually download the update."
+            wx.CallAfter(self._handle_fatal_failure, message, "Critical Error!")
             return
 
         # --- Phase 2: Installation ---
+        logging.info("Updating")
+        wx.CallAfter(self._update_status_label, "Installing update...")
         try:
-            logging.info("Updating")
-            wx.CallAfter(self._update_status_label, "Installing update...")
-            thread = threading.Thread(target=self._install_update)
-            thread.start()
-            gui_support.wait_for_thread(thread)
-            # --- Phase 4: Verification & Wrap-up ---
-            wx.CallAfter(self._finalize_ui_and_start_countdown)
-        except Exception as e:
-            logging.error("It failed to extract the update, so it can't be installed.")
+            self._install_update()
+        except Exception:
+            logging.error("The update could not be installed.")
             logging.exception("Stack Trace:")
-            fallback_text = "Failed to install the update. If you continue to have this issue, please manually download the update."
-            wx.CallAfter(self._handle_fatal_failure, fallback_text, "Critical Error!")
-            return
+            self._install_status = "failed"
+
+        if self._install_status == "ok":
+            wx.CallAfter(self._finalize_ui_and_start_countdown)
+        elif self._install_status == "cancelled":
+            wx.CallAfter(self._handle_fatal_failure, "User cancelled update", "Update Cancelled", True)
+        else:
+            wx.CallAfter(self._hand_off_to_installer_app)
 
     # =========================================================================
     # ATOMIC MAIN-THREAD UI MUTATORS (Prevents race conditions / split events)
@@ -258,12 +274,12 @@ class UpdateFrame(wx.Frame):
         self.title_label.SetLabel(message)
         self.title_label.Centre(wx.HORIZONTAL)
 
-    def _handle_fatal_failure(self, error_msg: str, title: str, is_cancelled: bool = False) -> None:
+    def _handle_fatal_failure(self, error_msg: str, title: str, is_cancelled: bool = False, is_handoff: bool = False) -> None:
         """
         Executes atomically on the main thread to completely clean up UI elements
         and handle script termination instantly, preventing thread race conditions.
         """
-        if is_cancelled:
+        if is_cancelled or is_handoff:
             wx.MessageBox(error_msg, title, wx.OK | wx.ICON_INFORMATION)
         else:
             wx.MessageBox(error_msg, title, wx.OK | wx.ICON_ERROR)
@@ -325,53 +341,89 @@ class UpdateFrame(wx.Frame):
     # SYSTEM ACTIONS (Executed inside sub-threads safely)
     # =========================================================================
 
-    def _extract_update(self) -> None:
-        logging.debug("Extraction thread started...")
+    def _extract_update(self) -> bool:
+        logging.debug("Extracting update...")
         if not self.url.endswith(".zip"):
-            return
+            return True
         logging.info("Extracting update")
         if Path(self.pkg_download_path).exists():
             subprocess.run(["/bin/rm", "-rf", str(self.pkg_download_path)])
 
         result = subprocess.run(
-            ["/usr/bin/ditto", "-xk", str(self.constants.payload_path / "OpenCore-Patcher.pkg.zip"), str(self.constants.payload_path)], capture_output=True
+            ["/usr/bin/ditto", "-xk", str(self.download_path), str(self.constants.payload_path)], capture_output=True
         )
-        if result.returncode != 0:
-            logging.error(f"Failed to extract update.")
-            logging.exception("Stack Trace:")
+        if result.returncode != 0 or not self.pkg_download_path.exists():
+            logging.error("Failed to extract update.")
             subprocess_wrapper.log(result)
+            self._install_error = f"Failed to extract update. Error: {self._to_text(result.stderr) or 'package not found in archive'}"
+            return False
+        return True
 
-            error_str = f"Failed to extract update. Error: {result.stderr.decode('utf-8')}"
-            wx.CallAfter(self._handle_fatal_failure, error_str, "Critical Error!")
-            # Ensure background thread execution chain halts gracefully
-            wx.MessageBox("Since the update failed to extract, we'll close the app for you.", "Critical Error")
-            logging.info("Closing the app")
-            sys.exit(3)
+    @staticmethod
+    def _to_text(value) -> str:
+        """run_as_root() can hand back bytes, str or None depending on the elevation path."""
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    def _installed_app_path(self) -> Path:
+        _app_name = "OpenCore-Patcher.app" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.app"
+        return Path(self._install_directory()) / _app_name
+
+    def _wait_for_installer_process(self, timeout: int = 900) -> None:
+        """
+        The Authorization Services fallback in run_as_root() (utilities.get_admin_permission)
+        starts the command and returns right away with returncode 0, without waiting for
+        it or knowing its exit status. Wait until no installer for our package is running
+        any more, so the result can be verified before the new app is launched.
+        For the synchronous helper/root paths this returns immediately.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            running = subprocess.run(["/usr/bin/pgrep", "-f", "installer -pkg " + re.escape(str(self.pkg_download_path))], capture_output=True)
+            if running.returncode != 0:
+                return
+            time.sleep(1)
+        logging.error("Timed out waiting for the installer to finish")
 
     def _install_update(self) -> None:
-        logging.info(f"Update wird installiert: {self.pkg_download_path}")
         logging.info(f"Installing update: {self.pkg_download_path}")
+        started = time.time()
         result = subprocess_wrapper.run_as_root(["/usr/sbin/installer", "-pkg", str(self.pkg_download_path), "-target", "/"], capture_output=True)
+        output = f"{self._to_text(result.stdout)}\n{self._to_text(result.stderr)}"
 
         if result.returncode != 0:
-            stderr_output = result.stderr.decode("utf-8")
-
-            if "User cancelled" in stderr_output:
+            # osascript and Authorization Services say "canceled", our own paths "cancelled"
+            if "user cancel" in output.lower():
                 logging.info("User cancelled update")
-                wx.CallAfter(self._handle_fatal_failure, "User cancelled update", "Update Cancelled", is_cancelled=True)
+                self._install_status = "cancelled"
+                return
+            if result.returncode in subprocess_wrapper._HELPER_REFUSAL_ERRORS:
+                # Expected with a Debug build of the Privileged Helper Tool, which refuses
+                # /usr/sbin/installer by design, and refusals are final (no other root path
+                # is tried, see run_as_root()). Not an error: the macOS Installer takes over.
+                logging.info("Privileged Helper Tool does not run /usr/sbin/installer in this build, handing the update to the macOS Installer")
             else:
-                logging.critical("Den App hat fehlgeschalgen, per das Builtin-Update-Instrument zu aktualisieren.")
                 logging.critical("The app failed to update via the builtin updater.")
                 subprocess_wrapper.log(result)
-                logging.error("Auf In-Place-Upgrade wechseln...")
-                logging.error("Switching to in-place upgrade instead...")
-                subprocess.run(["/usr/bin/open", str(self.pkg_download_path)])
+            self._install_status = "handoff"
+            return
 
-                support_url = getattr(self.constants, 'support_url', 'the official repository')
-                fallback_msg = f"Failed to install update automatically. Please visit {support_url} to manually download the package and perform an in-place upgrade."
-                wx.CallAfter(self._handle_fatal_failure, fallback_msg, "Critical Error!")
+        self._wait_for_installer_process()
 
-            sys.exit(1)
+        # Only trust the result once the new bundle is actually on disk. st_ctime
+        # changes on every write, even though the installer keeps the payload's mtime.
+        info_plist = self._installed_app_path() / "Contents" / "Info.plist"
+        try:
+            installed = info_plist.stat().st_ctime >= started - 5
+        except OSError:
+            installed = False
+        if not installed:
+            logging.error(f"Installer reported success, but {info_plist} was not (re)written")
+            self._install_status = "handoff"
+            return
 
         # Installed successfully - the running build now belongs to the selected
         # update channel, so later checks compare versions normally again.
@@ -380,6 +432,43 @@ class UpdateFrame(wx.Frame):
             global_settings.GlobalEnviromentSettings().write_property("UpdateChannelInstalled", self.constants.update_channel)
         except Exception as e:
             logging.error(f"Failed to store installed update channel: {e}")
+        self._install_status = "ok"
+
+    def _hand_off_to_installer_app(self) -> None:
+        """
+        Main thread: the update could not be installed silently, so open it in the
+        macOS Installer instead, which asks for authorization itself.
+
+        The package is copied out of payload_path first: that directory is a temporary
+        overlay that reroute_payloads.py deletes when this app quits, which happened
+        right after the old fallback opened the package from there.
+        """
+        target = Path.home() / "Downloads" / f"OpenCore-Patcher-T2-{self.version_label}.pkg"
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                target.unlink()
+            shutil.copy2(self.pkg_download_path, target)
+            opened = subprocess.run(["/usr/bin/open", "-a", "Installer", str(target)], capture_output=True).returncode == 0
+        except Exception:
+            logging.exception("Failed to hand the update to the macOS Installer")
+            opened = False
+
+        if opened:
+            logging.info(f"Opened {target} in the macOS Installer")
+            self._handle_fatal_failure(
+                f"The update could not be installed automatically, so it was opened in the macOS Installer.\n\n"
+                f"Follow the steps there to finish updating. OpenCore Legacy Patcher T2 will now close so it can be replaced.\n\n"
+                f"A copy of the package was saved to {target}.",
+                "Finish Updating in the Installer",
+                is_handoff=True,
+            )
+        else:
+            self._handle_fatal_failure(
+                f"Failed to install update automatically. Please visit {self.constants.repo_link.rstrip('/')}/releases "
+                f"to manually download the package and perform an in-place upgrade.",
+                "Critical Error!",
+            )
 
     def _install_directory(self) -> str:
         """
@@ -396,7 +485,7 @@ class UpdateFrame(wx.Frame):
         # Same reasoning as pkg_download_path above: an upstream Dortania nightly
         # install still lands as "OpenCore-Patcher.app", only our own T2 releases
         # install as "OpenCore-Patcher-T2.app" (see package.py's _files mapping).
-        _app_name = "OpenCore-Patcher.app" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.app"
+        _app_name = self._installed_app_path().name
         try:
             logging.info(f"Aktualisierung beginnen: '{self._install_directory()}/{_app_name}'")
             logging.info(f"Launching update: '{self._install_directory()}/{_app_name}'")

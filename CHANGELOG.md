@@ -28,6 +28,7 @@ This release:
 - updates WhateverGreen to 1.7.1, AirportBrcmFixup to 2.2.1, AppleALC to 1.9.8 and PatcherSupportPkg to 2.0.4 (removes patches that are no longer needed)
 - updates the Privileged Helper Tool binary with the command allowlist fix from 4.0.0.190004.6
 - fixes Build-Project.command not being executable
+- fixes the app updater sometimes failing with "Failed to install update automatically. Please visit the official repository ...". With a Debug build of the Privileged Helper Tool, /usr/sbin/installer is refused by design (and since the allowlist fix refusals are final), so the in-app update could never succeed there. The updater now hands such updates to the macOS Installer, which asks for authorization itself, and copies the package to ~/Downloads first, since the temporary folder it was opened from before is deleted when the app quits. Also fixes: a failed or cancelled install still continuing to "Update complete!" and launching an app that was never installed (sys.exit() inside a worker thread only ended that thread); the Authorization Services fallback returning before the installer had finished, which is now awaited and verified; a crash when that fallback returned str/None output; cancelling the prompt ("User canceled") not being recognised; and the ZIP update route downloading to a different file name than it extracted from, so it could never work. The error message now links the releases page instead of the placeholder "the official repository"
 
 ## 4.0.0.190004.6 - 4.0.0 alpha 19.4.6
 This release:
