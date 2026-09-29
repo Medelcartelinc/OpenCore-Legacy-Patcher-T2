@@ -6,7 +6,6 @@ Returns dict with Link and Version of the latest binary update if available
 """
 
 import logging
-import applescript
 
 from urllib.parse import quote
 

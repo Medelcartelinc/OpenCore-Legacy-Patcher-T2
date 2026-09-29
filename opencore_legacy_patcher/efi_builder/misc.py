@@ -6,8 +6,6 @@ import shutil
 import logging
 import binascii
 import sys
-import os
-import subprocess
 from pathlib import Path
 
 from . import support
@@ -425,7 +423,6 @@ class BuildMiscellaneous:
             # Injecting Ventura 13.6 kexts causes ABI/IPC mismatch with Tahoe user-space (securityd, LocalAuthentication, akd),
             # breaking password authorization in System Settings and Apple Account login.
             # Using Native Software Keystore mode allows Tahoe to handle password auth & Apple Account natively via CPU crypto.
-            is_sonoma_or_newer = self.constants.detected_os >= os_data.os_data.sonoma
             is_tahoe_or_newer = self.constants.detected_os >= os_data.os_data.tahoe
             active_profile = getattr(self.constants, "build_profile", "standard")
 
@@ -511,19 +508,6 @@ class BuildMiscellaneous:
             logging.error(f"{self.model} is not a T2 Mac.")
             return
         else:
-            UnsupportedT2Macs = [
-                "MacBookAir8,1",
-                "MacBookAir8,2",
-                "MacBookAir9,1",
-                "MacBookPro15,1",
-                "MacBookPro15,2",
-                "MacBookPro15,3",
-                "MacBookPro15,4",
-                "MacBookPro16,3",
-                "MacBookPro16,4",
-                "Macmini8,1",
-                "iMacPro1,1",
-            ]
             logging.info(f"{self.model} is a T2 Mac.")
             builder = support.BuildSupport(self.model, self.constants, self.config)
             self.config.setdefault("Kernel", {}).setdefault("Patch", [])

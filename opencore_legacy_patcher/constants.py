@@ -15,7 +15,7 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.190004.6"
+        self.patcher_version:                 str = "4.0.0.190006"
         self.patcher_version_label=self.patcher_version
         self.patcher_support_pkg_version:     str = "2.0.3"  # PatcherSupportPkg
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania · T2 fork © 2026 Albert Müller"
@@ -911,7 +911,9 @@ class Constants:
     def app_icon_path_png(self):
         if self.use_dark_app_icon:
             dark_icon = self.icns_resource_path / Path("OC-Patcher-Dark.png")
-            if dark_icon.exists():
+            # In the built app the PNG lives in OpenCore-Patcher-T2.assets, not on disk
+            from .support import image_handler
+            if image_handler.exists(dark_icon):
                 return dark_icon
         return self.app_icons_resource_path / Path("OC-Patcher.png")
 

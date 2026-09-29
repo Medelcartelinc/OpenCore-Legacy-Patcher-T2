@@ -6,6 +6,7 @@ import wx
 import logging
 import time
 
+from ..support import image_handler
 from .. import constants
 
 from ..wx_gui import gui_support
@@ -51,7 +52,7 @@ class DownloadFrame(wx.Frame):
 
         frame = self if not frame else frame
         icon = self.download_icon
-        icon = wx.StaticBitmap(frame, bitmap=wx.Bitmap(icon, wx.BITMAP_TYPE_ICON), pos=(-1, 20))
+        icon = wx.StaticBitmap(frame, bitmap=image_handler.get_bitmap(icon), pos=(-1, 20))
         icon.SetSize((100, 100))
         icon.Centre(wx.HORIZONTAL)
 

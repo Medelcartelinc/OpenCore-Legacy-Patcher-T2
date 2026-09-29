@@ -14,7 +14,6 @@ are left untouched and not replaced with broken legacy binaries.
 
 from ..base import BaseHardware, HardwareVariant
 
-from ...base import PatchType
 
 from .....constants import Constants
 
