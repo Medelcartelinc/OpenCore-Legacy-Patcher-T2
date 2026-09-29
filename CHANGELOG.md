@@ -22,7 +22,6 @@ This release:
 - updates WhateverGreen to 1.7.1, AirportBrcmFixup to 2.2.1, AppleALC to 1.9.8 and PatcherSupportPkg to 2.0.4 (removes patches that are no longer needed)
 - updates the Privileged Helper Tool binary with the command allowlist fix from 4.0.0.190004.6
 - fixes Build-Project.command not being executable. Thx @gandolf243
-- repository: adds GitHub workflows that ask issue reporters for missing macOS/patcher versions, Mac model and Hackintosh hardware specs, auto-reply to macOS 27 Golden Gate and Apple Silicon requests, close issues from Macs older than supported, check for duplicate issues daily, reply to outdated AMDOpenCL NameError reports and deprecated OCLP-Plus PatcherSupportPkg download issues, moderate abusive issues and comments, and guard against shared AnyDesk credentials; the malware scan workflow was cleaned up
 - fixes a vulnerability (code injection, found by CodeQL) in the malware scan workflow: the pull request's branch name and clone URL were inserted directly into a shell script, so a pull request from a fork with a crafted branch name could run its own commands in the workflow. They are now passed as environment variables and quoted
 
 ## 4.0.0.190004.6 - 4.0.0 alpha 19.4.6
