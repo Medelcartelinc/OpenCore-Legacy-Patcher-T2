@@ -14,16 +14,14 @@ This release:
 - injects dart=0 on all Macs without a T2 chip (not only a fixed list of iMac18,x, MacBookPro14,x and MacBookAir6,2), so VT-d/DART is disabled wherever legacy Wi-Fi/Bluetooth needs it on macOS 26 Tahoe. Core 2 Duo (Penryn and older) Macs are excluded
 - never injects dart=0 on T2 Macs: a dart=0 inherited from the template or earlier boot-args is removed, and the Mac Pro 2019 (MacPro7,1) is now correctly listed as a T2 Mac (the list contained the nonexistent MacPro9,1)
 - RestrictEvents is no longer injected on T2 Macs, and no revblock/revpatch NVRAM variables are written there; a separate T2 kext is in development. The "Allow Experimental T2 RestrictEvents Kext" setting was removed. Non-T2 Macs are unchanged
-- fixes an AttributeError when building OpenCore on T2 Macs that need RestrictEvents, caused by a leftover reference to the removed RestrictEvents-T2 kext
+- deprecates RestrictEvents-T2, and will be replaced by a kext that is currently still in development
 - removes unused kexts and payloads (CSLVFixup, AAAMouSSE 0.95, VirtualSMC, and the unused CpuTscSync, HibernationFixup, latebloom and CSLVFixup entries in config.plist)
 - removes root patches that could never do anything: CPUMissingAVX (never registered), the empty "T1 Login (Experimental)" entry that showed up on T1 Macs on Tahoe, and an uncalled Haswell framebuffer function
 - removes dead code (unused imports, unreachable statements, uncalled functions and old test scripts in the repository root). No change in behaviour intended
 - updates the bundled OpenCore (RELEASE/DEBUG), ocvalidate and macserial to 2.0.7
 - updates WhateverGreen to 1.7.1, AirportBrcmFixup to 2.2.1, AppleALC to 1.9.8 and PatcherSupportPkg to 2.0.4 (removes patches that are no longer needed)
 - updates the Privileged Helper Tool binary with the command allowlist fix from 4.0.0.190004.6
-- fixes Build-Project.command not being executable. Thx @gandolf243
-- repository: adds GitHub workflows that ask issue reporters for missing macOS/patcher versions, Mac model and Hackintosh hardware specs, auto-reply to macOS 27 Golden Gate and Apple Silicon requests, close issues from Macs older than supported, check for duplicate issues daily, reply to outdated AMDOpenCL NameError reports and deprecated OCLP-Plus PatcherSupportPkg download issues, moderate abusive issues and comments, and guard against shared AnyDesk credentials; the malware scan workflow was cleaned up
-- fixes a vulnerability (code injection, found by CodeQL) in the malware scan workflow: the pull request's branch name and clone URL were inserted directly into a shell script, so a pull request from a fork with a crafted branch name could run its own commands in the workflow. They are now passed as environment variables and quoted
+- fixes Build-Project.command not being executable
 
 ## 4.0.0.190004.6 - 4.0.0 alpha 19.4.6
 This release:
