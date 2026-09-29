@@ -75,7 +75,6 @@ class Constants:
         self.debugenhancer_version:      str = "1.1.0"  #      DebugEnhancer
         self.cpufriend_version:          str = "1.3.0"  #      CPUFriend
         self.bluetool_version:           str = "2.7.2"  #      BlueToolFixup (BrcmPatchRAM)
-        self.cslvfixup_version:          str = "2.6.1"  #      CSLVFixup
         self.autopkg_version:            str = "1.0.4"  #      AutoPkgInstaller
         self.cryptexfixup_version:       str = "1.0.5"  #      CryptexFixup
         self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
@@ -443,9 +442,6 @@ class Constants:
     def restrictevents_path(self):
         return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-{self.restrictevents_version}-{self.kext_variant}.zip")
 
-    @property
-    def restrictevents_t2_path(self):
-        return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-v{self.restrictevents_t2_version}-{self.kext_variant}.zip")
 
 
     @property
@@ -627,10 +623,6 @@ class Constants:
     @property
     def bluetool_path(self):
         return self.payload_kexts_path / Path(f"Acidanthera/BlueToolFixup-v{self.bluetool_version}-{self.kext_variant}.zip")
-
-    @property
-    def cslvfixup_path(self):
-        return self.payload_kexts_path / Path(f"Acidanthera/CSLVFixup-v{self.cslvfixup_version}.zip")
 
     @property
     def autopkg_path(self):
