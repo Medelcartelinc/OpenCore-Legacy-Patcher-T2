@@ -115,6 +115,14 @@ class BuildMiscellaneous:
         block_args = ",".join(self._re_generate_block_arguments())
         patch_args = ",".join(self._re_generate_patch_arguments())
 
+        if self._is_t2_mac():
+            # RestrictEvents must not be injected on T2 Macs: they will use a separate,
+            # dedicated kext (in development). Skip the kext and its revblock/revpatch
+            # NVRAM variables entirely; the EFICheckDisabler fallback below still applies.
+            logging.info("- Skipping RestrictEvents on T2 Mac (dedicated T2 kext pending)")
+            block_args = ""
+            patch_args = ""
+
         if block_args:
             logging.info(f"- Setting RestrictEvents block arguments: {block_args}")
             support.BuildSupport(self.model, self.constants, self.config).enable_kext(

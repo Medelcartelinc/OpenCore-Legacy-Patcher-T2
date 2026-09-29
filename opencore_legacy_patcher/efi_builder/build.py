@@ -213,10 +213,8 @@ class BuildOpenCore:
                 t2_args = "-ibtcompatbeta -revbeta revpatch=sbvmm"
                 self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = f"{scrubbed_args} {t2_args}".strip()
 
-                # Ensure RestrictEvents.kext is enabled for T2 VMM / TargetType spoofing
-                support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                    "RestrictEvents.kext", self.constants.restrictevents_version, self.constants.restrictevents_path
-                )
+                # RestrictEvents.kext is intentionally NOT injected on T2 Macs; they will use a
+                # separate, dedicated kext (in development). See misc.py _restrict_events_handling.
 
                 # Ensure WriteFlash is enabled to commit changes to SPI ROM
                 self.config["NVRAM"]["WriteFlash"] = True
