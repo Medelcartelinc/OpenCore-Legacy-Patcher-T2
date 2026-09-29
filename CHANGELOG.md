@@ -1,4 +1,9 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.19006.1 - 4.0.0 alpha 19.6.1
+This release:
+- fixes a bug where upon updating the patcher or switching forks via switching the update channel, it starts a repair upgrade even if the update has successfully installed
+- fixes the mess of Metallibs APIs where the patcher may download Metallibs from the wrong API
+
 ## 4.0.0.190006 - 4.0.0 alpha 19.6
 This release:
 - the "Downloading" window of the app updater now also shows the release notes of the version being downloaded, below the progress bar, instead of only the logo, the version and the Cancel button. Links open in the browser, and HTML inside the release notes is shown as text instead of being rendered. Other downloads (macOS installers, KDKs, metallibs) keep the compact window
