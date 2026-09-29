@@ -11,6 +11,7 @@ import sys
 
 from pathlib import Path
 
+from ..support import image_handler
 from .. import (
     constants,
     sucatalog
@@ -66,7 +67,7 @@ class macOSInstallerDownloadFrame(wx.Frame):
         """
         Convert icon to bitmap
         """
-        return wx.Bitmap(wx.Bitmap(icon, wx.BITMAP_TYPE_ICON).ConvertToImage().Rescale(size[0], size[1], wx.IMAGE_QUALITY_HIGH))
+        return image_handler.get_bitmap(icon, size)
 
     def _macos_version_to_icon(self, version: int) -> int:
         """

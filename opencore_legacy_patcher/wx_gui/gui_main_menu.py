@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from packaging import version
 
+from ..support import image_handler
 from .. import constants
 
 from ..support import (
@@ -78,7 +79,7 @@ class MainFrame(wx.Frame):
             # Only touch the logo if the icon actually changes. Before Tahoe (and on
             # Tahoe in Light Mode) the path stays the same, so nothing needs redrawing.
             if logo and icon_path != getattr(self, "_logo_icon_path", None):
-                logo.SetBitmap(wx.Bitmap(icon_path, wx.BITMAP_TYPE_ICON))
+                logo.SetBitmap(image_handler.get_bitmap(icon_path))
                 # SetBitmap() resizes the control to the bitmap's native size (up to
                 # 1024x1024 for an .icns), which blew the logo up over the whole window.
                 # Restore the original 128x128 box and re-centre it.
@@ -97,7 +98,7 @@ class MainFrame(wx.Frame):
         """
         # Logo
         # Uses the dark app icon on macOS 26 Tahoe+ in Dark Mode (see constants.app_icon_path)
-        logo = wx.StaticBitmap(self, bitmap=wx.Bitmap(str(self.constants.app_icon_path), wx.BITMAP_TYPE_ICON), pos=(-1, 0), size=(128, 128))
+        logo = wx.StaticBitmap(self, bitmap=image_handler.get_bitmap(self.constants.app_icon_path), pos=(-1, 0), size=(128, 128))
         logo.Centre(wx.HORIZONTAL)
         self.logo = logo
         self._logo_icon_path = str(self.constants.app_icon_path)
@@ -181,7 +182,7 @@ class MainFrame(wx.Frame):
 
         for button_name, button_function in menu_buttons.items():
             if "icon" in button_function:
-                icon = wx.StaticBitmap(self, bitmap=wx.Bitmap(button_function["icon"], wx.BITMAP_TYPE_ICON), pos=(button_x - 5, button_y), size=(64, 64))
+                icon = wx.StaticBitmap(self, bitmap=image_handler.get_bitmap(button_function["icon"]), pos=(button_x - 5, button_y), size=(64, 64))
                 if "OpenCore" in button_name or "EXPERIMENTAL" in button_name:
                     icon.SetSize((68, 68))
 
