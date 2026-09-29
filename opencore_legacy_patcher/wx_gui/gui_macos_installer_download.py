@@ -7,9 +7,7 @@ import locale
 import logging
 import threading
 import webbrowser
-import sys
 
-from pathlib import Path
 
 from ..support import image_handler
 from .. import (
@@ -31,8 +29,7 @@ from ..wx_gui import (
 from ..support import (
     macos_installer_handler,
     utilities,
-    network_handler,
-    integrity_verification
+    network_handler
 )
 
 

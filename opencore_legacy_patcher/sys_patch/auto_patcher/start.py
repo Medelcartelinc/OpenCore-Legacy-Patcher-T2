@@ -10,7 +10,6 @@ import plistlib
 import markdown2
 import subprocess
 import webbrowser
-import sys
 
 from packaging import version
 

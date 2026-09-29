@@ -7,26 +7,19 @@ import wx.html2
 
 import sys
 import logging
-import subprocess
-import requests
 import markdown2
 import threading
 import webbrowser
-import shutil
-import os
-from pathlib import Path
 from packaging import version
 
 from ..support import image_handler
 from .. import constants
 
 from ..support import (
-    global_settings,
     updates,
     utilities
 )
 from ..datasets import (
-    os_data,
     css_data
 )
 from ..wx_gui import (
@@ -35,7 +28,6 @@ from ..wx_gui import (
     gui_support,
     gui_help,
     gui_settings,
-    gui_sys_patch_display,
     gui_test_info,
     gui_update,
     gui_oc_settings,
@@ -110,7 +102,6 @@ class MainFrame(wx.Frame):
         title_label.SetFont(gui_support.font_factory(25, wx.FONTWEIGHT_BOLD))
         title_label.Centre(wx.HORIZONTAL)
 
-        is_matteo = getattr(self.constants, "app_mode", "albert") == "matteo"
 
         display_version = self.constants.patcher_version
         version_label = wx.StaticText(self, label=f"Version {display_version}", pos=(-1, title_label.GetPosition()[1] + 32))
@@ -262,20 +253,6 @@ class MainFrame(wx.Frame):
 
         # Final Window Size adjustment
         self.SetSize((-1, copy_label.GetPosition()[1] + 60))
-
-    def on_return_to_mode_selector(self, event: wx.Event = None):
-        try:
-            self.Hide()
-            from ..wx_gui import gui_mode_selector
-            new_frame = gui_mode_selector.ModeSelectorFrame(parent=None, title=self.title, global_constants=self.constants, screen_location=self.GetPosition())
-            app = wx.GetApp()
-            if hasattr(app, 'frame'):
-                app.frame = new_frame
-                new_frame.Bind(wx.EVT_CLOSE, app.OnCloseFrame)
-            wx.CallAfter(self.Destroy)
-        except Exception as e:
-            logging.error(f"Failed to return to mode selector: {e}")
-            logging.exception("Stack Trace:") # <- Angreifern könnten davon ausnutzen, dass Benutzer nicht das exakte Fehler weißen, um ClickFix-Angriffe zu starten
 
     def _preflight_checks(self, event: wx.Event = None) -> None:
         try:
@@ -622,10 +599,6 @@ class MainFrame(wx.Frame):
 
         dialog.Destroy()
 
-    def on_build_and_install_testd(self, event: wx.Event = None):
-        self.constants.build_profile = "test_d"
-        self.on_build_and_install(event)
-
     def on_build_and_install(self, event: wx.Event = None):
         try:
             self.Hide()
@@ -634,16 +607,6 @@ class MainFrame(wx.Frame):
         except Exception as e:
             logging.error(f"We failed to open up Build and Install OpenCore: {e}")
             logging.exception("Stack Trace:")
-
-    def on_root_patches(self, event: wx.Event = None):
-        try:
-            self.Hide()
-            gui_sys_patch_display.SysPatchDisplayFrame(parent=None, title=self.title, global_constants=self.constants, screen_location=self.GetPosition())
-            wx.CallAfter(self.Destroy)
-        except Exception as e:
-            logging.error(f"We failed to open up Root Patches: {e}")
-            logging.exception("Stack Trace:")
-            return
 
     def on_macos_config(self, event: wx.Event = None):
         try:

@@ -3,7 +3,6 @@ metallib_handler.py: Library for handling Metal libraries
 """
 
 import logging
-import requests
 import subprocess
 import packaging.version
 
@@ -100,8 +99,6 @@ class MetalLibraryObject:
 
         logging.info("Could not contact MetallibSupportPkg API")
         return None
-
-        return METALLIB_ASSET_LIST
 
 
     def _get_latest_metallib(self) -> None:
