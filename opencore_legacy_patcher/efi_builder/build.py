@@ -36,7 +36,8 @@ misc
 )
 from ..datasets import (
     os_data,
-    smbios_data
+    smbios_data,
+    cpu_data
 )
 
 # von def rmtree_handler(func, path, exc_info) -> None: verabscheiden und zu def rmtree_handler(func, path, exc: BaseException) -> None: wechseln, um Kompabilität mit Python 3.13+ zu verbessern und Python 3.14-Kompabilität zu ermöglichen
@@ -232,11 +233,16 @@ class BuildOpenCore:
 
             current_boot_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]
 
-            # dart=0 on every pre-T2 target: disables VT-d/DART DMA remapping to avoid
-            # IOMMU mapping problems with legacy (Broadcom) WiFi/Bluetooth on macOS 26 Tahoe.
+            # dart=0 on every pre-T2 target except Core 2 Duo (Penryn and older) Macs:
+            # disables VT-d/DART DMA remapping to avoid IOMMU mapping problems with
+            # legacy (Broadcom) WiFi/Bluetooth on macOS 26 Tahoe.
             # Dies ist benötigt, um WLAN und Bluetooth richtig zu funktionieren auf macOS 26 Tahoe.
             # Previously limited to a hardcoded list (iMac18,x, MacBookPro14,x, MacBookAir6,2).
-            if "dart=0" not in current_boot_args.split():
+            cpu_gen = smbios_data.smbios_dictionary.get(self.model, {}).get("CPU Generation", None)
+            is_core2_or_older = cpu_gen is not None and cpu_gen <= cpu_data.CPUGen.penryn.value
+            if is_core2_or_older:
+                logging.info(f"- Skipping dart=0 for {self.model} (Core 2 Duo or older)")
+            elif "dart=0" not in current_boot_args.split():
                 logging.info(f"- Appending dart=0 boot argument for pre-T2 target {self.model} to fix WiFi/Bluetooth issues on macOS Tahoe")
                 current_boot_args = f"{current_boot_args} dart=0".strip()
 
