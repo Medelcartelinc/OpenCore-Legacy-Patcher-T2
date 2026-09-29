@@ -232,13 +232,13 @@ class BuildOpenCore:
 
             current_boot_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"]
 
-            # Target some 2017 Mac models specifically to bypass vt-d/broadcom complications
+            # dart=0 on every pre-T2 target: disables VT-d/DART DMA remapping to avoid
+            # IOMMU mapping problems with legacy (Broadcom) WiFi/Bluetooth on macOS 26 Tahoe.
             # Dies ist benötigt, um WLAN und Bluetooth richtig zu funktionieren auf macOS 26 Tahoe.
-            MODELS_NEED_DART = ["iMac18,1", "iMac18,2", "iMac18,3", "MacBookPro14,1", "MacBookPro14,2", "MacBookPro14,3", "MacBookAir6,2"]
-            if self.model in MODELS_NEED_DART:
-                if "dart=0" not in current_boot_args:
-                    logging.info(f"- Appending dart=0 boot argument for {self.model} hardware target to fix WiFi/Bluetooth issues on macOS Tahoe ({self.model})")
-                    current_boot_args = f"{current_boot_args} dart=0".strip()
+            # Previously limited to a hardcoded list (iMac18,x, MacBookPro14,x, MacBookAir6,2).
+            if "dart=0" not in current_boot_args.split():
+                logging.info(f"- Appending dart=0 boot argument for pre-T2 target {self.model} to fix WiFi/Bluetooth issues on macOS Tahoe")
+                current_boot_args = f"{current_boot_args} dart=0".strip()
 
             if "-lilubetaall" not in current_boot_args:
                 current_boot_args = f"{current_boot_args} -lilubetaall".strip()
