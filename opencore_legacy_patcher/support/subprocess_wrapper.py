@@ -591,7 +591,7 @@ def mount_dmg(
     mount_point: Path,
     shadow_path: Path = None,
     password: str = None,
-    admin_password_prompt: Optional[Callable[[], str]] = None,
+    admin_password_prompt: Optional[str] = None,
     retry_on_auth_error: bool = False
 ) -> subprocess.CompletedProcess:
     """
@@ -662,7 +662,7 @@ def mount_dmg(
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
     action = cmd[0]
     cmd.remove(action)
-    utilities.get_admin_permission(action=action, args=cmd, reason=admin_password_prompt)
+    return utilities.get_admin_permission(action=action, args=cmd, reason=admin_password_prompt)
 
 
 def verify(process_result: subprocess.CompletedProcess) -> None:

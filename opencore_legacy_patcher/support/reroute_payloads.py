@@ -21,24 +21,7 @@ class RoutePayloadDiskImage:
 
     def __init__(self, global_constants: constants.Constants) -> None:
         self.constants: constants.Constants = global_constants
-        # POSIX path - see subprocess_wrapper.applescript_icon_clause() for why the
-        # previous HFS conversion never resolved.
-        self.icon_path = self.constants.app_icon_path
-        subprocess_wrapper.set_admin_prompt_icon(self.icon_path)
-
         self._setup_tmp_disk_image()
-
-    def _request_admin_password(self, message: str = subprocess_wrapper.ADMIN_PASSWORD_PROMPT_MESSAGE) -> str:
-        """Prompt for the local administrator password. See subprocess_wrapper.request_admin_password().
-
-        Only reached when the session has no cached password yet - subprocess_wrapper
-        asks once and reuses the answer for every later privileged step (Issue #356).
-
-        Must stay: _setup_tmp_disk_image() passes it to mount_dmg(). Without it the
-        unpack thread dies with an AttributeError before payloads.dmg is mounted, and
-        the GUI then shows "Internal Error occurred!" (payload_kexts_path missing).
-        """
-        return subprocess_wrapper.request_admin_password(self.icon_path, message=message)
 
     def _setup_tmp_disk_image(self) -> None:
         """
@@ -60,7 +43,10 @@ class RoutePayloadDiskImage:
                 Path(self.temp_dir.name / Path("payloads")),
                 shadow_path=Path(self.temp_dir.name / Path("payloads_overlay")),
                 password="password",
-                admin_password_prompt=self._request_admin_password,
+                # Reason shown in the native macOS authorization dialog; elevation itself is
+                # handled by utilities.get_admin_permission() (Authorization Services), not by
+                # collecting the password ourselves.
+                admin_password_prompt="OpenCore-Patcher-T2 needs administrator permission to mount its internal payloads.",
                 # Fixed, known-correct password: "Authentication error" here can only mean
                 # the privilege gate/quarantine issue, never a wrong password (see mount_dmg)
                 retry_on_auth_error=True
