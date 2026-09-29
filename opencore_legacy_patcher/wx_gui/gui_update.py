@@ -2,7 +2,7 @@
 gui_update.py: Generate UI for updating the patcher
 """
 
-import re
+import os
 import wx
 import sys
 import time
@@ -372,21 +372,67 @@ class UpdateFrame(wx.Frame):
         _app_name = "OpenCore-Patcher.app" if self.url.endswith(".zip") else "OpenCore-Patcher-T2.app"
         return Path(self._install_directory()) / _app_name
 
-    def _wait_for_installer_process(self, timeout: int = 900) -> None:
+    def _installer_running(self) -> bool:
         """
+        True while any process that is installing our package is alive.
+
+        Plain substring match over `ps` instead of `pgrep -f "installer -pkg <path>"`:
+        the Authorization Services fallback starts /usr/libexec/security_authtrampoline
+        first, whose argv ("... /usr/sbin/installer auth 3 -pkg <path> ...") does not
+        contain "installer -pkg" until it has exec()ed the real installer, and the
+        re.escape()d pattern was not a reliable POSIX ERE for pgrep either.
+        """
+        result = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True)
+        if result.returncode != 0:
+            return False
+        own_pid = str(os.getpid())
+        pkg_path = str(self.pkg_download_path)
+        for line in result.stdout.splitlines():
+            pid, _, command = line.strip().partition(" ")
+            if pid == own_pid:
+                continue
+            if pkg_path in command and "installer" in command:
+                return True
+        return False
+
+    def _app_was_rewritten(self, started: float) -> bool:
+        # st_ctime changes on every write, even though the installer keeps the payload's mtime.
+        info_plist = self._installed_app_path() / "Contents" / "Info.plist"
+        try:
+            return info_plist.stat().st_ctime >= started - 5
+        except OSError:
+            return False
+
+    def _wait_for_install(self, started: float, timeout: int = 900, start_grace: int = 30) -> bool:
+        """
+        Wait until the package install has really finished and report whether the
+        new bundle landed on disk.
+
         The Authorization Services fallback in run_as_root() (utilities.get_admin_permission)
-        starts the command and returns right away with returncode 0, without waiting for
-        it or knowing its exit status. Wait until no installer for our package is running
-        any more, so the result can be verified before the new app is launched.
-        For the synchronous helper/root paths this returns immediately.
+        returns right after spawning the installer, with returncode 0 and no exit status.
+        The old check returned as soon as pgrep found nothing - which was usually the case
+        right after spawning, before the installer existed - and then looked at Info.plist
+        while the install was still running. That reported a failure and opened the macOS
+        Installer even though the update went on to install fine in the background.
+
+        For the synchronous paths (helper tool, already root) the installer has exited and
+        the bundle is rewritten by the time we get here, so this returns immediately.
         """
         deadline = time.time() + timeout
+        start_deadline = time.time() + start_grace
+        seen_running = False
         while time.time() < deadline:
-            running = subprocess.run(["/usr/bin/pgrep", "-f", "installer -pkg " + re.escape(str(self.pkg_download_path))], capture_output=True)
-            if running.returncode != 0:
-                return
+            if self._installer_running():
+                seen_running = True
+            elif self._app_was_rewritten(started):
+                # Installer process gone and the new bundle is on disk: done.
+                return True
+            elif seen_running or time.time() >= start_deadline:
+                # It ran and exited without installing, or never started at all.
+                return False
             time.sleep(1)
         logging.error("Timed out waiting for the installer to finish")
+        return False
 
     def _install_update(self) -> None:
         logging.info(f"Installing update: {self.pkg_download_path}")
@@ -411,17 +457,10 @@ class UpdateFrame(wx.Frame):
             self._install_status = "handoff"
             return
 
-        self._wait_for_installer_process()
-
-        # Only trust the result once the new bundle is actually on disk. st_ctime
-        # changes on every write, even though the installer keeps the payload's mtime.
-        info_plist = self._installed_app_path() / "Contents" / "Info.plist"
-        try:
-            installed = info_plist.stat().st_ctime >= started - 5
-        except OSError:
-            installed = False
-        if not installed:
-            logging.error(f"Installer reported success, but {info_plist} was not (re)written")
+        # Only trust the result once the installer has finished and the new bundle
+        # is actually on disk.
+        if not self._wait_for_install(started):
+            logging.error(f"Installer reported success, but {self._installed_app_path() / 'Contents' / 'Info.plist'} was not (re)written")
             self._install_status = "handoff"
             return
 
