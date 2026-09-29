@@ -466,7 +466,8 @@ class MainFrame(wx.Frame):
                 global_constants=self.constants,
                 screen_location=self.GetPosition(),
                 url=oclp_url,
-                version_label=oclp_version
+                version_label=oclp_version,
+                changelog=changelog_text
             )
             return
 
@@ -545,7 +546,8 @@ class MainFrame(wx.Frame):
                 global_constants=self.constants,
                 screen_location=self.GetPosition(),
                 url=oclp_url,
-                version_label=oclp_version
+                version_label=oclp_version,
+                changelog=changelog_text
             )
 
         frame.Destroy()

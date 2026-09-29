@@ -29,7 +29,7 @@ class UpdateFrame(wx.Frame):
     """
     Create a frame for updating the patcher
     """
-    def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: wx.Point, url: str = "", version_label: str = "") -> None:
+    def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: wx.Point, url: str = "", version_label: str = "", changelog: str = "") -> None:
         # CORRECTED: Always call the super-class constructor first to register the window correctly
         super().__init__(parent, title=title, size=(350, 300), style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
 
@@ -76,6 +76,8 @@ class UpdateFrame(wx.Frame):
             if dict:
                 version_label = dict["Version"]
                 url = dict["Link"]
+                if not changelog:
+                    changelog = dict.get("Changelog") or ""
             else:
                 logging.error("Failed to receive update info")
                 logging.exception("Stack Trace:")
@@ -83,6 +85,9 @@ class UpdateFrame(wx.Frame):
                 sys.exit(3)
         self.version_label = version_label
         self.url = url
+        # Release notes of the version being installed, shown in the download window.
+        # Same cut as gui_main_menu.py: the asset table at the end is not useful here.
+        self.changelog = str(changelog).split("## Asset Information")[0] if changelog else ""
 
         # Our own releases ship a raw "OpenCore-Patcher-T2.pkg" asset (see updates.py),
         # while the upstream Dortania nightly.link fallback (gui_macos_configeration.py)
@@ -138,6 +143,7 @@ class UpdateFrame(wx.Frame):
             download_obj=download_obj,
             item_name=self.version_label,
             download_icon=str(self.constants.app_icon_path),
+            changelog=self.changelog,
             cancel_message=(
                 "Are you sure you want to cancel the update?\n\n"
                 "Staying on an older version of OpenCore Legacy Patcher T2 means you "
