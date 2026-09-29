@@ -81,9 +81,6 @@ class Constants:
         self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
         self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
-        ## Acidanthera - Albert Mueller Modified
-        self.restrictevents_t2_version: str = "1.1.6-T2"  #RestrictEvents-T2
-
         ## Apple
         ## https://www.apple.com
         self.marvel_version:        str = "1.0.1"  #  MarvelYukonEthernet
