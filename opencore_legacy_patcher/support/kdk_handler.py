@@ -25,7 +25,16 @@ from . import (
 
 KDK_INSTALL_PATH: str  = "/Library/Developer/KDKs"
 KDK_INFO_PLIST:   str  = "KDKInfo.plist"
-KDK_API_LINK:     str  = "https://dortania.github.io/KdkSupportPkg/manifest.json"
+KDK_API_LINK:     str  = "https://albert-mueller.github.io/KdkSupportPkg/manifest.json"
+
+# All KDK catalogs, in priority order. They are read and merged by build instead of
+# stopping at the first one that answers: our own catalog comes first and wins for any
+# build it lists, Dortania's fills in everything it doesn't have (ours currently stops
+# at 26.2, so on its own it would hide every newer KDK).
+KDK_API_LINKS: tuple = (
+    KDK_API_LINK,
+    "https://dortania.github.io/KdkSupportPkg/manifest.json",
+)
 
 KDK_ASSET_LIST:   list = None
 
@@ -94,42 +103,89 @@ class KernelDebugKitObject:
         self._get_latest_kdk()
 
 
+    @staticmethod
+    def _valid_kdk_entry(entry) -> bool:
+        """
+        Only accept catalog entries the matching code below can use: build, version
+        and url as strings, an integer fileSize, a parseable version, and a download
+        hosted on GitHub over HTTPS.
+        """
+        if not isinstance(entry, dict):
+            return False
+        for key in ("build", "version", "url"):
+            if not isinstance(entry.get(key), str) or not entry[key]:
+                return False
+        if not isinstance(entry.get("fileSize"), int) or isinstance(entry.get("fileSize"), bool):
+            return False
+        if not entry["url"].startswith("https://github.com/"):
+            return False
+        try:
+            packaging.version.Version(entry["version"])
+        except (packaging.version.InvalidVersion, TypeError):
+            return False
+        return True
+
+
     def _get_remote_kdks(self) -> list:
         """
-        Fetches a list of available KDKs from the KdkSupportPkg API
-        Additionally caches the list for future use, avoiding extra API calls
+        Fetches the available KDKs from all KdkSupportPkg catalogs (see KDK_API_LINKS)
+        Additionally caches the merged list for future use, avoiding extra API calls
 
         Returns:
-            list: A list of KDKs, sorted by version and date if available. Returns None if the API is unreachable
+            list: A list of KDKs, sorted by version and date. Returns None if no catalog is reachable
         """
 
         global KDK_ASSET_LIST
 
-        logging.info("Pulling KDK list from KdkSupportPkg API")
         if KDK_ASSET_LIST:
             return KDK_ASSET_LIST
 
-        try:
-            results = network_handler.NetworkUtilities().get(
-                KDK_API_LINK,
-                headers={
-                    "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0/OpenCoreLegacyPatcherT2/{self.constants.patcher_version}"
-                },
-                timeout=5
-            )
-        except (requests.exceptions.Timeout, requests.exceptions.TooManyRedirects, requests.exceptions.ConnectionError):
+        logging.info("Pulling KDK list from KdkSupportPkg API")
+
+        merged: dict = {}
+        for link in KDK_API_LINKS:
+            try:
+                results = network_handler.NetworkUtilities().get(
+                    link,
+                    headers={
+                        "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0/OpenCoreLegacyPatcherT2/{self.constants.patcher_version}"
+                    },
+                    timeout=5
+                )
+                if not results or results.status_code != 200:
+                    logging.info(f"- {link}: unavailable")
+                    continue
+                entries = results.json()
+            except (requests.exceptions.Timeout, requests.exceptions.TooManyRedirects, requests.exceptions.ConnectionError):
+                logging.info(f"- {link}: could not contact")
+                continue
+            except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, beim unerwartetes Fehler, beliebiges Code auszuführen oder ClickFix-Angriffe zu starten
+                logging.info(f"- {link}: unusable ({e.__class__.__name__})")
+                continue
+
+            if not isinstance(entries, list):
+                logging.info(f"- {link}: unexpected format, ignoring")
+                continue
+
+            added = 0
+            for entry in entries:
+                if not self._valid_kdk_entry(entry) or entry["build"] in merged:
+                    continue
+                merged[entry["build"]] = entry
+                added += 1
+            logging.info(f"- {link}: {added} new build(s)")
+
+        if not merged:
             logging.error("Could not contact KDK API")
             return None
-        except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, beim unerwartetes Fehler, beliebiges Code auszuführen oder ClickFix-Angriffe zu starten
-            logging.error("An unexpected error occured while trying to contact the KDK API.")
-            logging.exception("Stack Trace:")
-            return None
 
-        if results.status_code != 200:
-            logging.error("Could not fetch KDK list")
-            return None
-
-        KDK_ASSET_LIST = results.json()
+        # The closest-match search in _get_latest_kdk() relies on version-then-date,
+        # newest-first order. Merging breaks whatever order each catalog had, so sort here.
+        KDK_ASSET_LIST = sorted(
+            merged.values(),
+            key=lambda e: (packaging.version.Version(e["version"]), str(e.get("date", ""))),
+            reverse=True,
+        )
 
         return KDK_ASSET_LIST
 
