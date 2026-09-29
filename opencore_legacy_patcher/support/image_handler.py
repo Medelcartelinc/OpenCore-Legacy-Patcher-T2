@@ -103,29 +103,76 @@ def get_data_uri(icon) -> str:
     return f"data:{mime};base64,{base64.b64encode(get_bytes(icon)).decode('ascii')}"
 
 
+def exists(icon) -> bool:
+    """
+    True if the icon is on disk or packed into the assets file.
+    Use this instead of Path.exists() for PNGs: in the built app they are no
+    longer real files in Contents/Resources.
+    """
+    icon = Path(str(icon))
+    if icon.is_absolute() and icon.exists():
+        return True
+    return icon.name in _load_assets() or (_source_icons_dir() / icon.name).exists()
+
+
+def _bitmap_type_for(path: Path):
+    """
+    wx bitmap type for a file on disk.
+
+    .icns must be loaded as wx.BITMAP_TYPE_ICON: on macOS that goes through
+    NSImage. wx.BITMAP_TYPE_ANY (type 50) only tries the wxImage handlers,
+    none of which understand ICNS, which produced the
+    "Unknown image data format / no bitmap handler for type 50" error dialog.
+    """
+    import wx
+
+    suffix = path.suffix.lower()
+    if suffix == ".icns":
+        return wx.BITMAP_TYPE_ICON
+    if suffix == ".png":
+        return wx.BITMAP_TYPE_PNG
+    return wx.BITMAP_TYPE_ANY
+
+
 def get_bitmap(icon, size: tuple = None):
     """
     wx.Bitmap for an icon, optionally rescaled to size=(w, h).
 
-    Existing files (.icns, system icons) go through wx.Bitmap(path) exactly like
-    before. Only icons that are not on disk are decoded from the assets file.
+    Existing files (.icns, system icons) are loaded from disk with the bitmap
+    type matching their extension. Icons that are not on disk are decoded
+    from the assets file. Never shows a wx error dialog: a broken icon is
+    logged and replaced by an empty bitmap.
     """
     import io
     import wx  # imported lazily so the build tooling / CLI never need wx
 
     path = Path(str(icon))
-    if path.is_absolute() and path.exists():
-        bitmap = wx.Bitmap(str(path), wx.BITMAP_TYPE_ANY)
-        if size is None:
-            return bitmap
-        image = bitmap.ConvertToImage()
-    else:
-        try:
-            image = wx.Image(io.BytesIO(get_bytes(path)), wx.BITMAP_TYPE_PNG)
-        except FileNotFoundError as e:
-            logging.error(str(e))
+    image = None
+
+    # wx.LogNull suppresses wx's modal "OpenCore Legacy Patcher T2 Error"
+    # dialog; failures are reported through logging instead.
+    with wx.LogNull():
+        if path.is_absolute() and path.exists():
+            bitmap = wx.Bitmap(str(path), _bitmap_type_for(path))
+            if bitmap.IsOk():
+                if size is None:
+                    return bitmap
+                image = bitmap.ConvertToImage()
+            else:
+                logging.error(f"Failed to load icon from disk: {path}")
+
+        if image is None:
+            try:
+                data = get_bytes(path.name if path.is_absolute() and path.exists() else path)
+            except FileNotFoundError as e:
+                logging.error(str(e))
+                return wx.Bitmap(1, 1)
+            image = wx.Image(io.BytesIO(data), wx.BITMAP_TYPE_PNG)
+
+        if not image.IsOk():
+            logging.error(f"Failed to decode icon: {path.name}")
             return wx.Bitmap(1, 1)
 
-    if size is not None:
-        image = image.Rescale(size[0], size[1], wx.IMAGE_QUALITY_HIGH)
-    return wx.Bitmap(image)
+        if size is not None:
+            image = image.Rescale(size[0], size[1], wx.IMAGE_QUALITY_HIGH)
+        return wx.Bitmap(image)
