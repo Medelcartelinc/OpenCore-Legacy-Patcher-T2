@@ -173,7 +173,7 @@ class Constants:
         self.validate:                  bool = False  # Enable validation testing for CI
         self.recovery_status:           bool = False  # Detect if booted into RecoveryOS
         self.snooze_updates:            int = 0  #  Snooze updates for a number of days
-        self.auto_update:               bool = True # auto update the app without permission from the user
+        self.auto_update:               bool = True # install found updates without asking; False = still check, but ask first
         self.next_update_check:         str = "" # Value of when the ext update will be
         self.build_profile:             str = "standard"  # "standard" or "test_b" — gates TEST-B GPU modifications
         self.app_mode:                  str = "albert"    # "albert" or "matteo"

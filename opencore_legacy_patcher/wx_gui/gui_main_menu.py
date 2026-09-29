@@ -402,7 +402,11 @@ class MainFrame(wx.Frame):
             self._report_manual_check(manual, str(remote_version_str), None)
             # A channel switch can install a build with a lower version number, so it
             # always goes through the confirmation dialog, never the silent auto-update.
-            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, manual or channel_switch, channel_switch)
+            # With "Turn Off Auto Updates" enabled (auto_update False) the automatic
+            # check still runs, but the result is only offered via the same dialog
+            # instead of being downloaded and installed without asking.
+            ask_first = manual or channel_switch or self.constants.auto_update is False
+            wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, ask_first, channel_switch)
 
     def _report_manual_check(self, manual: bool, new_version, error) -> None:
         """
