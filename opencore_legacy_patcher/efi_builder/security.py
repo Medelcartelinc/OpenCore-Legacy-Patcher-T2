@@ -421,6 +421,6 @@ class BuildSecurity:
             self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta ipc_control_port_options=0")
             current_args = self._read_nvram_string(APPLE_NVRAM_UUID, "boot-args")
             if "amfi=0x80" in current_args:
-                if not self._is_t2_mac():
+                if not self._is_t2_mac() and not self.constants.disable_amfi:
                     cleaned_args = " ".join([arg for arg in current_args.split() if arg != "amfi=0x80"])
                     self.config["NVRAM"]["Add"][APPLE_NVRAM_UUID]["boot-args"] = cleaned_args
