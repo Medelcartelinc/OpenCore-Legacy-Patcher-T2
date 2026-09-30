@@ -170,6 +170,7 @@ class BuildOpenCore:
                     "DisableLinkeditJettison": True,
                     "PanicNoKextDump": True,
                     "DisableIoMapper": False,
+                    "DisableIoMapperMapping": True,
                 })
                 self.config.setdefault("Misc", {}).setdefault("Security", {})["SecureBootModel"] = "Disabled"
                 self.config.setdefault("UEFI", {}).setdefault("ProtocolOverrides", {})["DataHub"] = False
