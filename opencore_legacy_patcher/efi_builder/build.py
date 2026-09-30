@@ -516,7 +516,7 @@ class BuildOpenCore:
                     if prefix not in current_boot_args:
                         current_boot_args = f"{current_boot_args} {arg}".strip()
                 # Clean out any leftover amfi=0x80 to ensure Apple Account & entitlements are functional
-                if self.model not in model_array.T2Macs:
+                if self.model not in model_array.T2Macs and not self.constants.disable_amfi:
                     cleaned = [a for a in current_boot_args.split() if a != "amfi=0x80"]
                     current_boot_args = " ".join(cleaned)
                 self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = current_boot_args
