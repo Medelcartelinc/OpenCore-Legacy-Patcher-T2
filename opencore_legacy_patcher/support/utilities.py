@@ -592,13 +592,25 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
         # A non-str here (e.g. a bound method) used to raise "encoding without a string argument"
         logging.warning(f"get_admin_permission() called with invalid reason {type(reason).__name__}, using default prompt")
         reason = "OpenCore-Patcher-T2 needs your administrative permission"
+    # Callers hand us whatever they built their argv from: str, bytes, and very often
+    # pathlib.Path (e.g. install.py: ["/bin/mkdir", "-p", mount_path / "EFI"]).
+    # bytes(<Path>, encoding="utf-8") raises "TypeError: encoding without a string
+    # argument", which aborted every elevated command containing a Path as soon as the
+    # Privileged Helper Tool was unusable. Normalise everything to bytes instead.
+    def _as_arg_bytes(value) -> bytes:
+        if isinstance(value, (bytes, bytearray)):
+            return bytes(value)
+        if isinstance(value, (str, os.PathLike)):
+            return os.fsencode(value)
+        return str(value).encode("utf-8")
+
+    action_bytes = _as_arg_bytes(action)
     if args is None:
-        return_args = action
-    else:
         byte_args: list = []
-        for arg in args:
-            byte_args.append(bytes(arg, encoding="utf-8"))
-        return_args = f"{action} {str(byte_args)}"
+        return_args = [os.fsdecode(action_bytes)]
+    else:
+        byte_args = [_as_arg_bytes(arg) for arg in args]
+        return_args = [os.fsdecode(action_bytes)] + [os.fsdecode(arg) for arg in byte_args]
     status, auth_ref = Security.AuthorizationCreate(
         None,
         None,
@@ -645,10 +657,10 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
         if status != Security.errAuthorizationSuccess:
             return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCopyRights failed with status {status}")
 
-        if args is None or args == "":
+        if not byte_args:
             status, _ = Security.AuthorizationExecuteWithPrivileges(
                 auth_ref,
-                bytes(action, encoding="utf-8"),
+                action_bytes,
                 Security.kAuthorizationFlagDefaults,
                 b'',
                 None,
@@ -656,7 +668,7 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
         else:
             status, _ = Security.AuthorizationExecuteWithPrivileges(
                 auth_ref,
-                bytes(action, encoding="utf-8"),
+                action_bytes,
                 Security.kAuthorizationFlagDefaults,
                 byte_args,
                 None,

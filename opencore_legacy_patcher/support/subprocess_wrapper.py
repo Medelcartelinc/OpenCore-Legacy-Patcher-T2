@@ -205,7 +205,9 @@ def repair_privileged_helper_permissions():
 
         result=utilities.get_admin_permission(
             action="/bin/chmod",
-            args=[f"{oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:]} {OCLP_PRIVILEGED_HELPER}".encode("utf-8")],
+            # Two separate argv entries: mode and path. A single "755 /path" entry would make
+            # chmod treat the whole string as the mode and fail.
+            args=[oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:], str(OCLP_PRIVILEGED_HELPER)],
             reason=prompt,
             # the defaults for the buttons are ok, so we would touch them
         )
@@ -287,9 +289,7 @@ def run_as_root(*args, **kwargs):
             logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
     elif not Path(OCLP_PRIVILEGED_HELPER).exists():
         logging.warning(f"Privileged Helper Tool not found at {OCLP_PRIVILEGED_HELPER}.")
-    process =_command[0]
-    _command.remove(process)
-    return utilities.get_admin_permission(action=process, args=_command)
+    return utilities.get_admin_permission(action=_command[0], args=_command[1:])
 
     return _run_elevated_without_helper(_command, **kwargs)
 
