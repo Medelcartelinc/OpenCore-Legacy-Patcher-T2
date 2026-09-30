@@ -1,4 +1,9 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.19006.2 - 4.0.0 alpha 19.6.2
+This release:
+- fixes AttributeError while trying to install root patches
+- now requires MacPorts to be installed to build the app; Homebrew requires Apple Silicon
+
 ## 4.0.0.19006.1 - 4.0.0 alpha 19.6.1
 This release:
 - fixes a bug where upon updating the patcher or switching forks via switching the update channel, it starts a repair upgrade even if the update has successfully installed
