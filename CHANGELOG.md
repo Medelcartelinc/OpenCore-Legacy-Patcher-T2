@@ -1,4 +1,22 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.19006.4 - 4.0.0 alpha 19.6.4
+This release fixes a bug where if the certificate is invalid and falls back to osascript, when building OpenCore EFI, the following error shows up:
+
+            Mounte Partition: disk0s6
+            Mounting partition: disk0s6
+            Privileged Helper Tool rejected this build (OCLP_PHT_ERROR_INVALID_CERTIFICATES), not using it for the rest of this session.
+            Checking hard disk type
+            Mounting the EFI partition
+            File operation failed during installation: encoding without a string argument
+            Stack Trace:
+            Traceback (most recent call last):
+              File "opencore_legacy_patcher/support/install.py", line 163, in install_opencore
+              File "opencore_legacy_patcher/support/subprocess_wrapper.py", line 714, in run_as_root_and_verify
+              File "opencore_legacy_patcher/support/subprocess_wrapper.py", line 292, in run_as_root
+              File "opencore_legacy_patcher/support/utilities.py", line 600, in get_admin_permission
+            TypeError: encoding without a string argument
+            Please try again later.
+
 ## 4.0.0.19006.3 - 4.0.0 alpha 19.6.3
 This release:
 - fixes a bug where even when Disable AMFIPass is explicitly enabled in Settings, the patcher was still stripping out amfi=0x80 and that caused certain Macs to get stuck at a login loop when trying to sign in, thx @Medelcartelinc 
