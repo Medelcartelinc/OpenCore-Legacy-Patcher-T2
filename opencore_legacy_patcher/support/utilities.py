@@ -588,6 +588,10 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
     * confirm_button: the name of the OK button that is desplayed to the user if the default doesn't work
     * deny_button: the name of the Cancel button that is desplayed to the user if the default doesn't work
     """
+    if not isinstance(reason, str) or not reason:
+        # A non-str here (e.g. a bound method) used to raise "encoding without a string argument"
+        logging.warning(f"get_admin_permission() called with invalid reason {type(reason).__name__}, using default prompt")
+        reason = "OpenCore-Patcher-T2 needs your administrative permission"
     if args is None:
         return_args = action
     else:

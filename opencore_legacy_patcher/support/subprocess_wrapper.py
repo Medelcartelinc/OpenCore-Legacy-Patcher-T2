@@ -660,9 +660,26 @@ def mount_dmg(
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
-    action = cmd[0]
-    cmd.remove(action)
-    return utilities.get_admin_permission(action=action, args=cmd, reason=admin_password_prompt)
+    # AuthorizationExecuteWithPrivileges() gives the child no stdin we can write to, so
+    # '-stdinpass' would read EOF and fail with "Authentication error". The passphrases
+    # used here are fixed, public constants (see dmg_mount.UNIVERSAL_BINARIES_PASSPHRASE,
+    # reroute_payloads), so passing them on argv exposes nothing.
+    elevated_cmd = [arg for arg in cmd if arg != "-stdinpass"]
+    if password:
+        elevated_cmd.extend(["-passphrase", password])
+
+    action = elevated_cmd.pop(0)
+    result = utilities.get_admin_permission(action=action, args=elevated_cmd, reason=admin_password_prompt)
+
+    # get_admin_permission() only reports whether authorization/launch succeeded, not
+    # hdiutil's own exit status (it always says "succeeded" once the tool is started).
+    # Check the mount point so a failed attach is not treated as mounted.
+    if result.returncode == 0 and not os.path.ismount(mount_point):
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=1, stdout=stdout,
+            stderr=b"Elevated hdiutil attach did not mount the image",
+        )
+    return result
 
 
 def verify(process_result: subprocess.CompletedProcess) -> None:
@@ -732,12 +749,12 @@ def generate_log(process: subprocess.CompletedProcess) -> str:
         output += f"        Likely Enum: {_returned_error}\n"
     output += f"    Standard Output:\n"
     if process.stdout:
-        output += __format_output(process.stdout.decode("utf-8"))
+        output += __format_output(__to_text(process.stdout))
     else:
         output += "        None\n"
     output += f"    Standard Error:\n"
     if process.stderr:
-        output += __format_output(process.stderr.decode("utf-8"))
+        output += __format_output(__to_text(process.stderr))
     else:
         output += "        None\n"
 
@@ -756,6 +773,19 @@ def __resolve_privileged_helper_errors(return_code: int) -> Optional[str]:
         return None
 
     return PrivilegedHelperErrorCodes(return_code).name
+
+
+def __to_text(output) -> str:
+    """
+    Normalise CompletedProcess output to str.
+
+    Most callers capture bytes, but utilities.get_admin_permission() and text-mode
+    subprocess.run() calls produce str - calling .decode() on those turned every
+    logged failure from them into an AttributeError that masked the real error.
+    """
+    if isinstance(output, (bytes, bytearray)):
+        return output.decode("utf-8", errors="replace")
+    return str(output)
 
 
 def __format_output(output: str) -> str:

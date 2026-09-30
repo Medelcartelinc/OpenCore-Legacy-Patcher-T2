@@ -32,19 +32,15 @@ class PatcherSupportPkgMount:
         self.icon_path = self.constants.app_icon_path
         subprocess_wrapper.set_admin_prompt_icon(self.icon_path)
 
-    def _request_admin_password(self, message: str = subprocess_wrapper.ADMIN_PASSWORD_PROMPT_MESSAGE) -> str:
-        """Prompt for the local administrator password. See subprocess_wrapper.request_admin_password().
-
-        Only reached when the session has no cached password yet - subprocess_wrapper
-        asks once and reuses the answer for every later privileged step (Issue #356).
-        """
-        return subprocess_wrapper.request_admin_password(self.icon_path, message=message)
-
     def _run_hdiutil(self, dmg_path: Path, mount_point: Path, shadow_path: Path = None, password: str = None, retry_on_auth_error: bool = False) -> subprocess.CompletedProcess:
         """Helper to standardize hdiutil execution using -stdinpass, with elevation on failure"""
         return subprocess_wrapper.mount_dmg(
             dmg_path, mount_point, shadow_path=shadow_path, password=password,
-            admin_password_prompt=self._request_admin_password,
+            # Reason string for the native Authorization Services dialog - mount_dmg() hands
+            # this to utilities.get_admin_permission() as 'reason', so it must be a str.
+            # A bound method here raised "encoding without a string argument" (see c7ae533,
+            # which fixed the same thing in reroute_payloads.py but missed this call site).
+            admin_password_prompt="OpenCore-Patcher-T2 needs administrator permission to mount Universal-Binaries.dmg.",
             retry_on_auth_error=retry_on_auth_error
         )
 
