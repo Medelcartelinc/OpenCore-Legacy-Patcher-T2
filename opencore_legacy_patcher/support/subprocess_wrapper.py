@@ -11,6 +11,9 @@ import subprocess
 import os
 import atexit
 import threading
+import tempfile
+import shutil
+import time
 from . import utilities
 
 from pathlib import Path
@@ -289,9 +292,96 @@ def run_as_root(*args, **kwargs):
             logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
     elif not Path(OCLP_PRIVILEGED_HELPER).exists():
         logging.warning(f"Privileged Helper Tool not found at {OCLP_PRIVILEGED_HELPER}.")
-    return utilities.get_admin_permission(action=_command[0], args=_command[1:])
+    return _run_via_authorization_services(_command, **kwargs)
 
     return _run_elevated_without_helper(_command, **kwargs)
+
+
+# Wrapper run as root by _run_via_authorization_services(). Constant script, the real
+# command is passed as positional parameters ("$@"), so no argument is ever re-parsed
+# by the shell. 'set -C' (noclobber) opens the result files with O_EXCL, so a file or
+# symlink planted at one of those paths makes the redirection fail instead of letting
+# root write through it.
+_AUTH_SERVICES_WRAPPER = (
+    'set -C; out="$1"; err="$2"; st="$3"; shift 3; '
+    '"$@" <"/dev/null" >"$out" 2>"$err"; rc=$?; '
+    'printf "%s\\n" "$rc" >"$st"'
+)
+
+
+def _run_via_authorization_services(command: list, timeout: Optional[float] = None, **kwargs) -> subprocess.CompletedProcess:
+    """
+    Run 'command' as root through Authorization Services and wait for it to finish.
+
+    AuthorizationExecuteWithPrivileges() returns as soon as the tool has been *started*
+    and never reports its exit status, so calling utilities.get_admin_permission() with
+    the command directly made run_as_root() asynchronous and always "successful":
+    install.py's "rm -rf EFI/OC" could still be running while "cp -r" started, and the
+    post-copy existence check ran before cp had copied anything ("EFI/OC or System is
+    missing on the target after copy"). Instead, a small /bin/sh wrapper runs the
+    command, stores stdout/stderr/exit status in a private temporary directory, and we
+    wait for the status file. The result is a normal, synchronous CompletedProcess.
+    """
+    command = [os.fspath(arg) if isinstance(arg, os.PathLike) else arg for arg in command]
+    work_dir = tempfile.mkdtemp(prefix="oclp-elevated-")
+    out_path = os.path.join(work_dir, "stdout")
+    err_path = os.path.join(work_dir, "stderr")
+    status_path = os.path.join(work_dir, "status")
+    try:
+        launch = utilities.get_admin_permission(
+            action="/bin/sh",
+            args=["-c", _AUTH_SERVICES_WRAPPER, "oclp-elevated", out_path, err_path, status_path] + command,
+        )
+        if launch.returncode != 0:
+            # Cancelled or not authorized: nothing was started, report that as is.
+            launch.args = command
+            return launch
+
+        deadline = None if timeout is None else time.monotonic() + timeout
+        return_code = None
+        while return_code is None:
+            try:
+                with open(status_path, "rb") as status_file:
+                    content = status_file.read()
+                if content.endswith(b"\n"):
+                    return_code = int(content.strip())
+                    break
+            except FileNotFoundError:
+                pass
+            except ValueError:
+                return_code = 1
+                break
+            if deadline is not None and time.monotonic() > deadline:
+                raise subprocess.TimeoutExpired(command, timeout)
+            time.sleep(0.05)
+
+        def _read(path: str) -> bytes:
+            try:
+                with open(path, "rb") as f:
+                    return f.read()
+            except OSError:
+                return b""
+
+        stdout, stderr = _read(out_path), _read(err_path)
+        if kwargs.get("stderr") == subprocess.STDOUT:
+            stdout, stderr = stdout + stderr, None
+        elif kwargs.get("stderr") != subprocess.PIPE and not kwargs.get("capture_output"):
+            stderr = None
+        if kwargs.get("stdout") != subprocess.PIPE and not kwargs.get("capture_output"):
+            stdout = None
+        if kwargs.get("text") or kwargs.get("universal_newlines") or kwargs.get("encoding"):
+            encoding = kwargs.get("encoding") or "utf-8"
+            errors = kwargs.get("errors") or "replace"
+            stdout = stdout.decode(encoding, errors) if stdout is not None else None
+            stderr = stderr.decode(encoding, errors) if stderr is not None else None
+
+        result = subprocess.CompletedProcess(args=command, returncode=return_code, stdout=stdout, stderr=stderr)
+        if kwargs.get("check") and return_code != 0:
+            raise subprocess.CalledProcessError(return_code, command, stdout, stderr)
+        return result
+    finally:
+        # The dir is ours (0700), so the root-owned files inside can be removed by us.
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def _run_elevated_without_helper(command: list, **kwargs) -> subprocess.CompletedProcess:
