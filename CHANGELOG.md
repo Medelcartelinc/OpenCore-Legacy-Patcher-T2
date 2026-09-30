@@ -1,6 +1,6 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.19006.4 - 4.0.0 alpha 19.6.4
-This release fixes a bug where if the certificate is invalid and falls back to osascript, when building OpenCore EFI, the following error shows up:
+This release fixes a bug where if the certificate of the Priveleged Helper Tool is invalid (e.g when running from source or a fork) and falls back to osascript, when building OpenCore EFI, the following error shows up:
 
             Mounte Partition: disk0s6
             Mounting partition: disk0s6
