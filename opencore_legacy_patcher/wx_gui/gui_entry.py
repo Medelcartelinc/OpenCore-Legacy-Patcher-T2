@@ -10,7 +10,6 @@ from Cocoa import NSApp, NSApplication
 
 from .. import constants
 from ..sys_patch.patchsets import HardwarePatchsetDetection
-from ..efi_builder.misc import _T2_MODELS # benötigt für T2 Macs
 
 
 from ..wx_gui import (
@@ -110,6 +109,9 @@ class EntryPoint:
         NSApplication.sharedApplication()
         NSApp().activateIgnoringOtherApps_(True)
 
+        # Dark app icon in the Dock on macOS 26 Tahoe+ when Dark Mode is active
+        gui_support.update_dock_icon(self.constants)
+
 
     def start(self, entry: SupportedEntryPoints = gui_mode_selector.ModeSelectorFrame, start_patching: bool = False) -> None:
         """
@@ -156,7 +158,7 @@ class EntryPoint:
             **({"patches": patches} if is_patching_mode else {})
         )
 
-        # BEHOBEN: Gefährliches atexit.register entfernt. 
+        # BEHOBEN: Gefährliches atexit.register entfernt.
         # Stattdessen nutzen wir das native wxPython Event-Handling für das Schließen des Fensters.
         self.frame.Bind(wx.EVT_CLOSE, self.OnCloseFrame)
 

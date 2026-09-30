@@ -5,8 +5,6 @@ os_probe.py: OS Host information
 import platform
 import plistlib
 import subprocess
-import sys
-import logging
 from pathlib import Path
 
 
@@ -94,5 +92,5 @@ class OSProbe:
                     return plistlib.load(f)["ProductBuildVersion"]
             except Exception as e:
                 raise RuntimeError(f"Failed to parse OS build plist: {e}")
-        
+
         raise RuntimeError(f"Failed to detect OS build: {file_path} not found")

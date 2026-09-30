@@ -6,7 +6,6 @@ Returns dict with Link and Version of the latest binary update if available
 """
 
 import logging
-import applescript
 
 from urllib.parse import quote
 
@@ -45,7 +44,7 @@ class CheckBinaryUpdates:
             assert self.constants.special_build is True, "Invalid version number for binary"
             # Special builds will not have a proper version number
             self.binary_version = version.parse("0.0.0")
-        
+
         self.latest_details = None
         self.last_error: Optional[str] = None
 
@@ -125,12 +124,38 @@ class CheckBinaryUpdates:
     def check_binary_updates(self, manual: bool = False) -> Optional[dict]:
         """
         Check if any updates are available for the OpenCore Legacy Patcher binary.
-        Automatic checks respect the user's auto-update flag and snooze window.
-        Manual checks explicitly bypass those gates so the user can still force
-        a refresh when they choose to.
+        Automatic checks respect the snooze window; manual checks bypass it so
+        the user can still force a refresh when they choose to.
+
+        constants.auto_update is deliberately NOT checked here. It only decides
+        whether a found update is installed silently or offered through the
+        confirmation dialog - that decision belongs to the callers
+        (gui_main_menu.py on_update(), the auto patcher always asks). Gating the
+        check itself on auto_update meant "Turn Off Auto Updates" also turned
+        off automatic update *checks*, contrary to what the setting promises
+        ("the app will still automatically check for updates, but will not
+        apply them automatically").
         """
-        if self.constants.auto_update is False and manual is False:
-            logging.info("Automatic updates are disabled in the settings.")
+
+        # Running from source (OpenCore-Patcher-GUI.command / python3 from the
+        # Terminal): launcher_script is only set in that case, see
+        # application_entry.py. An automatic check would end in
+        # on_update(manual=False) -> gui_update.UpdateFrame, which silently
+        # downloads and installs the packaged PKG - i.e. it installs the app
+        # even when it was never installed, and the source checkout is not
+        # what gets updated anyway. So automatic updates are off for every
+        # from-source session. Deliberately not written to "AllowAutoUpdates":
+        # this depends on how this one process was launched, not on a user
+        # choice, and the installed app (and its auto-patcher/macos-update
+        # daemons) must keep the stored setting. It also has to be checked
+        # here rather than by setting constants.auto_update once at startup,
+        # because GenerateDefaults() re-reads "AllowAutoUpdates" whenever the
+        # target model changes (gui_model_change.py, arguments.py).
+        # Manual checks (Settings > "Check for updates") stay possible - they
+        # always ask first.
+        if self.constants.launcher_script and manual is False:
+            logging.info("Running from source - automatic updates are disabled for this session.")
+            self.last_error = "Running from source - automatic updates are disabled for this session."
             return None
 
         if manual is False:
@@ -144,7 +169,7 @@ class CheckBinaryUpdates:
                     logging.error("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
                 except Exception as e: # behebt eine Sicherheitslücke, indem einen Angreifer könnte Fehler außerhalb ValueError verursachen, um beliebiges Code auszuführen
                     logging.error("NextUpdateCheck value is invalid and will be ignored: %r", next_update_check)
-        
+
         # Self-heal the Privileged Helper Tool's permissions before doing anything
         # network-related below. No-op (no prompt) unless a repair is actually needed.
         self._ensure_privileged_helper_permissions()
@@ -176,13 +201,13 @@ class CheckBinaryUpdates:
             logging.info("If so, report this issue immediately")
             self.last_error = "Could not reach GitHub. Please check your internet connection."
             return None
-            
+
         response = network_handler.NetworkUtilities().get(repo_latest_release_url)
         releases = response.json()
-        
+
         if not releases or not isinstance(releases, list):
             return None
-            
+
         # GitHub's /releases API returns items sorted by creation date, not by version number.
         # To avoid fetching an older version that was published more recently, we must find the highest version.
         highest_release = None
@@ -191,7 +216,7 @@ class CheckBinaryUpdates:
         for release in releases:
             if "tag_name" not in release:
                 continue
-            
+
             try:
                 rel_ver = version.parse(release["tag_name"])
             except version.InvalidVersion:

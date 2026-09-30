@@ -13,6 +13,7 @@ import binascii
 import plistlib
 import subprocess
 import py_sip_xnu
+import Security
 
 from pathlib import Path
 
@@ -21,7 +22,6 @@ from .. import constants
 from ..detections import ioreg
 
 from ..datasets import (
-    os_data,
     sip_data,
     model_array
 )
@@ -140,12 +140,6 @@ def check_seal():
     else:
         return False
 
-def check_filesystem_type():
-    # Expected to return 'apfs' or 'hfs'
-    filesystem_type = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", "/"], stdout=subprocess.PIPE).stdout.decode().strip().encode())
-    return filesystem_type["FilesystemType"]
-
-
 def find_any_oclp_manifest(root_path: Path = None):
     """
     Search common locations for any OpenCore Legacy Patcher root-volume
@@ -248,52 +242,6 @@ def check_kext_loaded(bundle_id: str) -> str:
     return ""
 
 
-def check_oclp_boot():
-    if get_nvram("OCLP-Version", "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102", decode=True):
-        return True
-    else:
-        return False
-
-
-def check_monterey_wifi():
-    IO80211ElCap = "com.apple.iokit.IO80211ElCap"
-    CoreCaptureElCap = "com.apple.driver.corecaptureElCap"
-    loaded_kexts: str = subprocess.run(["/usr/sbin/kextcache"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode()
-    if IO80211ElCap in loaded_kexts and CoreCaptureElCap in loaded_kexts:
-        return True
-    else:
-        return False
-
-
-def check_metal_support(device_probe, computer):
-    if computer.gpus:
-        for gpu in computer.gpus:
-            if (
-                (gpu.arch in [
-                    device_probe.NVIDIA.Archs.Tesla,
-                    device_probe.NVIDIA.Archs.Fermi,
-                    device_probe.NVIDIA.Archs.Maxwell,
-                    device_probe.NVIDIA.Archs.Pascal,
-                    device_probe.AMD.Archs.TeraScale_1,
-                    device_probe.AMD.Archs.TeraScale_2,
-                    device_probe.Intel.Archs.Iron_Lake,
-                    device_probe.Intel.Archs.Sandy_Bridge
-                    ]
-                )
-            ):
-                return False
-    return True
-
-
-def check_filevault_skip():
-    # Check whether we can skip FileVault check with Root Patching
-    nvram = get_nvram("OCLP-Settings", "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102", decode=True)
-    if nvram:
-        if "-allow_fv" in nvram:
-            return True
-    return False
-
-
 def check_secure_boot_model():
     sbm_byte = get_nvram("HardwareModel", "94B73556-2197-4702-82A8-3E1337DAFBFB", decode=False)
     if sbm_byte:
@@ -332,38 +280,6 @@ def check_secure_boot_level():
     return False
 
 
-def patching_status(os_sip, os):
-    # Detection for Root Patching
-    sip_enabled = True  #  System Integrity Protection
-    sbm_enabled = True  #  Secure Boot Status (SecureBootModel)
-    fv_enabled = True  #   FileVault
-    dosdude_patched = True
-
-    gen6_kext = "/System/Library/Extension/AppleIntelHDGraphics.kext"
-    gen7_kext = "/System/Library/Extension/AppleIntelHD3000Graphics.kext"
-
-
-    sbm_enabled = check_secure_boot_level()
-
-    if os > os_data.os_data.yosemite:
-        sip_enabled = csr_decode(os_sip)
-    else:
-        sip_enabled = False
-
-    if os > os_data.os_data.catalina and not check_filevault_skip():
-        # Assume non-OCLP Macs do not have our APFS seal patch
-        fv_status: str = subprocess.run(["/usr/bin/fdesetup", "status"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode()
-        if "FileVault is Off" in fv_status:
-            fv_enabled = False
-    else:
-        fv_enabled = False
-
-    if not (Path(gen6_kext).exists() and Path(gen7_kext).exists()):
-        dosdude_patched = False
-
-    return sip_enabled, sbm_enabled, fv_enabled, dosdude_patched
-
-
 clear = True
 
 
@@ -382,14 +298,6 @@ def cls():
             os.system("cls" if os.name == "nt" else "clear")
         else:
             logging.info("\u001Bc")
-
-def check_command_line_tools():
-    # Determine whether Command Line Tools exist
-    xcode_select = subprocess.run(["/usr/bin/xcode-select", "--print-path"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if xcode_select.returncode == 0:
-        return True
-    else:
-        return False
 
 def get_nvram(variable: str, uuid: str = None, *, decode: bool = False):
     # TODO: Properly fix for El Capitan, which does not print the XML representation even though we say to
@@ -580,15 +488,6 @@ def block_os_updaters():
                     subprocess.run(["/bin/kill", "-9", pid])
                     break
 
-def check_boot_mode():
-    # Check whether we're in Safe Mode or not
-    try:
-        sys_plist = plistlib.loads(subprocess.run(["/usr/sbin/system_profiler", "SPSoftwareDataType"], stdout=subprocess.PIPE).stdout)
-        return sys_plist[0]["_items"][0]["boot_mode"]
-    except (KeyError, TypeError, plistlib.InvalidFileException):
-        return None
-
-
 def fetch_staged_update(variant: str = "Update") -> tuple[str, str]:
     """
     Check for staged macOS update
@@ -663,7 +562,7 @@ def check_cli_args():
     # "--developer" - the documented usage, and what application_entry.py looks
     # for in sys.argv - made argparse exit(2) and killed the launch.
     parser.add_argument("--developer", nargs="?", const=True, default=None, help="Force True Developer Mode", required=False)
-    parser.add_argument("--disable_auto_update", help="Disable automatic update checks, equivalent to Settings > \"Turn Off Auto Updates\"", action="store_true", required=False)
+    parser.add_argument("--disable_auto_update", help="Disable automatic installation of updates (updates are still checked for and offered), equivalent to Settings > \"Turn Off Auto Updates\"", action="store_true", required=False)
 
     args = parser.parse_args()
     if not (
@@ -678,3 +577,106 @@ def check_cli_args():
         return None
     else:
         return args
+
+def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reason: str = "OpenCore-Patcher-T2 needs your administrative permission"):
+    """
+    run the give action as root without using the Privileged Helper Tool
+
+    * action: a str path to the progra being executed
+    * args: a list of all the arguments to be sent to the program
+    * reason: the message that tells the user why they are seeing this format it like this: why you are seeing this (e.g "OpenCore-Patcher-T2 needs your administrative permission") and what will happen (e.g "to verify that you are an admin")
+    * confirm_button: the name of the OK button that is desplayed to the user if the default doesn't work
+    * deny_button: the name of the Cancel button that is desplayed to the user if the default doesn't work
+    """
+    if not isinstance(reason, str) or not reason:
+        # A non-str here (e.g. a bound method) used to raise "encoding without a string argument"
+        logging.warning(f"get_admin_permission() called with invalid reason {type(reason).__name__}, using default prompt")
+        reason = "OpenCore-Patcher-T2 needs your administrative permission"
+    if args is None:
+        return_args = action
+    else:
+        byte_args: list = []
+        for arg in args:
+            byte_args.append(bytes(arg, encoding="utf-8"))
+        return_args = f"{action} {str(byte_args)}"
+    status, auth_ref = Security.AuthorizationCreate(
+        None,
+        None,
+        Security.kAuthorizationFlagDefaults,
+        None
+    )
+
+    if status != Security.errAuthorizationSuccess:
+        return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCreate failed with status {status}")
+
+    try:
+        rights = (
+            Security.AuthorizationItem(
+                Security.kAuthorizationRightExecute,
+                0,
+                None,
+                0
+            ),
+        )
+        prompt = bytes(reason, encoding="utf-8")
+        environment = (
+            Security.AuthorizationItem(
+                Security.kAuthorizationEnvironmentPrompt,
+                len(prompt),
+                prompt,
+                0
+            ),
+        )
+
+        status, authorized_rights = Security.AuthorizationCopyRights(
+            auth_ref,
+            rights,
+            environment,
+            (
+                Security.kAuthorizationFlagInteractionAllowed
+                | Security.kAuthorizationFlagExtendRights
+            ),
+            None,
+        )
+
+        if status == Security.errAuthorizationCanceled:
+            return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
+
+        if status != Security.errAuthorizationSuccess:
+            return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationCopyRights failed with status {status}")
+
+        if args is None or args == "":
+            status, _ = Security.AuthorizationExecuteWithPrivileges(
+                auth_ref,
+                bytes(action, encoding="utf-8"),
+                Security.kAuthorizationFlagDefaults,
+                b'',
+                None,
+            )
+        else:
+            status, _ = Security.AuthorizationExecuteWithPrivileges(
+                auth_ref,
+                bytes(action, encoding="utf-8"),
+                Security.kAuthorizationFlagDefaults,
+                byte_args,
+                None,
+            )
+
+        if status == Security.errAuthorizationCanceled:
+            return subprocess.CompletedProcess(args=return_args, returncode=1, stdout="User canceled the request")
+
+        if status != Security.errAuthorizationSuccess:
+            return subprocess.CompletedProcess(args=return_args, returncode=2, stderr=f"AuthorizationExecuteWithPrivileges failed with status {status}")
+# fix the success logic of mount root volume
+        return subprocess.CompletedProcess(args=return_args, returncode=0, stdout="Running as root succeeded")
+
+    except Exception:
+        logging.error("Running as root failed")
+        logging.exception("Stack Trace:")
+        return subprocess.CompletedProcess(args=return_args, returncode=2, stderr="Running as root failed")
+
+    finally:
+        Security.AuthorizationFree(
+           auth_ref,
+           Security.kAuthorizationFlagDefaults
+        )

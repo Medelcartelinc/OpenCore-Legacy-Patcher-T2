@@ -13,8 +13,7 @@ from ..sys_patch import sys_patch
 
 from ..wx_gui import (
     gui_support,
-    gui_sys_patch_display,
-    gui_update
+    gui_sys_patch_display
 )
 
 from ..datasets import (
@@ -23,7 +22,6 @@ from ..datasets import (
 )
 from ..support import (
     global_settings,
-    network_handler,
     subprocess_wrapper,
 )
 
@@ -375,8 +373,8 @@ class MacosConfigFrame(wx.Frame):
 
         return settings
 
-       
-    
+
+
     def on_checkbox(self, event: wx.Event, warning_pop: str = "", override_function: bool = False) -> None:
         """
         """
@@ -523,7 +521,7 @@ class MacosConfigFrame(wx.Frame):
             wx.MessageDialog(self.parent, "Root Volume saved, please reboot to apply changes", "Success", wx.OK | wx.ICON_INFORMATION).ShowModal()
         else:
             wx.MessageDialog(self.parent, "Root Volume update Failed, check terminal output", "Error", wx.OK | wx.ICON_ERROR).ShowModal()
-    
+
 
     def _find_parent_for_key(self, key: str) -> str:
         for parent in self.settings:

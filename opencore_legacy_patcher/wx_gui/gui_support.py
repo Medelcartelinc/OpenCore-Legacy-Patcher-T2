@@ -10,9 +10,7 @@ import logging
 import plistlib
 import threading
 import subprocess
-import os
 import functools
-import webbrowser
 import applescript
 import packaging.version
 
@@ -29,6 +27,31 @@ from ..datasets import (
     os_data,
     smbios_data
 )
+
+
+def update_dock_icon(global_constants: constants.Constants) -> None:
+    """
+    On macOS 26 Tahoe+ in Dark Mode, show the dark app icon in the Dock while the app runs.
+    Otherwise restore the bundle's default icon. The Finder/Dock icon of the app when it is
+    NOT running still comes from the bundle, which a static .icns cannot make appearance-aware.
+    """
+    try:
+        from AppKit import NSApp, NSImage
+        app = NSApp()
+        if app is None:
+            return
+        if global_constants.detected_os < os_data.os_data.tahoe:
+            return
+        icon_path = global_constants.app_icon_path
+        if icon_path.name == "OC-Patcher-Dark.icns":
+            image = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
+            if image is not None:
+                app.setApplicationIconImage_(image)
+                return
+        # None restores the icon declared in the bundle's Info.plist
+        app.setApplicationIconImage_(None)
+    except Exception:
+        logging.exception("Failed to update Dock icon")
 
 
 class GeminiWebView(wx.Frame):
@@ -98,9 +121,6 @@ get_font_face.font_face = None
 # Centralize the common options for font creation
 def font_factory(size: int, weight):
     return wx.Font(size, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, weight, False, get_font_face())
-    
-    # If returncode is 0, we have access.
-    return result.returncode == 0
 
 class AutoUpdateStages:
     INACTIVE = 0
@@ -558,21 +578,6 @@ class CheckProperties:
         Fails open (True) if Metal cannot be queried, keeping the native animation.
         """
         return _host_has_metal_device()
-
-    def host_is_solarium(self) -> bool:
-        """
-        Check if running on macOS 26, and if Solarium refresh is enabled
-        """
-
-        if self.constants.detected_os < os_data.os_data.tahoe:
-            return False
-
-        # If we are a release build, we are not Solarium for now
-        if self.constants.commit_info[0].startswith('refs/tags'):
-            return False
-
-        return True
-
 
     def host_has_cpu_gen(self, gen: int) -> bool:
         """

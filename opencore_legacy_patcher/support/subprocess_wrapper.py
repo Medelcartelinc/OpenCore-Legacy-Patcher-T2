@@ -8,16 +8,16 @@ import stat
 import shlex
 import logging
 import subprocess
-import Security
 import os
 import atexit
 import threading
+from . import utilities
 
 from pathlib import Path
 from typing import Callable, Optional
 
 
-OCLP_PRIVILEGED_HELPER = "/Library/PrivilegedHelperTools/com.dortania.opencore-legacy-patcher.privileged-helper"
+OCLP_PRIVILEGED_HELPER = "/Library/PrivilegedHelperTools/com.albert-mueller.opencore-patcher-t2.privileged-helper"
 OCLP_PRIVILEGED_HELPER_EXPECTED_MODE = 0o4755
 
 ADMIN_PASSWORD_PROMPT_MESSAGE = (
@@ -25,7 +25,7 @@ ADMIN_PASSWORD_PROMPT_MESSAGE = (
     "You will only be asked once - it is kept in memory until the app quits."
 )
 ADMIN_PASSWORD_RETRY_MESSAGE = "Incorrect password, please try again. " + ADMIN_PASSWORD_PROMPT_MESSAGE
-ADMIN_PASSWORD_MAX_ATTEMPTS = 3
+ADMIN_PROMPT_MAX_ATTEMPTS = 3
 
 # Session-wide administrator credential cache (Issue #356).
 #
@@ -72,6 +72,7 @@ class PrivilegedHelperErrorCodes(enum.IntEnum):
     OCLP_PHT_ERROR_COMMAND_MISSING             = 168
     OCLP_PHT_ERROR_COMMAND_FAILED              = 169
     OCLP_PHT_ERROR_CATCH_ALL                   = 170
+    OCLP_PHT_ERROR_COMMAND_NOT_ALLOWED         = 171
 
 
 # Errors that will not go away by retrying within this session: the helper (or the app
@@ -80,6 +81,18 @@ _HELPER_PERMANENT_ERRORS = (
     PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_SIGNING_INFORMATION_MISSING.value,
     PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_INVALID_TEAM_ID.value,
     PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_INVALID_CERTIFICATES.value,
+)
+
+# Errors where the helper ran fine, verified its caller, and then deliberately refused the
+# command itself. These are policy decisions, not malfunctions: the command is not on the
+# helper's allowlist (or failed its argument rules, e.g. '/bin/sh -c ...', or resolved to a
+# path that is not a regular file). Re-running such a command through an administrator
+# prompt would turn the allowlist into a mere speed bump - whatever the helper rejects
+# would still end up running as root, one familiar-looking password dialog later. So they
+# are returned to the caller as-is and NEVER fall back to any other elevation path.
+_HELPER_REFUSAL_ERRORS = (
+    PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_COMMAND_NOT_ALLOWED.value,
+    PrivilegedHelperErrorCodes.OCLP_PHT_ERROR_COMMAND_MISSING.value,
 )
 
 
@@ -120,7 +133,7 @@ def _helper_path_is_safe_to_repair() -> bool:
         logging.error(f"Could not stat Privileged Helper Tool: {error}")
         return False
     except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, den Priveleged Helper Tool einen unerwartetes Fehler auszulösen, um beliebiges Code auszuführen
-        logging.error(f"Could not stat Privileged Helper Tool due to unexpected error: {error}")
+        logging.error(f"Could not stat Privileged Helper Tool due to unexpected error: {e}")
         logging.exception("Stack Trace:")
         return False
 
@@ -183,141 +196,35 @@ def privileged_helper_needs_setuid_repair() -> bool:
         return False
 
 
-def repair_privileged_helper_permissions() -> bool:
-    """
-    Reset the Privileged Helper Tool back to 4755 using the Security framework,
-    which is supported on macOS 10.0+, that easily fits with 10.10!
+def repair_privileged_helper_permissions():
 
-    Note: Deliberately does NOT go through run_as_root() (i.e. the helper
-    tool itself), since a helper tool missing its setuid bit can't elevate
-    itself - that's precisely the problem being repaired here.
-
-    Callers may assume a single contract: this returns True on success and False
-    on ANY failure (user cancelled, Authorization Services error, unexpected
-    exception). It never raises and never terminates the process - it is called
-    from the GUI, where killing the interpreter mid-run could leave a half-written
-    EFI behind.
-
-    AuthorizationExecuteWithPrivileges has been deprecated since macOS 10.7 and is
-    unavailable from sandboxed contexts; SMJobBless/SMAppService is the sanctioned
-    replacement. Kept for now because it works on the wide OS range this fork targets.
-    """
-    if not _helper_path_is_safe_to_repair():
-        # Should already have been caught by privileged_helper_needs_setuid_repair(),
-        # re-checked here so this stays safe if called directly.
-        return False
-
-    # Authorize the privileged operation using macOS Authorization Services.
-    # This causes macOS to present its native authorization UI rather than
-    # requiring OCLP to collect an administrator password.
-    # MARK: IMPORTANT
-
-    # If this doesn't work make sure that you have pyObjC 12.1, as that was version that has been tested.
-    status, auth_ref = Security.AuthorizationCreate(
-        None,
-        None,
-        Security.kAuthorizationFlagDefaults,
-        None
-    )
-
-    if status != Security.errAuthorizationSuccess:
-        logging.error(f"AuthorizationCreate failed with status {status}")
-        return False
-
-    try:
-        # Request the right to execute a privileged tool.
-        rights = (
-            Security.AuthorizationItem(
-                Security.kAuthorizationRightExecute,
-                0,
-                None,
-                0
-            ),
-        )
-        prompt = b"OpenCore Legacy Patcher T2 needs administrator permission to repair the permissions of its privileged helper tool."
-
-        environment = (
-            Security.AuthorizationItem(
-                Security.kAuthorizationEnvironmentPrompt,
-                len(prompt),
-                prompt,
-                0
-            ),
-        )
-
-        status, authorized_rights = Security.AuthorizationCopyRights(
-            auth_ref,
-            rights,
-            environment,
-            (
-                Security.kAuthorizationFlagInteractionAllowed
-                | Security.kAuthorizationFlagExtendRights
-            ),
-            None,
-        )
-
-        if status == Security.errAuthorizationCanceled:
-            logging.info("User canceled the request")
-            return False
-
-        if status != Security.errAuthorizationSuccess:
-            logging.error(f"AuthorizationCopyRights failed with status {status}")
-            return False
-
-        # Re-validate immediately before the chmod to narrow the TOCTOU window between
-        # the check above and the privileged operation itself. This does not close the
-        # window (chmod still resolves the path itself), it only shrinks it.
         if not _helper_path_is_safe_to_repair():
             return False
 
-        chmod_arguments = (
-            oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:].encode("utf-8"),
-            OCLP_PRIVILEGED_HELPER.encode("utf-8"),
-        )
+        prompt = "OpenCore Legacy Patcher T2 needs administrator permission to repair the permissions of its privileged helper tool."
 
-        status, _ = Security.AuthorizationExecuteWithPrivileges(
-            auth_ref,
-            b"/bin/chmod",
-            Security.kAuthorizationFlagDefaults,
-            chmod_arguments,
-            None,
+        result=utilities.get_admin_permission(
+            action="/bin/chmod",
+            args=[f"{oct(OCLP_PRIVILEGED_HELPER_EXPECTED_MODE)[2:]} {OCLP_PRIVILEGED_HELPER}".encode("utf-8")],
+            reason=prompt,
+            # the defaults for the buttons are ok, so we would touch them
         )
-
-        if status == Security.errAuthorizationCanceled:
-            logging.info("User canceled the request")
+        if result.returncode == 0:
+            return True
+        else:
             return False
 
-        if status != Security.errAuthorizationSuccess:
-            logging.error(f"AuthorizationExecuteWithPrivileges failed with status {status}")
-            return False
-
-        logging.info("Privileged Helper Tool permissions repaired (4755)")
-        return True
-
-    # Ohne diesen Block wurde eine unerwartete Exception (z.B. ein PyObjC-Fehler bei
-    # abweichender pyObjC-Version) ungefangen bis in den GUI-Aufrufer durchgereicht.
-    # Jetzt: protokollieren und False zurueckgeben, damit der Aufrufer einen einzigen,
-    # vorhersehbaren Fehlerfall behandeln muss.
-    except Exception:
-        logging.error("Running the Privileged Helper Tool operation failed.")
-        logging.exception("Stack Trace:")
-        return False
-
-    finally:
-        Security.AuthorizationFree(
-           auth_ref,
-           Security.kAuthorizationFlagDefaults
-        )
 
 
-def run(*args, **kwargs) -> subprocess.CompletedProcess:
+
+def run(*args, **kwargs):
     """
     Basic subprocess.run wrapper.
     """
     return subprocess.run(*args, **kwargs)
 
 
-def run_as_root(*args, **kwargs) -> subprocess.CompletedProcess:
+def run_as_root(*args, **kwargs):
     """
     Run subprocess as root.
 
@@ -364,6 +271,15 @@ def run_as_root(*args, **kwargs) -> subprocess.CompletedProcess:
         _helper_error = __resolve_privileged_helper_errors(result.returncode)
         if _helper_error is None:
             return result
+        if result.returncode in _HELPER_REFUSAL_ERRORS:
+            # The helper refused this specific command on purpose - do NOT retry it through
+            # an administrator prompt (see _HELPER_REFUSAL_ERRORS). Return the helper's own
+            # result so callers see the sentinel code and fail cleanly.
+            logging.error(
+                f"Privileged Helper Tool refused to run {_command[0]} ({_helper_error}), "
+                "not retrying with administrator privileges."
+            )
+            return result
         if result.returncode in _HELPER_PERMANENT_ERRORS:
             _privileged_helper_unusable = True
             logging.error(f"Privileged Helper Tool rejected this build ({_helper_error}), not using it for the rest of this session.")
@@ -371,6 +287,9 @@ def run_as_root(*args, **kwargs) -> subprocess.CompletedProcess:
             logging.error(f"Privileged Helper Tool failed ({_helper_error}).")
     elif not Path(OCLP_PRIVILEGED_HELPER).exists():
         logging.warning(f"Privileged Helper Tool not found at {OCLP_PRIVILEGED_HELPER}.")
+    process =_command[0]
+    _command.remove(process)
+    return utilities.get_admin_permission(action=process, args=_command)
 
     return _run_elevated_without_helper(_command, **kwargs)
 
@@ -471,7 +390,7 @@ def obtain_admin_password(admin_password_prompt: Optional[Callable[..., str]] = 
             _cached_admin_password = ""
             return _cached_admin_password
 
-        for attempt in range(ADMIN_PASSWORD_MAX_ATTEMPTS):
+        for attempt in range(ADMIN_PROMPT_MAX_ATTEMPTS):
             message = ADMIN_PASSWORD_PROMPT_MESSAGE if attempt == 0 else ADMIN_PASSWORD_RETRY_MESSAGE
             if admin_password_prompt is None:
                 password = request_admin_password(_admin_prompt_icon_path, message=message)
@@ -488,7 +407,7 @@ def obtain_admin_password(admin_password_prompt: Optional[Callable[..., str]] = 
                 logging.info("Administrator password accepted, reusing it for this session")
                 return _cached_admin_password
 
-            logging.info(f"Administrator password rejected by sudo (attempt {attempt + 1}/{ADMIN_PASSWORD_MAX_ATTEMPTS})")
+            logging.info(f"Administrator password rejected by sudo (attempt {attempt + 1}/{ADMIN_PROMPT_MAX_ATTEMPTS})")
 
         _admin_password_cancelled = False
         _sudo_elevation_failed = True
@@ -672,7 +591,7 @@ def mount_dmg(
     mount_point: Path,
     shadow_path: Path = None,
     password: str = None,
-    admin_password_prompt: Optional[Callable[[], str]] = None,
+    admin_password_prompt: Optional[str] = None,
     retry_on_auth_error: bool = False
 ) -> subprocess.CompletedProcess:
     """
@@ -741,47 +660,26 @@ def mount_dmg(
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
+    # AuthorizationExecuteWithPrivileges() gives the child no stdin we can write to, so
+    # '-stdinpass' would read EOF and fail with "Authentication error". The passphrases
+    # used here are fixed, public constants (see dmg_mount.UNIVERSAL_BINARIES_PASSPHRASE,
+    # reroute_payloads), so passing them on argv exposes nothing.
+    elevated_cmd = [arg for arg in cmd if arg != "-stdinpass"]
+    if password:
+        elevated_cmd.extend(["-passphrase", password])
 
-    # Shared with run_as_root(): the user is asked once per session, not once per image.
-    admin_password = obtain_admin_password(admin_password_prompt)
-    if admin_password is None:
-        logging.info("- Elevated hdiutil attach cancelled (no administrator password provided)")
-        return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
-    _needs_admin_password = admin_password != ""
+    action = elevated_cmd.pop(0)
+    result = utilities.get_admin_permission(action=action, args=elevated_cmd, reason=admin_password_prompt)
 
-    # Clear com.apple.quarantine before attaching: a quarantined disk image (e.g. a
-    # freshly rebuilt/re-extracted payload) can trip hdiutil's authentication gate
-    # even when run as root - elevating privileges alone does not clear it. Run it
-    # in the same elevated shell as the actual attach so it always has the rights to.
-    elevated_shell = (
-        # sudo resets the environment (env_reset), so LC_ALL and AppleLanguages set
-        # for the unprivileged attempt do not survive into this one. Re-export them here.
-        "export LC_ALL=C LANG=en_US.UTF-8 AppleLanguages='(\"en\")'; "
-        f"xattr -d com.apple.quarantine {shlex.quote(str(dmg_path))} 2>/dev/null; "
-        + " ".join(shlex.quote(str(arg)) for arg in cmd)
-    )
-    # '-k' clears any cached sudo credential timestamp, so a previous sudo in this
-    # session cannot silently change how much of stdin sudo consumes. It does NOT
-    # force a prompt where sudoers says NOPASSWD - that case is handled by asking
-    # sudo up front (_sudo_will_prompt) and sending no password line at all.
-    elevated_cmd = ["/usr/bin/sudo", "-S", "-k", "-p", "", "/bin/sh", "-c", elevated_shell]
-
-    elevated_process = subprocess.Popen(elevated_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-    # sudo -S reads exactly one line from stdin for its own password, then hands the
-    # remaining, still-open stdin through to the shell (and on to hdiutil's -stdinpass)
-    stdin_payload = (admin_password + "\n" if _needs_admin_password else "") + (password or "")
-    elevated_stdout, _ = elevated_process.communicate(input=stdin_payload.encode())
-
-    if elevated_process.returncode == 0:
-        logging.info("- Mounted (elevated)")
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=elevated_stdout)
-
-    # Der Fehlertext wird protokolliert, damit ein Fehlschlag im CLI-Betrieb ueberhaupt
-    # sichtbar ist. Bewusst als einzelne Zeile und ohne Sonderbehandlung: die Ausgabe
-    # landet in Logs, die Nutzer routinemaessig an Issues anhaengen, enthaelt Pfade und
-    # kann je nach hdiutil-Fehlerfall Reste der stdin-Eingabe spiegeln.
-    logging.error(f"- Elevated hdiutil attach failed: {elevated_stdout.decode(errors='replace').strip()}")
-    return subprocess.CompletedProcess(args=cmd, returncode=elevated_process.returncode, stdout=elevated_stdout)
+    # get_admin_permission() only reports whether authorization/launch succeeded, not
+    # hdiutil's own exit status (it always says "succeeded" once the tool is started).
+    # Check the mount point so a failed attach is not treated as mounted.
+    if result.returncode == 0 and not os.path.ismount(mount_point):
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=1, stdout=stdout,
+            stderr=b"Elevated hdiutil attach did not mount the image",
+        )
+    return result
 
 
 def verify(process_result: subprocess.CompletedProcess) -> None:
@@ -851,12 +749,12 @@ def generate_log(process: subprocess.CompletedProcess) -> str:
         output += f"        Likely Enum: {_returned_error}\n"
     output += f"    Standard Output:\n"
     if process.stdout:
-        output += __format_output(process.stdout.decode("utf-8"))
+        output += __format_output(__to_text(process.stdout))
     else:
         output += "        None\n"
     output += f"    Standard Error:\n"
     if process.stderr:
-        output += __format_output(process.stderr.decode("utf-8"))
+        output += __format_output(__to_text(process.stderr))
     else:
         output += "        None\n"
 
@@ -867,7 +765,7 @@ def __resolve_privileged_helper_errors(return_code: int) -> Optional[str]:
     """
     Attempt to resolve Privileged Helper Tool error codes.
 
-    Returns the enum name for one of our sentinel codes (160-170), or None for any
+    Returns the enum name for one of our sentinel codes (160-171), or None for any
     other exit code - callers distinguish "the helper itself failed" from "the wrapped
     command failed" on exactly this None check.
     """
@@ -875,6 +773,19 @@ def __resolve_privileged_helper_errors(return_code: int) -> Optional[str]:
         return None
 
     return PrivilegedHelperErrorCodes(return_code).name
+
+
+def __to_text(output) -> str:
+    """
+    Normalise CompletedProcess output to str.
+
+    Most callers capture bytes, but utilities.get_admin_permission() and text-mode
+    subprocess.run() calls produce str - calling .decode() on those turned every
+    logged failure from them into an AttributeError that masked the real error.
+    """
+    if isinstance(output, (bytes, bytearray)):
+        return output.decode("utf-8", errors="replace")
+    return str(output)
 
 
 def __format_output(output: str) -> str:

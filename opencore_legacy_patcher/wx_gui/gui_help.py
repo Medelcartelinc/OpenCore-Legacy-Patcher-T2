@@ -19,7 +19,7 @@ class HelpFrame(wx.Frame):
     """
     def __init__(self, parent: wx.Frame, title: str, global_constants: constants.Constants, screen_location: tuple = None) -> None:
         logger.info("Initializing Help Frame")
-        
+
         # INCREASED BASE SIZE: Changed vertical boundary constraint from 200 to 300 to accommodate more buttons cleanly
         self.dialog = wx.Dialog(parent, title=title, size=(300, 320))
 
@@ -78,11 +78,11 @@ class HelpFrame(wx.Frame):
         # 3. Dynamic External Link Button Generation
         for label, url in resource_links:
             help_button = wx.Button(frame, label=label, pos=(-1, current_y), size=(220, 30))
-            
+
             # Bound the lambda environment execution target safely using fixed parameter signatures
             help_button.Bind(wx.EVT_BUTTON, lambda event, target_url=url: webbrowser.open(target_url))
             help_button.Centre(wx.HORIZONTAL)
-            
+
             # Step the coordinate down for the next item element sequence
             current_y += button_spacing
         gemini_button = wx.Button(frame, label="✨ Ask Gemini", pos=(-1, current_y), size=(220, 30))
@@ -116,7 +116,7 @@ class HelpFrame(wx.Frame):
         # self.constants.detected_os is this codebase's own Darwin-major
         # OS enum (see datasets/os_data.py) rather than platform.mac_ver(),
         # which is what the rest of the app already uses for OS gating
-        # (see e.g. gui_support.py's host_is_non_metal()/host_is_solarium())
+        # (see e.g. gui_support.py's host_is_non_metal())
         # - and it sidesteps mac_ver()'s well-known Big Sur "10.16"
         # misreport quirk entirely.
         if self.constants.detected_os >= os_data.os_data.big_sur:

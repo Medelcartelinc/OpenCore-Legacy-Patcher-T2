@@ -296,7 +296,7 @@ AGDPSupport = [
     "iMac19,2",
     "iMacPro1,1",
     "MacPro6,1",
-    # Uncomment when dropped from macOS 
+    # Uncomment when dropped from macOS
     # "iMac20,1",
     # "iMac20,2",
 ]
@@ -392,7 +392,7 @@ T2Macs = [
     "MacBookPro16,2",
     "MacBookPro16,3",
     "MacBookPro16,4",
-    "MacPro9,1",
+    "MacPro7,1",
     "Macmini8,1",
     "iMac20,1",
     "iMac20,2",

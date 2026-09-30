@@ -8,7 +8,7 @@ import requests
 import tempfile
 import subprocess
 import packaging.version
-import sys 
+import sys
 
 from typing import cast
 from pathlib import Path
@@ -113,12 +113,12 @@ class KernelDebugKitObject:
             results = network_handler.NetworkUtilities().get(
                 KDK_API_LINK,
                 headers={
-                    "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0/OpenCoreLegacyPatcherT2/{self.constants.patcher_version}"
+                    "User-Agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0/OpenCoreLegacyPatcherT2/{self.constants.patcher_version}"
                 },
                 timeout=5
             )
         except (requests.exceptions.Timeout, requests.exceptions.TooManyRedirects, requests.exceptions.ConnectionError):
-            logging.error("Could not contact KDK API") 
+            logging.error("Could not contact KDK API")
             return None
         except Exception as e: # behebt eine Sicherheitslücke, die erlaubt Angreifern, beim unerwartetes Fehler, beliebiges Code auszuführen oder ClickFix-Angriffe zu starten
             logging.error("An unexpected error occured while trying to contact the KDK API.")

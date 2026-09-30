@@ -3,7 +3,6 @@ gui_oc_settings.py: Settings Frame for the GUI
 """
 
 
-
 from pathlib import Path
 
 import wx
@@ -128,8 +127,6 @@ class OCSettingsFrame(wx.Frame):
         return_button.Bind(wx.EVT_BUTTON, self.on_return)
         return_button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         sizer.Add(return_button, 0, wx.ALIGN_CENTER | wx.ALL, 0)
-
-
 
 
         sizer.Add(bot_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 10)
@@ -453,7 +450,7 @@ class OCSettingsFrame(wx.Frame):
                         "Disable this to not show the",
                         "boot picker every time you",
                         "boot into OpenCore"
-                        
+
                     ],
                 },
                 "Boot Picker Timeout": {
@@ -515,7 +512,7 @@ class OCSettingsFrame(wx.Frame):
                     ],
                 },
             },
-                
+
             "Extras": {
                 "Extra features - recommended for troubleshooting": {
                     "type": "title",
@@ -852,7 +849,7 @@ class OCSettingsFrame(wx.Frame):
         }
 
         return settings
-    
+
 
     # MARK: helper functions
     def _populate_graphics_override(self, panel: wx.Panel) -> None:
@@ -909,7 +906,7 @@ class OCSettingsFrame(wx.Frame):
         self.constants.fu_arguments = None
         global_settings.GlobalEnviromentSettings().write_property("GUI:fu_status", False)
         global_settings.GlobalEnviromentSettings().write_property("GUI:fu_arguments", "PYTHON_NONE_VALUE")
-    
+
 
     def gpu_selection_click(self, event: wx.Event) -> None:
         gpu_choice = event.GetEventObject().GetStringSelection()
@@ -1050,7 +1047,7 @@ class OCSettingsFrame(wx.Frame):
         self.frame_modal.Destroy()
         self.parent.Enable()
 
-        
+
     def on_save(self, event):
         # Must be initialised before the branch below. If a build profile is already set
         # (e.g. an earlier build in the same session), the prompt is skipped entirely and
@@ -1072,7 +1069,7 @@ class OCSettingsFrame(wx.Frame):
                 "Build OpenCore",
                 choices
             )
-                    
+
             if dialog.ShowModal() == wx.ID_OK:
                 selection = dialog.GetSelection()
                 if selection == 0:
@@ -1134,12 +1131,6 @@ class OCSettingsFrame(wx.Frame):
             tmp_value = "PYTHON_NONE_VALUE"
         global_settings.GlobalEnviromentSettings().write_property(f"GUI:{variable}", tmp_value)
 
-
-    def on_choice(self, event: wx.Event, label: str) -> None:
-        """
-        """
-        value = event.GetString()
-        self._update_setting(self.settings[self._find_parent_for_key(label)][label]["variable"], value)
 
     def on_oc_settings_tab_changed(self, event: wx.Event) -> None:
         """
@@ -1251,7 +1242,6 @@ class OCSettingsFrame(wx.Frame):
             self.sip_checkbox.Bind(wx.EVT_CHECKBOX, self.on_sip_value)
 
 
-
     def on_build_and_install_standard(self, event: wx.Event = None):
         self.constants.build_profile = "standard"
         self.on_build_and_install(event)
@@ -1274,7 +1264,7 @@ class OCSettingsFrame(wx.Frame):
             "Build OpenCore",
             choices
         )
-        
+
         if dialog.ShowModal() == wx.ID_OK:
             selection = dialog.GetSelection()
             if selection == 0:

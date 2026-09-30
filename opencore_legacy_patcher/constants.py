@@ -3,7 +3,6 @@ constants.py: Defines versioning, file paths and other settings for the patcher
 """
 
 import logging
-import sys
 from pathlib   import Path
 from typing    import Optional
 from packaging import version
@@ -16,9 +15,9 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.190002"
+        self.patcher_version:                 str = "4.0.0.190006.2"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.0.3"  # PatcherSupportPkg
+        self.patcher_support_pkg_version:     str = "2.0.4"  # PatcherSupportPkg
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania · T2 fork © 2026 Albert Müller"
 
         # Application identity
@@ -27,13 +26,6 @@ class Constants:
         # identifier makes Launchpad display only whichever of the two patchers was
         # registered first (see issue #395).
         self.bundle_identifier:               str = "io.github.albert-mueller.opencore-legacy-patcher-t2"
-
-        # Versions
-        self.lilu_version:               str = "1.7.2"  #      Lilu
-        self.whatevergreen_version:      str = "1.7.0"  #      WhateverGreen
-        self.airportbcrmfixup_version:   str = "2.2.0"  #      AirportBrcmFixup
-        self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
-        self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
         # URLs
         self.url_patcher_support_pkg:         str = "https://github.com/albert-mueller/PatcherSupportPkg/releases/download/"
@@ -62,7 +54,7 @@ class Constants:
 
         self.custom_installer_url:            str = "https://github.com/Medelcartelinc/OpenCore-Legacy-Patcher-T2"
         self.custom_installer_version=self.patcher_version
-        self.installer_pkg_url:               str = f"{self.repo_link}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
+        self.installer_pkg_url:               str = f"{self.repo_link.rstrip('/')}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
         # https://github.com/albert-mueller/OpenCorePkg-add-T2-support
@@ -73,23 +65,21 @@ class Constants:
         ## Acidanthera
         ## https://github.com/acidanthera
         self.lilu_version:               str = "1.7.2"  #      Lilu
-        self.whatevergreen_version:      str = "1.7.0"  #      WhateverGreen
+        self.whatevergreen_version:      str = "1.7.1"  #      WhateverGreen
         self.whatevergreen_navi_version: str = "1.7.0-Navi"  # WhateverGreen (Navi Patch)
-        self.airportbcrmfixup_version:   str = "2.2.0"  #      AirPortBrcmFixup
+        self.airportbcrmfixup_version:   str = "2.2.1"  #      AirPortBrcmFixup
         self.nvmefix_version:            str = "1.1.3"  #      NVMeFix
-        self.applealc_version:           str = "1.6.7"  #      AppleALC
+        self.applealc_version:           str = "1.9.8"  #      AppleALC
         self.restrictevents_version:     str = "1.1.6"  #      RestrictEvents
         self.featureunlock_version:      str = "1.1.8"  #      FeatureUnlock
         self.debugenhancer_version:      str = "1.1.0"  #      DebugEnhancer
         self.cpufriend_version:          str = "1.3.0"  #      CPUFriend
         self.bluetool_version:           str = "2.7.2"  #      BlueToolFixup (BrcmPatchRAM)
-        self.cslvfixup_version:          str = "2.6.1"  #      CSLVFixup
         self.autopkg_version:            str = "1.0.4"  #      AutoPkgInstaller
         self.cryptexfixup_version:       str = "1.0.5"  #      CryptexFixup
+        self.nvme_fix_version:           str = "1.1.3"  #      NVMeFix
+        self.kext_updater_version:       str = "3.8.5"  #      KextUpdater
 
-        ## Acidanthera - Albert Mueller Modified
-        self.restrictevents_t2_version: str = "1.1.6-T2"  #RestrictEvents-T2
-        
         ## Apple
         ## https://www.apple.com
         self.marvel_version:        str = "1.0.1"  #  MarvelYukonEthernet
@@ -183,11 +173,10 @@ class Constants:
         self.validate:                  bool = False  # Enable validation testing for CI
         self.recovery_status:           bool = False  # Detect if booted into RecoveryOS
         self.snooze_updates:            int = 0  #  Snooze updates for a number of days
-        self.auto_update:               bool = True # auto update the app without permission from the user
+        self.auto_update:               bool = True # install found updates without asking; False = still check, but ask first
         self.next_update_check:         str = "" # Value of when the ext update will be
         self.build_profile:             str = "standard"  # "standard" or "test_b" — gates TEST-B GPU modifications
         self.app_mode:                  str = "albert"    # "albert" or "matteo"
-        self.experimental_version:      str = "5.0.0"     # Matteo's version string
         self.wxpython_variant:          bool = False  # Determine if using wxPython variant
         self.has_checked_updates:       bool = False  # Determine if check for updates has been run
         self.root_patcher_succeeded:    bool = False  # Determine if root patcher succeeded
@@ -207,7 +196,7 @@ class Constants:
         self.update_stage:               int = 0  #     Determine update stage (see gui_support.py)
         self.log_filepath:              Path = None  #  Path to log file
         self.thread_sleep_interval:    float = 0.01  #  Sleep interval between UI updates (seconds) - balance between UI responsiveness and CPU usage
-        self.Experimental_Features:     bool = False 
+        self.Experimental_Features:     bool = False
         self.t2_installer_workaround:   bool = False
         self.allow_t2_experimental_kext:bool = False
         self.True_Developer_Mode:       bool = False
@@ -295,7 +284,7 @@ class Constants:
         self.force_quad_thread:      bool = False #  Force quad thread mode (cpus=4)
         self.set_alc_usage:          bool = True  #  Set AppleALC usage
         self.allow_modern_audio:     bool = True  #  Restore AppleHDA.kext on macOS Tahoe (Apple dropped analog audio for non-T2 audio routing)
-        self.allow_3rd_party_drives: bool = True  #  Allow ThridPartyDrives quirk
+        self.allow_3rd_party_drives: bool = True  #  Allow ThirdPartyDrives quirk
         self.allow_nvme_fixing:      bool = True  #  Allow NVMe Kernel Space Patches
         self.apfs_trim_timeout:      bool = True  #  Set APFS Trim timeout
         self.custom_sip_value:        int = None  #  Set custom SIP value
@@ -325,7 +314,7 @@ class Constants:
             logging.info("You won't receive automatic updates.")
             return True
         except Exception as e:
-            logging.error("We could not confirm whether you're using a special version.")
+            logging.error(f"We could not confirm whether you're using a special version: {e}")
             logging.info("You won't receive any updates to prevent an attacker from abusing the update API for malware delivery or denial of service attacks.")
             return True
 
@@ -360,19 +349,19 @@ class Constants:
 
     @property
     def auto_patch_launch_agent_path(self):
-        return self.launch_services_path / Path("com.dortania.opencore-legacy-patcher.auto-patch.plist")
+        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.auto-patch.plist")
 
     @property
     def rsr_monitor_launch_daemon_path(self):
-        return self.launch_services_path / Path("com.dortania.opencore-legacy-patcher.rsr-monitor.plist")
+        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.rsr-monitor.plist")
 
     @property
     def update_launch_daemon_path(self):
-        return self.launch_services_path / Path("com.dortania.opencore-legacy-patcher.macos-update.plist")
+        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.macos-update.plist")
 
     @property
     def kdk_launch_daemon_path(self):
-        return self.launch_services_path / Path("com.dortania.opencore-legacy-patcher.os-caching.plist")
+        return self.launch_services_path / Path("com.albert-mueller.opencore-legacy-patcher.os-caching.plist")
 
     # ACPI
     @property
@@ -453,14 +442,11 @@ class Constants:
     def restrictevents_path(self):
         return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-{self.restrictevents_version}-{self.kext_variant}.zip")
 
-    @property
-    def restrictevents_t2_path(self):
-        return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-v{self.restrictevents_t2_version}-{self.kext_variant}.zip")
-    
+
 
     @property
     def efi_disabler_path(self):
-        return self.payload_kexts_path / Path(f"Acidanthera/EFICheckDisabler.zip")
+        return self.payload_kexts_path / Path("Acidanthera/EFICheckDisabler.zip")
 
     @property
     def bcm570_path(self):
@@ -639,10 +625,6 @@ class Constants:
         return self.payload_kexts_path / Path(f"Acidanthera/BlueToolFixup-v{self.bluetool_version}-{self.kext_variant}.zip")
 
     @property
-    def cslvfixup_path(self):
-        return self.payload_kexts_path / Path(f"Acidanthera/CSLVFixup-v{self.cslvfixup_version}.zip")
-
-    @property
     def autopkg_path(self):
         return self.payload_kexts_path / Path(f"Acidanthera/AutoPkgInstaller-v{self.autopkg_version}-{self.kext_variant}.zip")
 
@@ -722,7 +704,7 @@ class Constants:
     # Build Location
     @property
     def build_path(self):
-        if self.oc_build_path == None:
+        if self.oc_build_path is None:
             return self.current_path / Path("Build-Folder/")
         else:
             return self.oc_build_path.parent
@@ -834,11 +816,11 @@ class Constants:
 
     @property
     def ocvalidate_path(self):
-        return self.payload_path / Path(f"OpenCore/ocvalidate")
+        return self.payload_path / Path("OpenCore/ocvalidate")
 
     @property
     def oclp_helper_path(self):
-        return self.payload_path / Path("Tools/OpenCore-Patcher.app/Contents/MacOS/OpenCore-Patcher")
+        return self.payload_path / Path("Tools/OpenCore-Patcher-T2.app/Contents/MacOS/OpenCore-Patcher-T2")
 
     @property
     def rsrrepair_userspace_path(self):
@@ -847,28 +829,82 @@ class Constants:
     # Icons
     @property
     def icns_resource_path(self):
-        if self.launcher_script:
+        # Running from source (or launcher binary not yet known): use the repo payloads
+        if self.launcher_script or not self.launcher_binary:
             return self.payload_path / Path("Resources/AppIcons")
         return Path(self.launcher_binary).parent.parent / Path("Resources")
+
+    @property
+    def app_icons_resource_path(self):
+        # PNG icons for the GUI. They live next to the .icns files: in
+        # payloads/Resources/AppIcons from source, and in Contents/Resources in the
+        # built app (ci_tooling/build_modules/application.py copies the whole folder).
+        return self.icns_resource_path
 
 
     @property
     def patch_icon_path(self):
-       if self.detected_os > os_data.os_data.tahoe:
-           return self.icns_resource_path / Path("OC-Patch-Wrench.icns")
-       elif self.detected_os < os_data.os_data.big_sur:
-           return self.icns_resource_path / Path("OC-Patch-WrenchAndScrewDriver.icns")
-       else:
-            return self.icns_resource_path / Path(f"OC-Patch-{self.detected_os}.icns")
+        if self.detected_os < os_data.os_data.big_sur:
+            return self.app_icons_resource_path / Path("OC-Patch-WrenchAndScrewDriver.png")
+        # There is no "OC-Patch-Wrench.icns" - newer OSes than Tahoe reuse the newest icon
+        return self.app_icons_resource_path / Path(f"OC-Patch-{min(self.detected_os, os_data.os_data.tahoe)}.png")
 
-       
+
     @property
     def app_icon_path(self):
+        # macOS 26 Tahoe and newer in Dark Mode get the dark variant of the app icon.
+        # Falls back to the regular icon if the dark file is missing (e.g. an older build).
+        if self.use_dark_app_icon:
+            dark_icon = self.icns_resource_path / Path("OC-Patcher-Dark.icns")
+            if dark_icon.exists():
+                return dark_icon
         return self.icns_resource_path / Path("OC-Patcher.icns")
 
     @property
+    def use_dark_app_icon(self) -> bool:
+        """
+        True when running on macOS 26 Tahoe or newer with Dark Mode active.
+        """
+        if self.detected_os >= os_data.os_data.tahoe:
+            return self.system_is_dark_mode()
+        else:
+            return False
+
+    @staticmethod
+    def system_is_dark_mode() -> bool:
+        """
+        Determine whether the current appearance is Dark Mode.
+
+        Prefers NSApp's effective appearance (accurate for "Auto" and for live
+        switches while the GUI is running). Without an NSApplication instance
+        (CLI, auto-patcher, privileged contexts) the AppleInterfaceStyle global
+        preference is read instead. Any failure is treated as Light Mode.
+        """
+        try:
+            from AppKit import NSApp, NSAppearanceNameAqua, NSAppearanceNameDarkAqua
+            app = NSApp()
+            if app is not None:
+                match = app.effectiveAppearance().bestMatchFromAppearancesWithNames_([NSAppearanceNameAqua, NSAppearanceNameDarkAqua])
+                return match == NSAppearanceNameDarkAqua
+        except Exception:
+            pass
+
+        try:
+            from Foundation import NSUserDefaults
+            style = NSUserDefaults.standardUserDefaults().stringForKey_("AppleInterfaceStyle")
+            return style is not None and str(style).lower() == "dark"
+        except Exception:
+            return False
+
+    @property
     def app_icon_path_png(self):
-        return self.icns_resource_path / Path("OC-Patcher.png")
+        if self.use_dark_app_icon:
+            dark_icon = self.icns_resource_path / Path("OC-Patcher-Dark.png")
+            # In the built app the PNG lives in OpenCore-Patcher-T2.assets, not on disk
+            from .support import image_handler
+            if image_handler.exists(dark_icon):
+                return dark_icon
+        return self.app_icons_resource_path / Path("OC-Patcher.png")
 
     @property
     def icon_path_external(self):
@@ -888,31 +924,31 @@ class Constants:
 
     @property
     def icon_path_macos_generic(self):
-        return self.icns_resource_path / Path("Generic.icns")
+        return self.app_icons_resource_path / Path("Generic.png")
 
     @property
     def icon_path_macos_big_sur(self):
-        return self.icns_resource_path / Path("BigSur.icns")
+        return self.app_icons_resource_path / Path("BigSur.png")
 
     @property
     def icon_path_macos_monterey(self):
-        return self.icns_resource_path / Path("Monterey.icns")
+        return self.app_icons_resource_path / Path("Monterey.png")
 
     @property
     def icon_path_macos_ventura(self):
-        return self.icns_resource_path / Path("Ventura.icns")
+        return self.app_icons_resource_path / Path("Ventura.png")
 
     @property
     def icon_path_macos_sonoma(self):
-        return self.icns_resource_path / Path("Sonoma.icns")
+        return self.app_icons_resource_path / Path("Sonoma.png")
 
     @property
     def icon_path_macos_sequoia(self):
-        return self.icns_resource_path / Path("Sequoia.icns")
+        return self.app_icons_resource_path / Path("Sequoia.png")
 
     @property
     def icon_path_macos_tahoe(self):
-        return self.icns_resource_path / Path("Tahoe.icns")
+        return self.app_icons_resource_path / Path("Tahoe.png")
 
     @property
     def gui_path(self):

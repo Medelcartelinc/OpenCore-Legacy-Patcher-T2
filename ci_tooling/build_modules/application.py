@@ -4,6 +4,8 @@ import shutil
 import plistlib
 import subprocess
 import rich
+import base64
+import json
 from pathlib import Path
 
 from opencore_legacy_patcher.volume import generate_copy_arguments
@@ -15,8 +17,8 @@ class GenerateApplication:
     Generate OpenCore-Patcher-T2.app
     """
 
-    def __init__(self, reset_pyinstaller_cache: bool = False, git_branch: str = None, 
-                 git_commit_url: str = None, git_commit_date: str = None, 
+    def __init__(self, reset_pyinstaller_cache: bool = False, git_branch: str = None,
+                 git_commit_url: str = None, git_commit_date: str = None,
                  analytics_key: str = None, analytics_endpoint: str = None) -> None:
         """
         Initialize
@@ -32,7 +34,7 @@ class GenerateApplication:
 
         self._analytics_key = analytics_key
         self._analytics_endpoint = analytics_endpoint
-        
+
         # Back to your original target file path
         self._analytics_source_file = Path("./opencore_legacy_patcher/support/analytics_handler.py")
 
@@ -62,7 +64,7 @@ class GenerateApplication:
         with open(self._analytics_source_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
-        # repr() automatically wraps the string in quotes and safely escapes 
+        # repr() automatically wraps the string in quotes and safely escapes
         # hazardous characters (like internal quotes, newlines, or backslashes)
         safe_key = repr(key or "")
         safe_endpoint = repr(endpoint or "")
@@ -98,19 +100,19 @@ class GenerateApplication:
 
     def _patch_load_command(self) -> None:
         """
-        Patch LC_VERSION_MIN_MACOSX in Load Command to report 10.10
+        Patch LC_VERSION_MIN_MACOSX in Load Command to report 10.13.6
         """
-        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher"
+        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher-T2"
 
         _find    = b'\x00\x0D\x0A\x00' # 10.13
-        _replace = b'\x00\x0A\x0A\x00' # 10.10
+        _replace = b'\x06\x0D\x0A\x00' # 10.13.6
 
         if not _file.exists():
             raise FileNotFoundError(f"Target binary not found for patching: {_file}")
 
         with open(_file, "rb") as f:
             data = f.read()
-            
+
         data = data.replace(_find, _replace, 1)
 
         with open(_file, "wb") as f:
@@ -121,7 +123,7 @@ class GenerateApplication:
         """
         Patch LC_BUILD_VERSION in Load Command to report the macOS 26 SDK
         """
-        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher"
+        _file = self._application_output / "Contents" / "MacOS" / "OpenCore-Patcher-T2"
 
         _find    = b'\x00\x01\x0C\x00'
         _replace = b'\x00\x00\x1A\x00'
@@ -131,7 +133,7 @@ class GenerateApplication:
 
         with open(_file, "rb") as f:
             data = f.read()
-            
+
         # Bounded to the first match, like _patch_load_command() above. The load command
         # lives once in the Mach-O header at the front of the file, but this is a 4-byte
         # sequence that recurs by chance across a multi-megabyte binary full of embedded
@@ -228,6 +230,12 @@ class GenerateApplication:
     def _embed_resources(self) -> None:
         """
         Embed resources
+
+        - *.png  -> packed into Contents/Resources/OpenCore-Patcher-T2.assets
+                    (read at runtime by support/image_handler.py)
+        - others -> copied as files (.icns, Assets.car). These must stay real
+                    files: macOS reads Assets.car for the app icon, and the
+                    .icns paths are handed to NSImage / osascript dialogs.
         """
         resources_dir = self._application_output / "Contents" / "Resources"
         resources_dir.mkdir(parents=True, exist_ok=True)
@@ -236,23 +244,31 @@ class GenerateApplication:
         if not app_icons_dir.is_dir():
             raise FileNotFoundError(f"AppIcons directory not found: {app_icons_dir}")
 
-        # Iterate the directory's entries - a Path is not itself iterable, which is
-        # where "'PosixPath' object is not iterable" came from.
-        #
-        # Copy everything in here rather than filtering on *.icns. OC-Patcher.png
-        # backs constants.app_icon_path_png, which embed_readme() rewrites the
-        # README's image URL to point at, and Assets.car is what hands macOS the app
-        # icon the same way Apple's own apps do. An extension filter silently drops
-        # both and the failure only shows up at runtime.
+        images = {}
         for file in sorted(app_icons_dir.iterdir()):
-            if file.name.startswith("."):
+            if file.name.startswith(".") or not file.is_file():
                 continue
+
+            if file.suffix.lower() == ".png":
+                images[file.name] = {
+                    "type": "png",
+                    "data": base64.b64encode(file.read_bytes()).decode("ascii"),
+                }
+                continue
+
             subprocess_wrapper.run_and_verify(
                 generate_copy_arguments(str(file), str(resources_dir)),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
 
+        if not images:
+            raise RuntimeError(f"No PNG icons found in {app_icons_dir}")
 
+        assets_file = resources_dir / "OpenCore-Patcher-T2.assets"
+        with open(assets_file, "w", encoding="utf-8") as f:
+            json.dump({"format": 1, "images": images}, f, separators=(",", ":"))
+
+        rich.print(f"Embedded {len(images)} icons into {assets_file}")
 
 
     def embed_readme(self) -> str:
@@ -272,13 +288,8 @@ class GenerateApplication:
         with open(about_file_path, "r", encoding="utf-8") as f:
             about_file = f.read()
 
-        image_url = "https://raw.githubusercontent.com/dortania/OpenCore-Legacy-Patcher/macos-next/docs/images/OC-Patcher.png"
         source_line = "markdown_text = Path(\"./README.md\").read_text(encoding=\"utf-8\")"
-        replacement = (
-            f"markdown_text = {repr(readme_text)}\n"
-            f"        markdown_text = markdown_text.replace({image_url!r}, "
-            "Path(self.constants.app_icon_path_png).resolve().as_uri())"
-        )
+        replacement = f"markdown_text = {repr(readme_text)}"
         if source_line not in about_file:
             raise RuntimeError("README loading statement not found in gui_about.py")
 
@@ -318,7 +329,7 @@ class GenerateApplication:
         about_file_path = repository_root / "opencore_legacy_patcher" / "wx_gui" / "gui_about.py"
         with open(about_file_path, "w", encoding="utf-8") as f:
             f.write(about_file)
-        
+
     def generate(self) -> None:
         """
         Generate OpenCore-Patcher-T2.app
@@ -335,7 +346,7 @@ class GenerateApplication:
                 self.remove_hard_readme(about_file=about_file)
 
         self._patch_load_command()
-        
+
         if not self._git_branch or not self._git_branch.startswith('refs/tags'):
             self._patch_sdk_version()
 
