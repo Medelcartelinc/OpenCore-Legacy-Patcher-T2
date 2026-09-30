@@ -314,6 +314,12 @@ class BuildSecurity:
                 if self._requires_t2_graphics_injection():
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
 
+                if self.is_tahoe_target:
+                    logging.info("- Injecting SpoofVMM for macOS Tahoe bypass on T2")
+                    support.BuildSupport(self.model, self.constants, self.config).enable_kext(
+                        "SpoofVMM.kext", self.constants.spoofvmm_version, self.constants.spoofvmm_path
+                    )
+
                 if self.constants.t2_installer_workaround is True:
                     logging.info("- Enabling T2 Installer Workarounds (VESA Mode & AMFI bypass)")
                     self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-radvesa -igfxvesa -amfipassbeta")
