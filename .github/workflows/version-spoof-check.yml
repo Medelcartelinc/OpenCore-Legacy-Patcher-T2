@@ -1,9 +1,13 @@
-name: PR Version Spoofing Check
+name: PR Outdated Version Check
 
-# Catches PRs that claim to be a newer version than the code they contain,
-# e.g. a title, branch, commit or changelog saying "4.0.0.190005" while
-# constants.py still says "4.0.0.190004", or a version number that jumps,
-# goes backwards or uses lookalike characters.
+# Catches PRs that are based on an outdated version, which may still contain
+# known, already fixed vulnerabilities. Examples: a title, branch, commit or
+# changelog naming "4.0.0.190005" while constants.py still says "4.0.0.190004",
+# a branch behind main, or a version number that goes backwards, jumps or
+# uses lookalike characters and so hides how old the code really is.
+#
+# The comment marker and concurrency group still say "version-spoof" on purpose,
+# so existing bot comments keep being found and updated.
 #
 # pull_request_target runs THIS file from the base branch, so a PR cannot
 # change the check. No PR code is checked out or executed – everything is
@@ -25,7 +29,7 @@ jobs:
   check-version:
     runs-on: ubuntu-latest
     steps:
-      - name: Compare claimed and actual version
+      - name: Check for outdated version
         uses: actions/github-script@v8
         with:
           script: |
@@ -149,21 +153,21 @@ jobs:
             // ---- 1) Malformed version or lookalike characters ----------------
             if (!headV) {
               findings.push({ score: 3,
-                en: `The version string \`${headInfo.value}\` in the PR does not have the normal format (digits and dots, optionally ending in "s"). Unusual characters can make a version look different to people than to the updater.`,
-                de: `Die Versionsangabe \`${headInfo.value}\` im PR hat nicht das normale Format (Ziffern und Punkte, optional mit „s“ am Ende). Ungewöhnliche Zeichen können eine Version für Menschen anders aussehen lassen als für den Updater.`,
+                en: `The version string \`${headInfo.value}\` in the PR does not have the normal format (digits and dots, optionally ending in "s"). Unusual characters make it impossible to reliably tell whether this build is outdated.`,
+                de: `Die Versionsangabe \`${headInfo.value}\` im PR hat nicht das normale Format (Ziffern und Punkte, optional mit „s“ am Ende). Durch ungewöhnliche Zeichen lässt sich nicht zuverlässig erkennen, ob dieser Build veraltet ist.`,
                 link: versionLink });
             }
             for (const [where, whereDe, text] of [['PR title', 'PR-Titel', pr.title], ['branch name', 'Branch-Name', pr.head.ref]]) {
               if (hasLookalikeVersion(text)) findings.push({ score: 3,
-                en: `The ${where} contains a version number written with lookalike characters (for example fullwidth or non-Latin digits). This makes a version look real to people while it is a different string.`,
-                de: `Der ${whereDe} enthält eine Versionsnummer aus ähnlich aussehenden Zeichen (z. B. breite oder nicht-lateinische Ziffern). So wirkt eine Version für Menschen echt, obwohl es eine andere Zeichenkette ist.` });
+                en: `The ${where} contains a version number written with lookalike characters (for example fullwidth or non-Latin digits). This can hide which version the PR is really based on and whether it is outdated.`,
+                de: `Der ${whereDe} enthält eine Versionsnummer aus ähnlich aussehenden Zeichen (z. B. breite oder nicht-lateinische Ziffern). Dadurch ist nicht klar erkennbar, auf welcher Version der PR wirklich basiert und ob sie veraltet ist.` });
             }
 
             // ---- 2) Displayed label differs from the real version ------------
             if (headInfo.label && headInfo.label !== headInfo.value) {
               findings.push({ score: 3,
-                en: `\`patcher_version_label\` is set to \`${headInfo.label}\`, but the real \`patcher_version\` is \`${headInfo.value}\`. Users would see a different version than the code actually has.`,
-                de: `\`patcher_version_label\` ist auf \`${headInfo.label}\` gesetzt, aber die echte \`patcher_version\` ist \`${headInfo.value}\`. Nutzer würden eine andere Version sehen, als der Code tatsächlich hat.`,
+                en: `\`patcher_version_label\` is set to \`${headInfo.label}\`, but the real \`patcher_version\` is \`${headInfo.value}\`. Users would see a different version than the one this build really is, which can hide that it is outdated.`,
+                de: `\`patcher_version_label\` ist auf \`${headInfo.label}\` gesetzt, aber die echte \`patcher_version\` ist \`${headInfo.value}\`. Nutzer würden eine andere Version sehen, als dieser Build tatsächlich ist. Dadurch kann verborgen bleiben, dass er veraltet ist.`,
                 link: versionLink });
             }
 
@@ -186,16 +190,16 @@ jobs:
                 if (!newer.length) continue;
                 const claim = newer.reduce((a, b) => (compare(a, b) >= 0 ? a : b));
                 findings.push({ score,
-                  en: `${src[0].toUpperCase() + src.slice(1)} claims version \`${claim.raw}\`, but ${actualEn}. The PR presents itself as newer than the code it contains.`,
-                  de: `${srcDe[0].toUpperCase() + srcDe.slice(1)} nennt Version \`${claim.raw}\`, aber ${actualDe}. Der PR gibt sich als neuer aus, als der enthaltene Code ist.` });
+                  en: `${src[0].toUpperCase() + src.slice(1)} names version \`${claim.raw}\`, but ${actualEn}. The code in this PR is older than the version it names.`,
+                  de: `${srcDe[0].toUpperCase() + srcDe.slice(1)} nennt Version \`${claim.raw}\`, aber ${actualDe}. Der Code in diesem PR ist älter als die genannte Version.` });
               }
 
               if (baseV) {
                 // ---- 4) Version goes backwards -------------------------------
                 if (compare(headV, baseV) < 0) {
                   findings.push({ score: 3,
-                    en: `The version goes backwards from \`${baseInfo.value}\` (main) to \`${headInfo.value}\`. An older number can make the updater install an old or different build.`,
-                    de: `Die Version geht von \`${baseInfo.value}\` (main) zurück auf \`${headInfo.value}\`. Eine ältere Nummer kann den Updater dazu bringen, einen alten oder anderen Build zu installieren.`,
+                    en: `The version goes backwards from \`${baseInfo.value}\` (main) to \`${headInfo.value}\`. Merging this would replace the current version with an older one, and the updater could install an outdated build.`,
+                    de: `Die Version geht von \`${baseInfo.value}\` (main) zurück auf \`${headInfo.value}\`. Ein Merge würde die aktuelle Version durch eine ältere ersetzen, und der Updater könnte einen veralteten Build installieren.`,
                     link: versionLink });
                 }
                 // ---- 5) Unusually large jump ---------------------------------
@@ -205,8 +209,8 @@ jobs:
                   const majorJump = d(0) > 1;
                   const otherJump = (sameUpTo(1) && d(1) > 1) || (sameUpTo(2) && d(2) > 1) || (sameUpTo(3) && d(3) > 1);
                   if (majorJump || otherJump) findings.push({ score: majorJump ? 3 : 1,
-                    en: `The version jumps from \`${baseInfo.value}\` to \`${headInfo.value}\`, skipping versions. A too-high number makes every older install think this build is a newer update.`,
-                    de: `Die Version springt von \`${baseInfo.value}\` auf \`${headInfo.value}\` und überspringt Versionen. Eine zu hohe Nummer lässt jede ältere Installation diesen Build für ein neueres Update halten.`,
+                    en: `The version jumps from \`${baseInfo.value}\` to \`${headInfo.value}\`, skipping versions. A too-high number makes every older install treat this build as a newer update, even if its code is outdated.`,
+                    de: `Die Version springt von \`${baseInfo.value}\` auf \`${headInfo.value}\` und überspringt Versionen. Eine zu hohe Nummer lässt jede ältere Installation diesen Build für ein neueres Update halten, auch wenn sein Code veraltet ist.`,
                     link: versionLink });
                 }
               }
@@ -227,8 +231,8 @@ jobs:
               const onlyVersionFiles = [...changed].every(f => f === VERSION_FILE || f === CHANGELOG);
               if (onlyVersionFiles && otherAdded.length === 0) {
                 findings.push({ score: 1,
-                  en: `The PR changes the version to \`${headInfo.value}\` but contains no other code changes, so the "new" version has the same code as \`${baseInfo.value}\`.`,
-                  de: `Der PR ändert die Version auf \`${headInfo.value}\`, enthält aber sonst keine Code-Änderungen. Die „neue“ Version hat also denselben Code wie \`${baseInfo.value}\`.` });
+                  en: `The PR changes the version to \`${headInfo.value}\` but contains no other code changes, so the "new" version still has the same, older code as \`${baseInfo.value}\`.`,
+                  de: `Der PR ändert die Version auf \`${headInfo.value}\`, enthält aber sonst keine Code-Änderungen. Die „neue“ Version hat also weiterhin denselben, älteren Code wie \`${baseInfo.value}\`.` });
               }
               // ---- 8) New version number on top of outdated code -----------
               try {
@@ -236,8 +240,8 @@ jobs:
                   owner, repo, basehead: `${pr.base.sha}...${pr.head.sha}`,
                 });
                 if (cmp.data.behind_by > 0) findings.push({ score: 1,
-                  en: `The branch is ${cmp.data.behind_by} commit(s) behind main, so it is based on older code while it sets a newer version number.`,
-                  de: `Der Branch liegt ${cmp.data.behind_by} Commit(s) hinter main. Er basiert also auf älterem Code, setzt aber eine neuere Versionsnummer.` });
+                  en: `The branch is ${cmp.data.behind_by} commit(s) behind main, so it is based on outdated code that may miss recent fixes, while it sets a new version number.`,
+                  de: `Der Branch liegt ${cmp.data.behind_by} Commit(s) hinter main. Er basiert also auf veraltetem Code, dem neuere Fixes fehlen können, setzt aber eine neue Versionsnummer.` });
               } catch (e) { core.info(`Compare failed: ${e.message}`); }
             }
 
