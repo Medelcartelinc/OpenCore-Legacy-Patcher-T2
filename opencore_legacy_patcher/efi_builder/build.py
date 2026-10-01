@@ -146,10 +146,13 @@ class BuildOpenCore:
                     "ProtectSecureBoot": True,
                     "ForceBooterSignature": True,
                 })
-                self.config.setdefault("PlatformInfo", {})["Automatic"] = False
-                self.config.setdefault("PlatformInfo", {})["UpdateSMBIOS"] = False
-                self.config.setdefault("PlatformInfo", {})["UpdateDataHub"] = False
-                self.config.setdefault("PlatformInfo", {})["UpdateNVRAM"] = False
+                # On Tahoe+, T2 requires SMBIOS spoofing for SpoofVMM
+                smbios_spoof = (self.constants.detected_os >= 15)
+                
+                self.config.setdefault("PlatformInfo", {})["Automatic"] = smbios_spoof
+                self.config.setdefault("PlatformInfo", {})["UpdateSMBIOS"] = smbios_spoof
+                self.config.setdefault("PlatformInfo", {})["UpdateDataHub"] = smbios_spoof
+                self.config.setdefault("PlatformInfo", {})["UpdateNVRAM"] = smbios_spoof
                 self.config.setdefault("PlatformInfo", {})["UpdateSMBIOSMode"] = "Custom"
                 self.config.setdefault("PlatformInfo", {})["CustomMemory"] = False
                 self.config.setdefault("PlatformInfo", {})["UseRawUuidEncoding"] = False
@@ -166,7 +169,7 @@ class BuildOpenCore:
                     "ROM": b"",
                 })
                 self.config.setdefault("Kernel", {}).setdefault("Quirks", {}).update({
-                    "CustomSMBIOSGuid": False,
+                    "CustomSMBIOSGuid": smbios_spoof,
                     "DisableLinkeditJettison": True,
                     "PanicNoKextDump": True,
                     "DisableIoMapper": False,
@@ -581,7 +584,12 @@ class BuildOpenCore:
                     and getattr(host_computer.dgpu, "arch", None)
                     and host_computer.dgpu.arch.value == "Navi"
                 )
-                if has_amd_navi_dgpu or "14,3" in real_model or "14,3" in self.model:
+                # Inject agdpmod=pikera ONLY when a Navi dGPU is confirmed present.
+                # Polaris and Vega dGPUs must NOT receive pikera — they need vit9696,
+                # which is already handled by graphics_audio.py per device.
+                # The MBP14,3 broad override is intentionally removed here because it
+                # caused black screens on Polaris/Vega dGPU variants of that model.
+                if has_amd_navi_dgpu:
                     if "agdpmod=" not in current_boot_args:
                         extra_args.append("agdpmod=pikera")
 

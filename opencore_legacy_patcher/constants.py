@@ -68,6 +68,7 @@ class Constants:
         self.whatevergreen_version:      str = "1.7.1"  #      WhateverGreen
         self.whatevergreen_navi_version: str = "1.7.0-Navi"  # WhateverGreen (Navi Patch)
         self.airportbcrmfixup_version:   str = "2.2.1"  #      AirPortBrcmFixup
+        self.broadcomvtd_tahoe_version:  str = "0.2.17" #      BroadcomVTD-Tahoe
         self.nvmefix_version:            str = "1.1.3"  #      NVMeFix
         self.applealc_version:           str = "1.9.8"  #      AppleALC
         self.restrictevents_version:     str = "1.1.6"  #      RestrictEvents
@@ -438,6 +439,10 @@ class Constants:
     @property
     def airportbcrmfixup_path(self):
         return self.payload_kexts_path / Path(f"Acidanthera/AirportBrcmFixup-v{self.airportbcrmfixup_version}-{self.kext_variant}.zip")
+
+    @property
+    def broadcomvtd_tahoe_path(self):
+        return self.payload_kexts_path / Path(f"Wifi/BroadcomVTD-Tahoe-v{self.broadcomvtd_tahoe_version}.zip")
 
     @property
     def restrictevents_path(self):
