@@ -27,11 +27,17 @@ from ..datasets import (
 )
 
 
-def is_t2_mac(model: str, global_constants) -> bool:
-    """Return True if the current model has a T2 security chip."""
-    if model in model_array.T2Macs:
-        return True
-    return "T2_CHIP" in global_constants.device_properties.get(model, {}).get("Features", [])
+def is_t2_mac(model: str, global_constants=None) -> bool:
+    """
+    Return True if the given model has a T2 security chip.
+
+    model_array.T2Macs is the single source of truth. The previous fallback
+    read global_constants.device_properties, an attribute Constants never had,
+    so every non-T2 model raised AttributeError instead of returning False
+    (breaking e.g. CatalinaBCM5701Ethernet.kext injection on non-T2 Macs).
+    global_constants is kept only for call-site compatibility.
+    """
+    return model in model_array.T2Macs
 
 def hexswap(input_hex: str):
     hex_pairs = [input_hex[i : i + 2] for i in range(0, len(input_hex), 2)]
