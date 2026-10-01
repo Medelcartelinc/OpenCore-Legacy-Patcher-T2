@@ -249,7 +249,7 @@ jobs:
             // Lists every security fix CHANGELOG.md records after the older of the
             // two versions, up to and including the newer one (normally main = latest).
             const MAX_VULN_CHARS = 45000; // keep the whole comment below GitHub's 65536 limit
-            const SECURITY_LINE = /vulnerab|exploit|privilege escalation|arbitr?ary (?:code|command)|security (?:issue|flaw|hole)|^-\s*security:|sicherheitsl[üu]cke/i;
+            const SECURITY_LINE = /vulnerab|exploit|privilege escalation|arbitr?ary (?:code|command)|security (?:issue|flaw|hole)|^security:|sicherheitsl[üu]cke/i;
             function parseChangelog(text) {
               const sections = [];
               let cur = null;
