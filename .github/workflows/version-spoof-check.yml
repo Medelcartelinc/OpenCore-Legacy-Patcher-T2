@@ -254,9 +254,9 @@ jobs:
             if (flagged) {
               const body = [
                 MARKER,
-                '### ⚠️ Possible version spoofing or usage of versions with known vulnerabilities that attackers may exploit / Mögliche Versionsfälschung oder Benutzung von Versionen mit bekannten Sicherheitslücken, die Angreifern ausnutzen können',
+                '### ⚠️ Possible usage of versions with known vulnerabilities that attackers may exploit / Mögliche Benutzung von Versionen mit bekannten Sicherheitslücken, die Angreifern ausnutzen können',
                 '',
-                `**English:** @albert-mueller, @gandolf243 This PR may be pretending to be a newer version than it actually contains, or it may be a version with known vulnerabilities that have been already fixed. The check of commit \`${short}\` found:`,
+                `**English:** @albert-mueller, @gandolf243 This PR looks to contain an outdated version that may have known vulnerabilities that attackers could exploit. The check of commit \`${short}\` found:`,
                 '',
                 list(false),
                 '',
@@ -264,7 +264,7 @@ jobs:
                 '',
                 '---',
                 '',
-                `**Deutsch:** Dieser PR gibt sich möglicherweise als neuere Version aus, als er tatsächlich enthält, oder erhält Version mit bekannten Sicherheitslücken, die Angreifern ausnutzen können. Die Prüfung von Commit \`${short}\` hat Folgendes gefunden:`,
+                `**Deutsch:** Dieser PR hat wahrscheinlich veraltete Version, die könnte bereits behobene Sicherheitslücken erhalten, die Angreifern ausnutzen können. Die Prüfung von Commit \`${short}\` hat Folgendes gefunden:`,
                 '',
                 list(true),
                 '',
