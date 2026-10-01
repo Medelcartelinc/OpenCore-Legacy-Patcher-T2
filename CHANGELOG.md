@@ -1,6 +1,12 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.19006.5 - 4.0.0 alpha 19.6.5
-This release fixes a bug where on T2 Macs gets injected CatalinaBCM5701Ethernet.kext while the Macs that really require this kext skip it, causing on T2 Macs to show an AppleKeyStore kernel panic while on the Macs that really need this kext for Ethernet to have 0 Ethernet at all.
+**NOTICE:**
+
+The old OpenCore Legacy Patcher password prompt dialog is deprecated. DO NOT, under any circumstances enter your password into any of them starting with version `4.0.0.190006`. OCLPT2 now *only* uses Apple's official password prompt.
+
+This release:
+- fixes a bug where on T2 Macs gets injected CatalinaBCM5701Ethernet.kext while the Macs that really require this kext skip it, causing on T2 Macs to show an AppleKeyStore kernel panic while on the Macs that really need this kext for Ethernet to have 0 Ethernet at all.
+- now for downloading macOS installers, only the amount of space that the installer demands is required instead of 45GB, thx @gandolf243 
 
 ## 4.0.0.19006.4 - 4.0.0 alpha 19.6.4
 This release fixes a bug where if the certificate of the Priveleged Helper Tool is invalid (e.g when running from source or a fork) and falls back to osascript, when building OpenCore EFI, the following error shows up:
