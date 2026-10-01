@@ -146,10 +146,13 @@ class BuildOpenCore:
                     "ProtectSecureBoot": True,
                     "ForceBooterSignature": True,
                 })
-                self.config.setdefault("PlatformInfo", {})["Automatic"] = False
-                self.config.setdefault("PlatformInfo", {})["UpdateSMBIOS"] = False
-                self.config.setdefault("PlatformInfo", {})["UpdateDataHub"] = False
-                self.config.setdefault("PlatformInfo", {})["UpdateNVRAM"] = False
+                # On Tahoe+, T2 requires SMBIOS spoofing for SpoofVMM
+                smbios_spoof = (self.constants.detected_os >= 15)
+                
+                self.config.setdefault("PlatformInfo", {})["Automatic"] = smbios_spoof
+                self.config.setdefault("PlatformInfo", {})["UpdateSMBIOS"] = smbios_spoof
+                self.config.setdefault("PlatformInfo", {})["UpdateDataHub"] = smbios_spoof
+                self.config.setdefault("PlatformInfo", {})["UpdateNVRAM"] = smbios_spoof
                 self.config.setdefault("PlatformInfo", {})["UpdateSMBIOSMode"] = "Custom"
                 self.config.setdefault("PlatformInfo", {})["CustomMemory"] = False
                 self.config.setdefault("PlatformInfo", {})["UseRawUuidEncoding"] = False
@@ -166,7 +169,7 @@ class BuildOpenCore:
                     "ROM": b"",
                 })
                 self.config.setdefault("Kernel", {}).setdefault("Quirks", {}).update({
-                    "CustomSMBIOSGuid": False,
+                    "CustomSMBIOSGuid": smbios_spoof,
                     "DisableLinkeditJettison": True,
                     "PanicNoKextDump": True,
                     "DisableIoMapper": False,
