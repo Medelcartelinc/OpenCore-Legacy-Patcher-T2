@@ -253,7 +253,7 @@ status = f"[0/{TOTAL_STEPS}] Starting"
 # so the "Build script completed" line can never be printed after a failed build.
 # Do NOT replace this with a module level flag assigned inside main(): an assignment
 # there creates a function local unless 'global' is declared, and the module level
-# value stays False forever - the module level value stays False forever - the failure mode this structure exists to prevent.
+# value stays False forever - the failure mode this structure exists to prevent.
 build_result = {"exit_code": 0, "completed": False}
 
 
@@ -380,10 +380,11 @@ def main() -> None:
     # Passwort-Sicherheit: Umgebungsvariable hat Vorrang vor CLI-Argument
     notarization_password = os.environ.get("NOTARIZATION_PASSWORD") or args.notarization_password
 
-    # Set the update channel environment variable for the build
+    # The channel is embedded into the app's Info.plist by GenerateApplication.
+    # An environment variable set here only lives as long as this build process,
+    # the finished app never sees it - which is why the flag used to have no effect.
     if args.update_channel:
-        os.environ["OCLP_UPDATE_CHANNEL"] = args.update_channel
-        rich.print(f"[cyan]Update channel set to: {args.update_channel}[/cyan]")
+        rich.print(f"[cyan]Default update channel for this build: {args.update_channel}[/cyan]")
 
     # Resolved once, so the app and the helper tool can never end up signed with two different
     # certificates - which would make the helper reject the app at runtime.
@@ -422,6 +423,7 @@ def main() -> None:
                 git_branch=args.git_branch,
                 git_commit_url=args.git_commit_url,
                 git_commit_date=args.git_commit_date,
+                update_channel=args.update_channel,
             ).generate()
 
             check_file_exists(Path("dist/OpenCore-Patcher-T2.app"))

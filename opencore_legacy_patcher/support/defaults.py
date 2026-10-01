@@ -18,6 +18,7 @@ from . import (
     generate_smbios,
     global_settings,
     analytics_handler,
+    commit_info,
 )
 from ..datasets import (
     smbios_data,
@@ -175,7 +176,22 @@ class GenerateDefaults:
         self.constants.auto_update = bool(stored_auto_update) if stored_auto_update is not None else True
 
         # Update channel - only known keys are accepted (see constants.update_channels)
+        # Priority for the selected channel:   user's choice in Settings > build default > "official"
+        # Priority for the installed channel:  build default > stored value > "official"
+        # The build default comes from "Build-Project.command --update-channel=<key>",
+        # which embeds it as "UpdateChannel" in the app's Info.plist. Previously that
+        # flag only set an environment variable inside the build process, which the
+        # finished app never saw, so builds always fell back to "official".
+        bundled_channel = self._bundled_update_channel()
+        if bundled_channel is not None:
+            self.constants.update_channel = bundled_channel
+            self.constants.installed_update_channel = bundled_channel
+
         for key, attribute in [("UpdateChannel", "update_channel"), ("UpdateChannelInstalled", "installed_update_channel")]:
+            if key == "UpdateChannelInstalled" and bundled_channel is not None:
+                # This binary was built for bundled_channel - a value stored by an
+                # older build must not claim otherwise (it would fake a pending switch).
+                continue
             stored_channel = global_settings.GlobalEnviromentSettings().read_property(key)
             if stored_channel in [None, "", "None"]:
                 continue
@@ -191,6 +207,32 @@ class GenerateDefaults:
         stored_next_update_check = global_settings.GlobalEnviromentSettings().read_property("NextUpdateCheck")
         self.constants.next_update_check = str(stored_next_update_check) if stored_next_update_check not in [None, "", "None"] else ""
 
+
+
+    def _bundled_update_channel(self) -> "str | None":
+        """
+        Default update channel embedded into Info.plist at build time
+        (Build-Project.command --update-channel). None when running from
+        source, when the build had no --update-channel, or on an unknown key.
+        """
+        if not self.constants.launcher_binary:
+            return None
+        plist_path = commit_info.ParseCommitInfo(self.constants.launcher_binary).plist_path
+        if plist_path is None:
+            return None
+        try:
+            with plist_path.open("rb") as f:
+                channel = plistlib.load(f).get("UpdateChannel")
+        except (plistlib.InvalidFileException, OSError, ValueError) as e:
+            logging.error(f"Could not read bundled update channel from {plist_path}: {e}")
+            return None
+        if channel in [None, ""]:
+            return None
+        if not isinstance(channel, str) or channel not in self.constants.update_channels:
+            logging.error(f"Ignoring invalid bundled UpdateChannel value: {channel!r}")
+            return None
+        logging.info(f"Bundled default update channel: {channel}")
+        return channel
 
 
     def _smbios_probe(self) -> None:
