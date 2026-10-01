@@ -253,7 +253,7 @@ status = f"[0/{TOTAL_STEPS}] Starting"
 # so the "Build script completed" line can never be printed after a failed build.
 # Do NOT replace this with a module level flag assigned inside main(): an assignment
 # there creates a function local unless 'global' is declared, and the module level
-# value stays False forever - the failure mode this structure exists to prevent.
+# value stays False forever - the module level value stays False forever - the failure mode this structure exists to prevent.
 build_result = {"exit_code": 0, "completed": False}
 
 
@@ -367,6 +367,7 @@ def main() -> None:
     parser.add_argument("--no-auto-detect-identity", action="store_true", help="Never pick a signing identity from the keychain automatically")
     parser.add_argument("--ignore-release", action="store_true", help="Build even when the version does not line up with the latest release")
     parser.add_argument("--no-install-openssl", action="store_true", help="Fail instead of installing OpenSSL 3 via MacPorts when it is missing")
+    parser.add_argument("--update-channel", type=str, default=None, choices=["official", "medelcartelinc"], help="Set the default update channel for this build")
 
     # Steps
     parser.add_argument("--run-as-individual-steps", action="store_true")
@@ -378,6 +379,11 @@ def main() -> None:
 
     # Passwort-Sicherheit: Umgebungsvariable hat Vorrang vor CLI-Argument
     notarization_password = os.environ.get("NOTARIZATION_PASSWORD") or args.notarization_password
+
+    # Set the update channel environment variable for the build
+    if args.update_channel:
+        os.environ["OCLP_UPDATE_CHANNEL"] = args.update_channel
+        rich.print(f"[cyan]Update channel set to: {args.update_channel}[/cyan]")
 
     # Resolved once, so the app and the helper tool can never end up signed with two different
     # certificates - which would make the helper reject the app at runtime.
