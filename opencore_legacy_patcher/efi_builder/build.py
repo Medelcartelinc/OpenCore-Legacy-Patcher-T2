@@ -148,7 +148,7 @@ class BuildOpenCore:
                 })
                 # On Tahoe+, T2 requires SMBIOS spoofing for SpoofVMM
                 smbios_spoof = (self.constants.detected_os >= 15)
-                
+
                 self.config.setdefault("PlatformInfo", {})["Automatic"] = smbios_spoof
                 self.config.setdefault("PlatformInfo", {})["UpdateSMBIOS"] = smbios_spoof
                 self.config.setdefault("PlatformInfo", {})["UpdateDataHub"] = smbios_spoof
