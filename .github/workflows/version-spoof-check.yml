@@ -264,22 +264,51 @@ jobs:
               return sections;
             }
             function securityItems(lines) {
-              const items = [];
-              let inFence = false;
-              for (const l of lines) {
-                if (/^\s*```/.test(l)) { inFence = !inFence; continue; }
-                if (inFence || /^\s{6,}\S/.test(l)) continue; // skip code samples
-                const t = l.trim();
-                if (!t) continue;
-                if (/^Impact:/i.test(t) || SECURITY_LINE.test(t)) {
-                  const clean = t.replace(/^[-*]\s*/, '');
-                  items.push({ impact: /^Impact:/i.test(t), text: clean.length > 600 ? clean.slice(0, 600) + '…' : clean });
+              // 1) Rebuild paragraphs: a bullet, numbered point or "Impact:" line starts a
+              //    new one, wrapped lines are joined back onto it, code samples are skipped.
+              const paras = [];
+              let cur = null, inFence = false;
+              const flush = () => {
+                if (cur) { cur.text = cur.text.replace(/\s+/g, ' ').trim(); if (cur.text) paras.push(cur); }
+                cur = null;
+              };
+              for (const raw of lines) {
+                if (/^\s*```/.test(raw)) { inFence = !inFence; flush(); continue; }
+                if (inFence) continue;
+                const t = raw.trim();
+                if (!t) { flush(); continue; }
+                const indent = raw.length - raw.trimStart().length;
+                // Deeply indented lines are code samples, unless they are a plain "- text" bullet
+                if ((indent >= 8 && !/^[-*]\s+[A-Za-z]/.test(t)) || t.startsWith('<')) { flush(); continue; }
+                // The first line of a pasted snippet ("def foo(self):") is often less indented
+                if (/^(?:async\s+)?def\s+\w+\s*\(|^class\s+\w+\s*[(:]/.test(t)) { flush(); continue; }
+                const dash = t.match(/^[-*]\s+/);
+                if (dash || /^\d+[.)]\s/.test(t) || /^Impact:/i.test(t) || !cur || cur.text.endsWith(':')) {
+                  flush();
+                  cur = { indent, top: !!dash, text: dash ? t.slice(dash[0].length) : t };
+                } else {
+                  cur.text += ' ' + t;
                 }
               }
-              return items;
+              flush();
+              // 2) Keep security paragraphs. A bullet like "fixes the following vulnerabilities:"
+              //    also keeps everything listed under it, up to the next bullet at its level.
+              const out = [];
+              let group = null;
+              for (const p of paras) {
+                if (group && p.top && p.indent <= group.indent) group = null;
+                if (group) { out.push({ depth: 1, text: p.text }); continue; }
+                if (SECURITY_LINE.test(p.text)) {
+                  out.push({ depth: 0, text: p.text });
+                  if (p.top && p.text.endsWith(':')) group = { indent: p.indent };
+                } else if (/^Impact:/i.test(p.text) && out.length) {
+                  out.push({ depth: 1, text: p.text });
+                }
+              }
+              return out.map(i => ({ ...i, text: i.text.length > 700 ? i.text.slice(0, 700) + '…' : i.text }));
             }
             // Changelog text can come from the PR side, so neutralise mentions and markup
-            const sanitize = s => s.replace(/@/g, '@\u200b').replace(/<!--/g, '&lt;!--').replace(/<\/?[a-z][^>]*>/gi, '');
+            const sanitize = s => s.replace(/@/g, '@\u200b').replace(/<(?=[A-Za-z!\/?])/g, '&lt;');
             async function fixedVulnerabilities() {
               if (!headV || !baseV || compare(headV, baseV) === 0) return null;
               const headNewer = compare(headV, baseV) > 0;
@@ -313,14 +342,14 @@ jobs:
               for (const s of hits) {
                 const block = [
                   `**[${sanitize(s.title)}](${src}?plain=1#L${s.line})**`,
-                  ...s.items.map(it => `${it.impact ? '  - ' : '- '}${sanitize(it.text)}`),
+                  ...s.items.map(it => `${it.depth ? '  - ' : '- '}${sanitize(it.text)}`),
                   '',
                 ].join('\n');
                 if (size + block.length > MAX_VULN_CHARS) break;
                 out.push(block); size += block.length; shown++;
               }
               const rest = hits.length - shown;
-              const total = hits.reduce((n, s) => n + s.items.filter(i => !i.impact).length, 0);
+              const total = hits.reduce((n, s) => n + s.items.filter(i => !i.depth).length, 0);
               return [
                 ...head,
                 `<details open><summary>${hits.length} version(s) with security fixes / ${hits.length} Version(en) mit Sicherheitskorrekturen (${total} item(s) / Einträge)</summary>`,
