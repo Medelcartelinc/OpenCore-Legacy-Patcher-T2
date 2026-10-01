@@ -267,21 +267,41 @@ jobs:
               // 1) Rebuild paragraphs: a bullet, numbered point or "Impact:" line starts a
               //    new one, wrapped lines are joined back onto it, code samples are skipped.
               const paras = [];
-              let cur = null, inFence = false;
+              let cur = null, inFence = false, inCode = false;
               const flush = () => {
                 if (cur) { cur.text = cur.text.replace(/\s+/g, ' ').trim(); if (cur.text) paras.push(cur); }
                 cur = null;
               };
+              // Code samples are often pasted without ``` fences, at any indentation.
+              // An indented line that starts like Python code opens a code block; it
+              // lasts until a line at the left margin or a shallow "- text" bullet.
+              const CODE_START = new RegExp([
+                String.raw`^#`, String.raw`^"""`, String.raw`^@\w`,
+                String.raw`^(?:if|elif|for|while|with)\s.*:\s*(?:#.*)?$`,
+                String.raw`^(?:else|try|finally)\s*:`, String.raw`^except\b.*:\s*(?:#.*)?$`,
+                String.raw`^return(?:\s+\S+)?\s*(?:#.*)?$`, String.raw`^raise\s+\w`,
+                String.raw`^(?:import\s+\w|from\s+[\w.]+\s+import\s)`,
+                String.raw`^[A-Za-z_][\w.]*(?:\[[^\]]*\])?\s*[-+*/|]?=[^=]`,
+                String.raw`^[\w.]+\(.*\)\s*(?:#.*)?$`,
+                String.raw`^(?:async\s+)?def\s+\w+\s*\(`, String.raw`^class\s+\w+\s*[(:]`,
+              ].join('|'));
               for (const raw of lines) {
-                if (/^\s*```/.test(raw)) { inFence = !inFence; flush(); continue; }
+                if (/^\s*```/.test(raw)) { inFence = !inFence; inCode = false; flush(); continue; }
                 if (inFence) continue;
                 const t = raw.trim();
                 if (!t) { flush(); continue; }
                 const indent = raw.length - raw.trimStart().length;
+                const plainBullet = /^[-*]\s+[A-Za-z]/.test(t);
+                if (inCode) {
+                  if (indent < 2 || (plainBullet && indent <= 4)) inCode = false;
+                  else continue;
+                }
                 // Deeply indented lines are code samples, unless they are a plain "- text" bullet
-                if ((indent >= 8 && !/^[-*]\s+[A-Za-z]/.test(t)) || t.startsWith('<')) { flush(); continue; }
-                // The first line of a pasted snippet ("def foo(self):") is often less indented
-                if (/^(?:async\s+)?def\s+\w+\s*\(|^class\s+\w+\s*[(:]/.test(t)) { flush(); continue; }
+                if ((indent >= 8 && !plainBullet) || (indent >= 2 && CODE_START.test(t)) || /^(?:async\s+)?def\s|^class\s/.test(t)) {
+                  inCode = true; flush(); continue;
+                }
+                if (t.startsWith('<')) { flush(); continue; }
+                if (/^[-*]$/.test(t)) { flush(); continue; } // empty bullet
                 const dash = t.match(/^[-*]\s+/);
                 if (dash || /^\d+[.)]\s/.test(t) || /^Impact:/i.test(t) || !cur || cur.text.endsWith(':')) {
                   flush();
