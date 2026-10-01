@@ -1,4 +1,81 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.19006.6 - 4.0.0 alpha 19.6.6
+**NOTICE:**
+
+The old OpenCore Legacy Patcher password prompt dialog is deprecated. DO NOT, under any circumstances enter your password into any of them starting with version `4.0.0.190006`. OCLPT2 now *only* uses Apple's official password prompt.
+
+This release:
+- fixes a bug where after the password mechanism has been changed, it was still appearing a popup where it says this: OpenCore Legacy Patcher could not unlock Universal-Binaries.dmg automatically. If macOS asks for a password for this disk image, the password is: password. Since 4.0.0.190006, this message has been already obsolete and now asks for the macOS password instead.
+- fixes the following vulnerability:
+
+          def _is_encrypted(self, dmg_path: Path) -> bool:
+                  """Whether hdiutil considers the image encrypted, ie. whether it will prompt for a passphrase at all.
+          
+                  Deliberately fail-open: if the check cannot be run or its wording changes,
+                  assume encrypted and show the notice. A superfluous notice is harmless,
+                  a missing one leaves the user staring at an unanswerable system prompt.
+                  assume encrypted and supply the passphrase anyway.
+                  """
+                  try:
+                      result = subprocess.run(
+                          ["/usr/bin/hdiutil", "isencrypted", str(dmg_path)],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30
+                      )
+                  except Exception as e:
+                      logging.error(f"- Failed to check if DMG is encrypted: {e}")
+                      logging.exception("Stack Trace:")
+                      return True
+                  output = result.stdout.decode(errors="ignore").lower()
+                  # hdiutil has printed both "encrypted: YES/NO" and "encrypted: 1/0" across releases.
+                  return not ("encrypted: no" in output or "encrypted: 0" in output)
+          
+              def _display_universal_binaries_password_notice(self) -> None: # <- the entire function here has a vulnerability where an attacker could set up a lookalike popup in a malicious script to trick the victim into granting the attacker root access, or worse, for phishing
+                  """Heads-up dialog shown before falling back to hdiutil's own passphrase prompt.
+          
+                  Only reached when the built-in passphrase did not unlock the image. hdiutil
+                  then asks for it through a bare macOS system prompt that names only the disk
+                  image and gives no indication of what to type, which reads like an
+                  unexplained password request in the middle of root patching. State the
+                  passphrase ourselves beforehand so the prompt is answerable.
+                  """
+                  if self.constants.cli_mode is True:
+                      return
+                  try:
+                      applescript.AppleScript(
+                          f'display dialog "OpenCore Legacy Patcher could not unlock Universal-Binaries.dmg automatically.\\n\\nIf macOS asks for a password for this disk image, the password is:\\n\\n{UNIVERSAL_BINARIES_PASSPHRASE}" buttons {{"OK"}} default button "OK" with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}'
+                      ).run()
+                  except Exception as e:
+                      logging.error(f"- Failed to display Universal-Binaries.dmg password notice: {e}")
+
+Impact: an attacker could set up a malicious script with a lookalike popup that says OpenCore Legacy Patcher could not unlock Universal-Binaries.dmg automatically to trick the victim into granting the attacker root access via living-off-the-land techniques and phishing. Or worse, an attacker could intentionally fall back to the obsolete logic to launch phishing attacks and take over the victim's computer. This vulnerability has been fixed by removing the obsolete function  _display_universal_binaries_password_notice.
+
+## 4.0.0.19006.5 - 4.0.0 alpha 19.6.5
+**NOTICE:**
+
+The old OpenCore Legacy Patcher password prompt dialog is deprecated. DO NOT, under any circumstances enter your password into any of them starting with version `4.0.0.190006`. OCLPT2 now *only* uses Apple's official password prompt.
+
+This release:
+- fixes a bug where on T2 Macs gets injected CatalinaBCM5701Ethernet.kext while the Macs that really require this kext skip it, causing on T2 Macs to show an AppleKeyStore kernel panic while on the Macs that really need this kext for Ethernet to have 0 Ethernet at all.
+- now for downloading macOS installers, only the amount of space that the installer demands is required instead of 45GB, thx @gandolf243 
+
+## 4.0.0.19006.4 - 4.0.0 alpha 19.6.4
+This release fixes a bug where if the certificate of the Priveleged Helper Tool is invalid (e.g when running from source or a fork) and falls back to osascript, when building OpenCore EFI, the following error shows up:
+
+            Mounte Partition: disk0s6
+            Mounting partition: disk0s6
+            Privileged Helper Tool rejected this build (OCLP_PHT_ERROR_INVALID_CERTIFICATES), not using it for the rest of this session.
+            Checking hard disk type
+            Mounting the EFI partition
+            File operation failed during installation: encoding without a string argument
+            Stack Trace:
+            Traceback (most recent call last):
+              File "opencore_legacy_patcher/support/install.py", line 163, in install_opencore
+              File "opencore_legacy_patcher/support/subprocess_wrapper.py", line 714, in run_as_root_and_verify
+              File "opencore_legacy_patcher/support/subprocess_wrapper.py", line 292, in run_as_root
+              File "opencore_legacy_patcher/support/utilities.py", line 600, in get_admin_permission
+            TypeError: encoding without a string argument
+            Please try again later.
+
 ## 4.0.0.19006.3 - 4.0.0 alpha 19.6.3
 This release:
 - fixes a bug where even when Disable AMFIPass is explicitly enabled in Settings, the patcher was still stripping out amfi=0x80 and that caused certain Macs to get stuck at a login loop when trying to sign in, thx @Medelcartelinc 
