@@ -245,6 +245,92 @@ jobs:
               } catch (e) { core.info(`Compare failed: ${e.message}`); }
             }
 
+            // ---- Fixed vulnerabilities between the older and the newer version
+            // Lists every security fix CHANGELOG.md records after the older of the
+            // two versions, up to and including the newer one (normally main = latest).
+            const MAX_VULN_CHARS = 45000; // keep the whole comment below GitHub's 65536 limit
+            const SECURITY_LINE = /vulnerab|exploit|privilege escalation|arbitr?ary (?:code|command)|security (?:issue|flaw|hole)|^-\s*security:|sicherheitsl[üu]cke/i;
+            function parseChangelog(text) {
+              const sections = [];
+              let cur = null;
+              text.split('\n').forEach((l, i) => {
+                if (/^##\s/.test(l)) {
+                  const m = l.match(/\d+\.\d+\.\d+\.\d+(?:\.\d+)*s?/);
+                  const v = m && parseVersion(m[0]);
+                  cur = v ? { v, title: l.replace(/^##\s*/, '').trim(), line: i + 1, lines: [] } : null;
+                  if (cur) sections.push(cur);
+                } else if (cur) cur.lines.push(l);
+              });
+              return sections;
+            }
+            function securityItems(lines) {
+              const items = [];
+              let inFence = false;
+              for (const l of lines) {
+                if (/^\s*```/.test(l)) { inFence = !inFence; continue; }
+                if (inFence || /^\s{6,}\S/.test(l)) continue; // skip code samples
+                const t = l.trim();
+                if (!t) continue;
+                if (/^Impact:/i.test(t) || SECURITY_LINE.test(t)) {
+                  const clean = t.replace(/^[-*]\s*/, '');
+                  items.push({ impact: /^Impact:/i.test(t), text: clean.length > 600 ? clean.slice(0, 600) + '…' : clean });
+                }
+              }
+              return items;
+            }
+            // Changelog text can come from the PR side, so neutralise mentions and markup
+            const sanitize = s => s.replace(/@/g, '@\u200b').replace(/<!--/g, '&lt;!--').replace(/<\/?[a-z][^>]*>/gi, '');
+            async function fixedVulnerabilities() {
+              if (!headV || !baseV || compare(headV, baseV) === 0) return null;
+              const headNewer = compare(headV, baseV) > 0;
+              const older = headNewer ? baseInfo.value : headInfo.value;
+              const newer = headNewer ? headInfo.value : baseInfo.value;
+              const olderV = headNewer ? baseV : headV, newerV = headNewer ? headV : baseV;
+              const covers = t => t && parseChangelog(t).some(s => compare(s.v, newerV) >= 0);
+              // Prefer the base branch's changelog; fall back to the PR's only if needed
+              let text = await readFile(owner, repo, CHANGELOG, pr.base.sha);
+              let src = `${pr.base.repo.html_url}/blob/${pr.base.sha}/${CHANGELOG}`;
+              if (!covers(text)) {
+                const h = await readFile(headOwner, headRepo, CHANGELOG, pr.head.sha);
+                if (covers(h)) { text = h; src = `${pr.head.repo.html_url}/blob/${pr.head.sha}/${CHANGELOG}`; }
+              }
+              if (!text) return null;
+              const hits = parseChangelog(text)
+                .filter(s => compare(s.v, olderV) > 0 && compare(s.v, newerV) <= 0)
+                .map(s => ({ ...s, items: securityItems(s.lines) }))
+                .filter(s => s.items.length);
+              const head = [
+                `### 🔒 Fixed vulnerabilities from \`${older}\` to \`${newer}\` / Behobene Sicherheitslücken von \`${older}\` bis \`${newer}\``,
+                '',
+                `**English:** These security fixes are recorded in [\`${CHANGELOG}\`](${src}) for the versions after \`${older}\` up to \`${newer}\`, so code based on \`${older}\` does not have them.`,
+                '',
+                `**Deutsch:** Diese Sicherheitskorrekturen stehen in [\`${CHANGELOG}\`](${src}) für die Versionen nach \`${older}\` bis \`${newer}\`. Code auf Basis von \`${older}\` enthält sie also nicht. Die Einträge sind aus dem Changelog übernommen und daher auf Englisch.`,
+                '',
+              ];
+              if (!hits.length) return [...head, `_No security fixes found in ${CHANGELOG} for this range. / Für diesen Bereich wurden in ${CHANGELOG} keine Sicherheitskorrekturen gefunden._`].join('\n');
+              const out = [];
+              let size = 0, shown = 0;
+              for (const s of hits) {
+                const block = [
+                  `**[${sanitize(s.title)}](${src}?plain=1#L${s.line})**`,
+                  ...s.items.map(it => `${it.impact ? '  - ' : '- '}${sanitize(it.text)}`),
+                  '',
+                ].join('\n');
+                if (size + block.length > MAX_VULN_CHARS) break;
+                out.push(block); size += block.length; shown++;
+              }
+              const rest = hits.length - shown;
+              const total = hits.reduce((n, s) => n + s.items.filter(i => !i.impact).length, 0);
+              return [
+                ...head,
+                `<details open><summary>${hits.length} version(s) with security fixes / ${hits.length} Version(en) mit Sicherheitskorrekturen (${total} item(s) / Einträge)</summary>`,
+                '',
+                ...out,
+                rest > 0 ? `_…and ${rest} more version(s), see [\`${CHANGELOG}\`](${src}). / …und ${rest} weitere Version(en), siehe [\`${CHANGELOG}\`](${src})._` : '',
+                '</details>',
+              ].join('\n');
+            }
+
             // ---- Decide and comment ------------------------------------------
             const total = findings.reduce((s, f) => s + f.score, 0);
             const flagged = total >= FLAG_SCORE;
@@ -256,6 +342,8 @@ jobs:
             const short = pr.head.sha.slice(0, 7);
 
             if (flagged) {
+              let vuln = null;
+              try { vuln = await fixedVulnerabilities(); } catch (e) { core.info(`Vulnerability list failed: ${e.message}`); }
               const body = [
                 MARKER,
                 '### ⚠️ Possible use of an outdated version with known vulnerabilities / Mögliche Verwendung einer veralteten Version mit bekannten Sicherheitslücken',
@@ -273,6 +361,7 @@ jobs:
                 list(true),
                 '',
                 `Jeder Punkt zeigt die in diesem PR gefundene Version neben der Version, mit der sie verglichen wurde, damit man es direkt nachprüfen kann. Der Updater und die Download-URL des Installers nutzen beide \`patcher_version\`. Ein veralteter Wert kann Nutzer daher auf eine alte, verwundbare Version verweisen. Ein Maintainer prüft das vor dem Mergen. Um das Problem zu beheben, aktualisieren Sie bitte Ihren Fork oder Branch auf die neueste verfügbare Version.`,
+                ...(vuln ? ['', '---', '', vuln] : []),
               ].join('\n');
               if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
               else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
