@@ -573,13 +573,15 @@ class BuildOpenCore:
                 # probe ran, and it describes the *host*, so it must not be trusted when building
                 # for a custom model.
                 host_computer = getattr(self.constants, "computer", None)
-                has_amd_dgpu = (
+                has_amd_navi_dgpu = (
                     not self.constants.custom_model
                     and host_computer is not None
                     and getattr(host_computer, "dgpu", None) is not None
                     and host_computer.dgpu.vendor_id == 0x1002  # AMD
+                    and getattr(host_computer.dgpu, "arch", None)
+                    and host_computer.dgpu.arch.value == "Navi"
                 )
-                if has_amd_dgpu or "14,3" in real_model or "14,3" in self.model:
+                if has_amd_navi_dgpu or "14,3" in real_model or "14,3" in self.model:
                     if "agdpmod=" not in current_boot_args:
                         extra_args.append("agdpmod=pikera")
 
