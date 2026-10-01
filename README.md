@@ -49,7 +49,7 @@ fixes a vulnerability where an attacker or bad Hackintosh user could trick a Hac
 > **Progress:**
 
 - [X] Installer boots
-- [ ] MacBookAir8,1 and MacBookAir8,2 can boot the installer
+- [X] MacBookAir8,1 and MacBookAir8,2 can boot the installer
 - [X] Internal hard drive mounts properly on T2 Macs
 - [ ] ability to reach the desktop
 - [ ] Post install - issues with second stage
