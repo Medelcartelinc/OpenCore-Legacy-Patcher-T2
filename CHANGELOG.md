@@ -1,4 +1,54 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.19006.6 - 4.0.0 alpha 19.6.6
+**NOTICE:**
+
+The old OpenCore Legacy Patcher password prompt dialog is deprecated. DO NOT, under any circumstances enter your password into any of them starting with version `4.0.0.190006`. OCLPT2 now *only* uses Apple's official password prompt.
+
+This release:
+- fixes a bug where after the password mechanism has been changed, it was still appearing a popup where it says this: OpenCore Legacy Patcher could not unlock Universal-Binaries.dmg automatically. If macOS asks for a password for this disk image, the password is: password. Since 4.0.0.190006, this message has been already obsolete and now asks for the macOS password instead.
+- fixes the following vulnerability:
+
+          def _is_encrypted(self, dmg_path: Path) -> bool:
+                  """Whether hdiutil considers the image encrypted, ie. whether it will prompt for a passphrase at all.
+          
+                  Deliberately fail-open: if the check cannot be run or its wording changes,
+                  assume encrypted and show the notice. A superfluous notice is harmless,
+                  a missing one leaves the user staring at an unanswerable system prompt.
+                  assume encrypted and supply the passphrase anyway.
+                  """
+                  try:
+                      result = subprocess.run(
+                          ["/usr/bin/hdiutil", "isencrypted", str(dmg_path)],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30
+                      )
+                  except Exception as e:
+                      logging.error(f"- Failed to check if DMG is encrypted: {e}")
+                      logging.exception("Stack Trace:")
+                      return True
+                  output = result.stdout.decode(errors="ignore").lower()
+                  # hdiutil has printed both "encrypted: YES/NO" and "encrypted: 1/0" across releases.
+                  return not ("encrypted: no" in output or "encrypted: 0" in output)
+          
+              def _display_universal_binaries_password_notice(self) -> None: # <- the entire function here has a vulnerability where an attacker could set up a lookalike popup in a malicious script to trick the victim into granting the attacker root access, or worse, for phishing
+                  """Heads-up dialog shown before falling back to hdiutil's own passphrase prompt.
+          
+                  Only reached when the built-in passphrase did not unlock the image. hdiutil
+                  then asks for it through a bare macOS system prompt that names only the disk
+                  image and gives no indication of what to type, which reads like an
+                  unexplained password request in the middle of root patching. State the
+                  passphrase ourselves beforehand so the prompt is answerable.
+                  """
+                  if self.constants.cli_mode is True:
+                      return
+                  try:
+                      applescript.AppleScript(
+                          f'display dialog "OpenCore Legacy Patcher could not unlock Universal-Binaries.dmg automatically.\\n\\nIf macOS asks for a password for this disk image, the password is:\\n\\n{UNIVERSAL_BINARIES_PASSPHRASE}" buttons {{"OK"}} default button "OK" with title "OpenCore Legacy Patcher"{subprocess_wrapper.applescript_icon_clause(self.icon_path)}'
+                      ).run()
+                  except Exception as e:
+                      logging.error(f"- Failed to display Universal-Binaries.dmg password notice: {e}")
+
+Impact: an attacker could set up a malicious script with a lookalike popup that says OpenCore Legacy Patcher could not unlock Universal-Binaries.dmg automatically to trick the victim into granting the attacker root access via living-off-the-land techniques and phishing. Or worse, an attacker could intentionally fall back to the obsolete logic to launch phishing attacks and take over the victim's computer. This vulnerability has been fixed by removing the obsolete function  _display_universal_binaries_password_notice.
+
 ## 4.0.0.19006.5 - 4.0.0 alpha 19.6.5
 **NOTICE:**
 
