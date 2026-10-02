@@ -1,7 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190007 - 4.0.0 alpha 19.7
 This release:
-- fixes a bug where `agdpmod=pikera` was injected for every AMD dGPU and for every MacBookPro14,3 variant. Polaris and Vega dGPUs need `agdpmod=vit9696` and could end up with a black screen. `pikera` is now only injected when a Navi dGPU is detected, both in the regular build and in the T2 boot-args. thx @Medelcartelinc (#467)
+- fixes a bug where `agdpmod=pikera` was injected for every AMD dGPU and for every MacBookPro14,3 variant. Polaris and Vega dGPUs need `agdpmod=vit9696` and could end up with a black screen. `pikera` is now only injected when a Navi dGPU is detected, both in the regular build and in the T2 boot-args. thx @Medelcartelinc (#467 )
 - bundles SpoofVMM.kext (v4.9.0) and enables it on T2 Macs instead of the `revpatch=sbvmm` boot-arg, which has been removed from the T2 boot-args. T2 Macs now get SMBIOS spoofing (Automatic, UpdateSMBIOS, UpdateDataHub, UpdateNVRAM and CustomSMBIOSGuid), which SpoofVMM requires. thx @Medelcartelinc (#469) and @zkennedy137 for writing SpoofVMM and testing it on T2 Macs
 - adds BroadcomVTD-Tahoe.kext (v0.2.17) for legacy Broadcom Wi-Fi, enabled together with the existing IO80211FamilyLegacy patches. thx @Medelcartelinc (#476)
 - fixes a bug where `macserial` and `ocvalidate` were stored without the executable bit, so ZIP downloads and fresh clones failed Advanced SMBIOS spoofing with `PermissionError [Errno 13]`, and config validation would fail the same way.
