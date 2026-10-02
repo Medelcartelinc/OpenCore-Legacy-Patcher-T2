@@ -176,21 +176,44 @@ class GenerateDefaults:
         self.constants.auto_update = bool(stored_auto_update) if stored_auto_update is not None else True
 
         # Update channel - only known keys are accepted (see constants.update_channels)
-        # Priority for the selected channel:   user's choice in Settings > build default > "official"
-        # Priority for the installed channel:  build default > stored value > "official"
         # The build default comes from "Build-Project.command --update-channel=<key>",
-        # which embeds it as "UpdateChannel" in the app's Info.plist. Previously that
-        # flag only set an environment variable inside the build process, which the
-        # finished app never saw, so builds always fell back to "official".
+        # which embeds it as "UpdateChannel" in the app's Info.plist.
+        #
+        # Selected channel:
+        #   - a build whose default differs from the last default this machine saw
+        #     -> the build default wins (once), and replaces the stored choice
+        #   - otherwise -> user's choice in Settings > build default > "official"
+        # Installed channel: build default > stored value > "official"
+        #
+        # Previously the stored "UpdateChannel" always beat the build default. Any
+        # earlier pick in Settings (even just "official") therefore stayed in the
+        # settings plist forever and silently overrode every later
+        # --update-channel build, so the GUI kept showing the old channel.
         bundled_channel = self._bundled_update_channel()
+        bundled_takes_over = False
         if bundled_channel is not None:
             self.constants.update_channel = bundled_channel
             self.constants.installed_update_channel = bundled_channel
+            last_bundled = global_settings.GlobalEnviromentSettings().read_property("UpdateChannelBundled")
+            if last_bundled != bundled_channel:
+                bundled_takes_over = True
+                logging.info(f"New build default update channel ({last_bundled!r} -> {bundled_channel!r}), replacing stored choice")
+                for key in ["UpdateChannel", "UpdateChannelBundled"]:
+                    if global_settings.GlobalEnviromentSettings().write_property(key, bundled_channel) is not True:
+                        # Still use the build default for this session; it is retried next launch
+                        logging.error(f"Failed to store {key}={bundled_channel!r}")
+        elif global_settings.GlobalEnviromentSettings().read_property("UpdateChannelBundled") is not None:
+            # A build without --update-channel: forget the last build default, so the
+            # next --update-channel build applies its default again
+            global_settings.GlobalEnviromentSettings().delete_property("UpdateChannelBundled")
 
         for key, attribute in [("UpdateChannel", "update_channel"), ("UpdateChannelInstalled", "installed_update_channel")]:
             if key == "UpdateChannelInstalled" and bundled_channel is not None:
                 # This binary was built for bundled_channel - a value stored by an
                 # older build must not claim otherwise (it would fake a pending switch).
+                continue
+            if key == "UpdateChannel" and bundled_takes_over:
+                # Already set to the new build default above, even if storing it failed
                 continue
             stored_channel = global_settings.GlobalEnviromentSettings().read_property(key)
             if stored_channel in [None, "", "None"]:
