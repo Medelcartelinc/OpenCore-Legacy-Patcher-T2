@@ -3126,19 +3126,6 @@ smbios_dictionary = {
         "Stock Storage": [],
     },
     "APPL_UNKNOWN_MODEL_7": {
-        # Laptop model
-        # Only mentioned in X86PlatformPlugin, AppleGVA
-        "Board ID": "Mac-90BE64C3CB5A9AEB",
-        "FirmwareFeatures": None,
-        "SecureBootModel": None,
-        "CPU Generation": None,
-        "Max OS Supported": os_data.os_data.max_os,
-        "Wireless Model": None,
-        "Bluetooth Model": bluetooth_data.bluetooth_data.NonApplicable,
-        "Stock GPUs": [],
-        "Stock Storage": [],
-    },
-    "APPL_UNKNOWN_MODEL_7": {
         # Laptop model, iGPU only
         # Only mentioned in AppleGraphicsPowerManagement and X86PlatformPlugin
         "Board ID": "Mac-9394BDF4BF862EE7",
