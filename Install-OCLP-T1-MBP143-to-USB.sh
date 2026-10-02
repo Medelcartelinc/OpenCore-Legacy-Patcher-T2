@@ -1,4 +1,4 @@
-#!/bin/bashs
+#!/bin/bash
 # Install-OCLP-T1-MBP143-to-USB.sh
 # Terminal interactive installer for macOS Tahoe
 
