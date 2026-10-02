@@ -1,0 +1,33 @@
+name: Check config.plist format
+
+# Fails when payloads/Config/config.plist is not indented with 4 spaces.
+# A whole-file reformat (e.g. tabs) turns every line into a diff and hides the
+# real changes in a PR - this happened in 4.0.0.190007 (d15bc1c, PR #467).
+
+on:
+  pull_request:
+    paths:
+      - "payloads/Config/config.plist"
+      - ".github/scripts/check_plist_format.py"
+      - ".github/workflows/plist-format-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "payloads/Config/config.plist"
+      - ".github/scripts/check_plist_format.py"
+      - ".github/workflows/plist-format-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plist-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check config.plist format
+        run: python3 .github/scripts/check_plist_format.py payloads/Config/config.plist
