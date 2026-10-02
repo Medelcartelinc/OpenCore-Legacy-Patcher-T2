@@ -327,7 +327,7 @@ def resolve_application_identity(requested: str, auto_detect: bool) -> "str | No
     if not identities:
         rich.print("[yellow]Note: no code signing certificate found, the app and helper tool stay unsigned.[/yellow]")
         rich.print("[yellow]      The privileged helper tool will refuse to run commands as root unless it was[/yellow]")
-        rich.print"[yellow]      compiled with 'make debug' (ci_tooling/privileged_helper_tool/README.md).[/yellow]")
+        rich.print("[yellow]      compiled with 'make debug' (ci_tooling/privileged_helper_tool/README.md).[/yellow]")
         rich.print("[yellow]      To sign locally, create a self signed certificate in Keychain Access:[/yellow]")
         rich.print("[yellow]      Certificate Assistant > Create a Certificate > Self Signed Root, type Code Signing.[/yellow]")
         return None
