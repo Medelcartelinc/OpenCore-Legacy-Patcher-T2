@@ -14,9 +14,16 @@ to run on untrusted PR code.
 
 Usage:
   check_python.py --root <repo dir> [--baseline <repo dir>] [--json <out>]
+                  [--known-json <out>] [--warnings]
 
 With --baseline, problems that already exist in the baseline tree (same file,
-same message) are dropped, so a PR is only blamed for what it introduces.
+same message) are not counted as new, so a PR is only blamed for what it
+introduces. They are still listed separately with --known-json, so the
+problems that are already broken on main stay visible.
+
+With --warnings, pyflakes warnings (unused imports/variables, repeated dict
+keys, ...) are reported as well, with severity "warning". Only errors make
+the exit code non-zero.
 """
 
 import argparse
@@ -178,7 +185,7 @@ def check_imports(path: Path, tree, index: ModuleIndex) -> list:
     return problems
 
 
-def check_file(path: Path, index: ModuleIndex) -> list:
+def check_file(path: Path, index: ModuleIndex, with_warnings: bool = False) -> list:
     source = path.read_bytes()
     try:
         with warnings.catch_warnings():
@@ -187,28 +194,30 @@ def check_file(path: Path, index: ModuleIndex) -> list:
         tree = ast.parse(source, filename=str(path))
     except SyntaxError as e:
         kind = type(e).__name__
-        return [(e.lineno or 0, f"{kind}: {e.msg}")]
+        return [(e.lineno or 0, f"{kind}: {e.msg}", "error")]
     except ValueError as e:                     # e.g. null bytes
-        return [(0, f"SyntaxError: {e}")]
+        return [(0, f"SyntaxError: {e}", "error")]
 
     problems = []
     w = pyflakes_checker.Checker(tree, filename=str(path))
     for msg in w.messages:
+        text = msg.message % msg.message_args
         if isinstance(msg, ERROR_MESSAGES):
-            text = msg.message % msg.message_args
             prefix = "NameError" if isinstance(msg, (m.UndefinedName, m.UndefinedLocal, m.UndefinedExport)) else "Error"
-            problems.append((msg.lineno, f"{prefix}: {text}"))
-    problems += check_imports(path, tree, index)
+            problems.append((msg.lineno, f"{prefix}: {text}", "error"))
+        elif with_warnings:
+            problems.append((msg.lineno, f"Warning: {text}", "warning"))
+    problems += [(line, text, "error") for line, text in check_imports(path, tree, index)]
     return problems
 
 
-def scan(root: Path) -> list:
+def scan(root: Path, with_warnings: bool = False) -> list:
     index = ModuleIndex(root)
     results = []
     for path in python_files(root):
         rel = path.relative_to(root).as_posix()
-        for line, text in check_file(path, index):
-            results.append({"file": rel, "line": line, "message": text})
+        for line, text, severity in check_file(path, index, with_warnings):
+            results.append({"file": rel, "line": line, "message": text, "severity": severity})
     return results
 
 
@@ -216,25 +225,42 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True)
     ap.add_argument("--baseline")
-    ap.add_argument("--json")
+    ap.add_argument("--json", help="write the reported (new) problems here")
+    ap.add_argument("--known-json", help="with --baseline: write problems that already exist in the baseline here")
+    ap.add_argument("--warnings", action="store_true", help="also report pyflakes warnings")
     args = ap.parse_args()
 
-    problems = scan(Path(args.root).resolve())
+    problems = scan(Path(args.root).resolve(), args.warnings)
+    known = []
     if args.baseline:
-        known = {(p["file"], p["message"]) for p in scan(Path(args.baseline).resolve())}
-        problems = [p for p in problems if (p["file"], p["message"]) not in known]
+        in_base = {(p["file"], p["message"]) for p in scan(Path(args.baseline).resolve(), args.warnings)}
+        known = [p for p in problems if (p["file"], p["message"]) in in_base]
+        problems = [p for p in problems if (p["file"], p["message"]) not in in_base]
 
     if args.json:
         with open(args.json, "w") as f:
             json.dump(problems, f, indent=2)
+    if args.known_json:
+        with open(args.known_json, "w") as f:
+            json.dump(known, f, indent=2)
 
-    if not problems:
-        print("OK: no syntax errors or code that would fail at runtime found")
-        return 0
-    for p in problems:
+    errors = [p for p in problems if p["severity"] == "error"]
+    warns = [p for p in problems if p["severity"] == "warning"]
+    for p in errors:
         print(f"::error file={p['file']},line={p['line']}::{p['message']}")
         print(f"  {p['file']}:{p['line']}: {p['message']}")
-    print(f"\n{len(problems)} problem(s) found")
+    for p in warns:
+        print(f"  {p['file']}:{p['line']}: {p['message']}")
+    known_errors = [p for p in known if p["severity"] == "error"]
+    if known_errors:
+        print(f"\nAlready broken in the baseline (not counted): {len(known_errors)} error(s)")
+        for p in known_errors:
+            print(f"  {p['file']}:{p['line']}: {p['message']}")
+
+    if not errors:
+        print("\nOK: no syntax errors or code that would fail at runtime found" + (f" ({len(warns)} warning(s))" if warns else ""))
+        return 0
+    print(f"\n{len(errors)} error(s) found" + (f", {len(warns)} warning(s)" if warns else ""))
     return 1
 
 
