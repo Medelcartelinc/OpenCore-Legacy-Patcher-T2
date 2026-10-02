@@ -1,0 +1,138 @@
+name: Check Python for errors
+
+# Fails when a change adds Python code that cannot run:
+#   - syntax errors (SyntaxError, IndentationError, TabError)
+#   - undefined names (NameError) and other pyflakes errors
+#   - relative imports of modules or names that don't exist (ImportError)
+# Style warnings (unused imports/variables etc.) are ignored.
+#
+# On PRs only problems the PR introduces are reported: everything that is
+# already broken on main is subtracted. The job also posts a comment on the
+# PR and updates it once the problems are fixed.
+#
+# PRs use pull_request_target so the comment works for PRs from forks too.
+# That runs THIS file and the check script from the base branch: a PR cannot
+# change the check. The PR's code is checked out into pr/ only to be parsed -
+# nothing from it is imported or executed.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "**.py"
+      - "**.command"
+  push:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "**.command"
+      - ".github/workflows/python-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      # On pull_request_target this checks out the BASE branch (trusted code).
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The PR's code, as data only. Never run anything from pr/.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request_target'
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+
+      - name: Install pyflakes
+        run: python3 -m pip install --quiet --disable-pip-version-check pyflakes==4.0.1
+
+      - name: Check Python
+        id: check
+        run: |
+          set +e
+          if [ "$GITHUB_EVENT_NAME" = "pull_request_target" ]; then
+            # Base copy without pr/ so the baseline doesn't scan the PR twice
+            mkdir -p "$RUNNER_TEMP/base"
+            git archive HEAD | tar -x -C "$RUNNER_TEMP/base"
+            python3 .github/scripts/check_python.py --root pr --baseline "$RUNNER_TEMP/base" --json "$RUNNER_TEMP/result.json"
+          else
+            python3 .github/scripts/check_python.py --root . --json "$RUNNER_TEMP/result.json"
+          fi
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on the PR
+        if: github.event_name == 'pull_request_target'
+        uses: actions/github-script@v8
+        env:
+          CHECK_RC: ${{ steps.check.outputs.rc }}
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- python-check-bot -->';
+            const MAX = 30;
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const failed = process.env.CHECK_RC !== '0';
+            const short = pr.head.sha.slice(0, 7);
+
+            // Only our own comments - anybody can paste the marker into a comment
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot' && c.user.login === 'github-actions[bot]');
+
+            if (!failed) {
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body:
+                  `${MARKER}\n### ✅ Python check OK\n\n` +
+                  `No syntax errors or code that would fail at runtime anymore (checked at ${short}). Thanks!\n\n` +
+                  `<details><summary>Deutsch</summary>\n\nKeine Syntaxfehler oder Code mehr, der zur Laufzeit fehlschlagen würde (geprüft bei ${short}). Danke!\n</details>` });
+              }
+              return;
+            }
+
+            let problems = [];
+            try { problems = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/result.json`, 'utf8')); } catch {}
+            const headUrl = `${pr.head.repo.html_url}/blob/${pr.head.sha}`;
+            const esc = s => String(s).replace(/[|`<>]/g, c => ({ '|': '\\|', '`': "'", '<': '&lt;', '>': '&gt;' }[c]));
+            const rows = problems.slice(0, MAX).map(p =>
+              `| [\`${esc(p.file)}:${p.line}\`](${headUrl}/${encodeURI(p.file)}#L${p.line}) | ${esc(p.message)} |`).join('\n');
+            const more = problems.length > MAX ? `\n\n…and ${problems.length - MAX} more - see the workflow log.` : '';
+            const table = problems.length
+              ? `| Where | Problem |\n|---|---|\n${rows}${more}`
+              : `The check failed but produced no details - see the workflow log.`;
+
+            const body =
+              `${MARKER}\n### ⚠️ Something's up with the Python code\n\n` +
+              `This PR (at ${short}) adds code that won't run - it would crash with a syntax error, ` +
+              `\`NameError\` or \`ImportError\` as soon as it's loaded or reached:\n\n` +
+              `${table}\n\n` +
+              `Only problems introduced by this PR are listed; anything already broken on \`main\` is ignored. ` +
+              `If an entry looks unrelated, merge the latest \`main\` into your branch. ` +
+              `This comment updates automatically on every push.\n\n` +
+              `<details><summary>Deutsch</summary>\n\n` +
+              `Dieser PR (bei ${short}) fügt Code hinzu, der nicht lauffähig ist - er würde beim Laden oder Erreichen mit einem Syntaxfehler, ` +
+              `\`NameError\` oder \`ImportError\` abstürzen (siehe Tabelle oben).\n\n` +
+              `Aufgeführt sind nur Fehler, die dieser PR neu einführt; was auf \`main\` schon kaputt ist, wird ignoriert. ` +
+              `Wirkt ein Eintrag unpassend, bitte den aktuellen \`main\` in den Branch mergen. ` +
+              `Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>`;
+
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+
+      - name: Fail if problems were found
+        if: steps.check.outputs.rc != '0'
+        run: exit 1
