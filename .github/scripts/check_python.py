@@ -24,6 +24,15 @@ problems that are already broken on main stay visible.
 With --warnings, pyflakes warnings (unused imports/variables, repeated dict
 keys, ...) are reported as well, with severity "warning". Only errors make
 the exit code non-zero.
+
+Things pyflakes reports as unused but that are used on purpose are skipped:
+  - re-exports in __init__.py: 'from .module import Name' there makes Name
+    part of the package's API (sys_patch.mount.APFSSnapshot, from .patchsets
+    import get_disabled_patchsets), even when no file in the repo uses it yet
+  - imports inside try/except ImportError that only check availability
+    (try: import ssl / except ImportError: ...)
+  - the name of an except clause (except Exception as e) that the block
+    doesn't use, e.g. because it logs via logging.exception() instead
 """
 
 import argparse
@@ -185,6 +194,44 @@ def check_imports(path: Path, tree, index: ModuleIndex) -> list:
     return problems
 
 
+IMPORT_ERRORS = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+
+
+def _handler_catches_import_error(handler) -> bool:
+    if handler.type is None:
+        return True
+    types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    return any(isinstance(t, ast.Name) and t.id in IMPORT_ERRORS
+               or isinstance(t, ast.Attribute) and t.attr in IMPORT_ERRORS for t in types)
+
+
+def intentional_unused(tree) -> tuple:
+    """Lines of availability-check imports, (line, name) of except-clause names,
+    and lines of relative imports (re-exports when the file is an __init__.py)."""
+    probe_lines, except_names, reexport_lines = set(), set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level:
+            reexport_lines.add(node.lineno)
+        if isinstance(node, ast.Try) and any(_handler_catches_import_error(h) for h in node.handlers):
+            for stmt in node.body:
+                if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                    probe_lines.add(stmt.lineno)
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            except_names.add((node.lineno, node.name))
+    return probe_lines, except_names, reexport_lines
+
+
+def is_intentional(msg, path: Path, tree, cache: dict) -> bool:
+    if "data" not in cache:
+        cache["data"] = intentional_unused(tree)
+    probe_lines, except_names, reexport_lines = cache["data"]
+    if isinstance(msg, m.UnusedVariable):
+        return (msg.lineno, msg.message_args[0]) in except_names
+    if isinstance(msg, m.UnusedImport):
+        return msg.lineno in probe_lines or (path.name == "__init__.py" and msg.lineno in reexport_lines)
+    return False
+
+
 def check_file(path: Path, index: ModuleIndex, with_warnings: bool = False) -> list:
     source = path.read_bytes()
     try:
@@ -199,13 +246,14 @@ def check_file(path: Path, index: ModuleIndex, with_warnings: bool = False) -> l
         return [(0, f"SyntaxError: {e}", "error")]
 
     problems = []
+    cache = {}
     w = pyflakes_checker.Checker(tree, filename=str(path))
     for msg in w.messages:
         text = msg.message % msg.message_args
         if isinstance(msg, ERROR_MESSAGES):
             prefix = "NameError" if isinstance(msg, (m.UndefinedName, m.UndefinedLocal, m.UndefinedExport)) else "Error"
             problems.append((msg.lineno, f"{prefix}: {text}", "error"))
-        elif with_warnings:
+        elif with_warnings and not is_intentional(msg, path, tree, cache):
             problems.append((msg.lineno, f"Warning: {text}", "warning"))
     problems += [(line, text, "error") for line, text in check_imports(path, tree, index)]
     return problems
