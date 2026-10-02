@@ -138,7 +138,7 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
     * Adding support for T1 Macs on Tahoe
     * writing patches for T1 and non-T1 Macs for macOS 26 Tahoe
     * fixing some bugs, testing and documenting issues
-* [zkennedy137](https://github.com/gandolf243)
+* [zkennedy137](https://github.com/zkennedy137)
     * testing, documenting, and fixing issues with unsupported T2 Macs
     * writing the Spoof-VMM kext so unsupported T2 Macs can get further at booting macOS 26 and 15 on unsupported hardware
 * [gandolf243](https://github.com/gandolf243)
