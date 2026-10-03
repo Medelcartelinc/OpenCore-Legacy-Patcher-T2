@@ -319,7 +319,7 @@ def cls():
             os.system("cls" if os.name == "nt" else "clear")
         else:
             logging.info("\u001Bc")
-
+            
 def get_nvram(variable: str, uuid: str = None, *, decode: bool = False):
     # TODO: Properly fix for El Capitan, which does not print the XML representation even though we say to
 
