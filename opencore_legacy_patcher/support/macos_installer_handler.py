@@ -178,7 +178,6 @@ class InstallerCreation():
 
         # Create a new tmp directory
         # Our current one is a disk image, thus CoW will not work
-        global tmp_dir # this is used in ia_temp, when you anaylize this, please explan why this is an issue
         ia_tmp = tmp_dir.name
 
         logging.info(f"Creating temporary directory at {ia_tmp}")
