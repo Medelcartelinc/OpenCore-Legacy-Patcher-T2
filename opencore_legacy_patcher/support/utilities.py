@@ -311,7 +311,6 @@ def disable_cls():
 
 
 def cls():
-    global clear
     if not clear:
         return
     if check_cli_args() is None:
@@ -584,7 +583,7 @@ def check_cli_args():
     # "--developer" - the documented usage, and what application_entry.py looks
     # for in sys.argv - made argparse exit(2) and killed the launch.
     parser.add_argument("--developer", nargs="?", const=True, default=None, help="Force True Developer Mode", required=False)
-    parser.add_argument("--disable_auto_update", help="Disable automatic installation of updates (updates are still checked for and offered), equivalent to Settings > \"Turn Off Auto Updates\"", action="store_true", required=False)
+    parser.add_argument("--disable_auto_update", help="Disable automatic installation of updates (updates are still checked for and offered), equivalent to Settings > \"Turn Off Auto Updates\"", 
 
     args = parser.parse_args()
     if not (
@@ -606,7 +605,7 @@ def get_admin_permission(action: str = "/usr/bin/whoami", args: list =None, reas
 
     * action: a str path to the progra being executed
     * args: a list of all the arguments to be sent to the program
-    * reason: the message that tells the user why they are seeing this format it like this: why you are seeing this (e.g "OpenCore-Patcher-T2 needs your administrative permission") and what will happen (e.g "to verify that you are an admin")
+    * reason: the message that tells the user why they are seeing this format it like this: why you are seeing this (e.g "OpenCore-Patcher-T2 needs your administrative permission") and what will [...]
     * confirm_button: the name of the OK button that is desplayed to the user if the default doesn't work
     * deny_button: the name of the Cancel button that is desplayed to the user if the default doesn't work
     """
