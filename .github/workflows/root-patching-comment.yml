@@ -1,9 +1,9 @@
 name: Comment root patching check result
 
-# Posts the result of "Check root patching for boot-breaking problems" on the PR.
+# Posts the result of "Check root patching for unbootable systems" on the PR.
 #
 # The check itself runs on `pull_request` with a read-only token because it
-# executes the PR's code. This workflow runs afterwards via
+# executes the PR's patcher code. This workflow runs afterwards via
 # workflow_run, from the default branch, with permission to comment - and it
 # never checks out or runs anything from the PR. The artifact it reads was
 # produced by PR code, so everything in it is treated as untrusted data:
@@ -12,7 +12,7 @@ name: Comment root patching check result
 
 on:
   workflow_run:
-    workflows: ["Check root patching for boot-breaking problems"]
+    workflows: ["Check root patching for unbootable systems"]
     types: [completed]
 
 permissions: {}
@@ -91,7 +91,7 @@ jobs:
               : '';
             const errorSection = errors.length
               ? `\n\n<details><summary>${errors.length} scenario(s) couldn't be checked</summary>\n\n` +
-                `These scenarios couldn't be reproduced, so they weren't checked at all.\n\n| Case | Where | Error |\n|---|---|---|\n` +
+                `The patcher code failed for these in an unexpected way, so they weren't checked at all.\n\n| Case | Where | Error |\n|---|---|---|\n` +
                 errors.slice(0, MAX).map(e => `| <code>${esc(e.case)}</code> | <code>${esc(e.subject)}</code> | ${esc(e.message)} |`).join('\n') +
                 `\n</details>`
               : '';
@@ -104,34 +104,33 @@ jobs:
             if (!fatal && !problems.length) {
               if (!existing) return;   // never complained - stay quiet
               body = `${MARKER}\n### ✅ Root patching check OK\n\n` +
-                `No root-patching problem that could leave a Mac unbootable was found anymore (checked at ${short}). Thanks!\n\n` +
-                `<details><summary>Deutsch</summary>\n\nKein Root-Patching-Problem mehr gefunden, das einen Mac unbootbar machen könnte (geprüft bei ${short}). Danke!\n</details>` +
+                `No checked root patching scenario can leave an unbootable system anymore (checked at ${short}). Thanks!\n\n` +
+                `<details><summary>Deutsch</summary>\n\nKein geprüftes Root-Patching-Szenario kann das System mehr unbootbar machen (geprüft bei ${short}). Danke!\n</details>` +
                 knownSection + errorSection;
             } else if (fatal) {
               body = `${MARKER}\n### ⚠️ The root patching check could not run\n\n` +
-                `The check couldn't run the root patcher from this PR (at ${short}), so it can't tell whether root patching could leave a Mac unbootable:\n\n` +
+                `The check couldn't run the patcher code from this PR (at ${short}), so it can't tell whether root patching is still safe:\n\n` +
                 `> ${esc(fatal)}\n\n` +
                 `This usually means the PR breaks \`sys_patch\` or an import it needs. See the [workflow run](${run.html_url}) for the log. ` +
                 `This comment updates automatically on every push.\n\n` +
                 `<details><summary>Deutsch</summary>\n\n` +
-                `Der Check konnte den Root Patcher aus diesem PR (bei ${short}) nicht ausführen und kann daher nicht prüfen, ob Root Patching einen Mac unbootbar machen könnte. ` +
+                `Der Check konnte den Patcher-Code aus diesem PR (bei ${short}) nicht ausführen und kann daher nicht prüfen, ob Root Patching noch sicher ist. ` +
                 `Meist bricht der PR \`sys_patch\` oder einen benötigten Import. Details im Workflow-Log. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
                 knownSection + errorSection;
             } else {
-              body = `${MARKER}\n### 🛑 This PR could leave Macs unbootable after root patching\n\n` +
-                `With this PR (at ${short}), root patching can end up in a state the Mac may not boot from:\n\n${rows(problems)}\n\n` +
-                `**Why this is critical:** root patching edits a copy of the sealed system volume and then blesses a new APFS snapshot of it. ` +
-                `Whatever is in that snapshot is what the Mac boots next - a deleted kernel or core kext, a failed copy that goes unnoticed, ` +
-                `a snapshot created after a step already failed, or a patch written to the live root instead of the mounted copy all end in a Mac that doesn't start. ` +
-                `Every failure before the snapshot has to abort the run, and patchsets may never touch the files listed in \`BOOT_CRITICAL\` ` +
-                `(\`.github/scripts/check_root_patching.py\`).\n\n` +
+              body = `${MARKER}\n### 🛑 This PR can make root patching leave an unbootable Mac\n\n` +
+                `With this PR (at ${short}), the simulated root patching run ends in a state that can keep macOS from booting:\n\n${rows(problems)}\n\n` +
+                `**Why this is critical:** root patching seals a new APFS snapshot that becomes the boot target. Everything that goes wrong *before* ` +
+                `\`bless --create-snapshot\` must abort the run, so the booted snapshot stays untouched. A seal after a failed \`kmutil\`, KDK merge or copy, ` +
+                `writes to the live root instead of \`/System/Volumes/Update/mnt1\`, or a patchset that removes boot-critical files leave a Mac that ` +
+                `can't start macOS and can't be reverted from inside it.\n\n` +
                 `Only problems introduced by this PR are listed above. This comment updates automatically on every push.\n\n` +
                 `<details><summary>Deutsch</summary>\n\n` +
-                `Mit diesem PR (bei ${short}) kann Root Patching in einem Zustand enden, aus dem der Mac nicht mehr bootet (siehe Tabelle oben).\n\n` +
-                `**Warum das kritisch ist:** Root Patching bearbeitet eine Kopie des versiegelten System-Volumes und erzeugt danach einen neuen APFS-Snapshot davon. ` +
-                `Was in diesem Snapshot steckt, bootet der Mac beim nächsten Start - ein gelöschter Kernel oder Kern-Kext, eine unbemerkt fehlgeschlagene Kopie, ` +
-                `ein Snapshot nach einem bereits fehlgeschlagenen Schritt oder ein Patch auf das laufende statt das gemountete Root-Volume enden alle in einem Mac, der nicht mehr startet. ` +
-                `Jeder Fehler vor dem Snapshot muss den Lauf abbrechen, und Patchsets dürfen die in \`BOOT_CRITICAL\` aufgeführten Dateien nie anfassen.\n\n` +
+                `Mit diesem PR (bei ${short}) endet der simulierte Root-Patching-Lauf in einem Zustand, in dem macOS nicht mehr starten kann (siehe Tabelle oben).\n\n` +
+                `**Warum das kritisch ist:** Root Patching versiegelt einen neuen APFS-Snapshot, von dem der Mac danach startet. Alles, was *vor* ` +
+                `\`bless --create-snapshot\` schiefgeht, muss den Lauf abbrechen, damit der gebootete Snapshot unverändert bleibt. Ein Versiegeln nach ` +
+                `fehlgeschlagenem \`kmutil\`, KDK-Merge oder Kopiervorgang, Schreibzugriffe auf das live Root-Volume statt auf \`/System/Volumes/Update/mnt1\` ` +
+                `oder ein Patchset, das bootkritische Dateien löscht, hinterlassen einen Mac, der macOS nicht mehr startet und sich nicht aus macOS zurücksetzen lässt.\n\n` +
                 `Aufgeführt sind nur Fehler, die dieser PR neu einführt. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
                 knownSection + errorSection;
             }

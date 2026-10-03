@@ -1,28 +1,27 @@
-name: Check root patching for boot-breaking problems
+name: Check root patching for unbootable systems
 
-# Fails when root patching could leave a Mac that no longer boots: a patchset
-# that deletes or replaces the kernel, the Kernel Collections, boot.efi or a
-# core kext, a failed copy that goes unnoticed, a new APFS snapshot blessed
-# after something already went wrong, a SYSTEM_VOLUME patch that lands on the
-# live root instead of the mounted copy (059cc9a), a missing FileVault/SIP/
-# AMFI/Secure Boot gate, or Metal and non-Metal patches installed together.
+# Fails when root patching could leave a Mac that no longer boots: a snapshot
+# sealed after a failed kmutil / KDK merge / file copy, Kernel Collections that
+# aren't rebuilt for patched kexts, writes to the live (sealed) root instead of
+# the mounted copy (Issue #161), a patchset that deletes boot-critical files, or
+# detect.py letting patching run with FileVault/SIP/a broken seal.
 #
-# .github/scripts/check_root_patching.py runs the real patchsets, the real
-# detection gates and the real sys_patch flow with every host value simulated
-# (see the script for the cases). It runs alongside the SecureBootModel check
-# (secure-boot-model-check.yml), which covers the EFI side.
+# .github/scripts/check_root_patching.py runs the real sys_patch.py and
+# detect.py code against a command simulator (see the script for the cases).
+# Nothing is executed for real.
 #
 # Pull requests:
-#   Runs on `pull_request` with a read-only token, because the check imports
-#   and runs the PR's code. The check script itself always comes from the base
-#   branch, so a PR can't change what is checked. The result is uploaded as an
+#   This workflow runs on `pull_request`, so it has a read-only token and no
+#   write access - it has to, because the check imports and runs the PR's
+#   patcher code. The check script itself always comes from the base branch,
+#   so a PR can't change what is checked. The result is uploaded as an
 #   artifact; root-patching-comment.yml (workflow_run, trusted) reads it as
 #   data and posts/updates the PR comment. Problems that already exist on the
 #   base branch are listed separately and don't fail the PR.
 #
 # Outside pull requests (push to main, releases, weekly, manual):
 #   The whole tree is checked and the result is kept in one tracking issue
-#   ("Root patching check: boot-breaking problems on main"). It is updated on
+#   ("Root patching check: unbootable-system risks on main"). It is updated on
 #   every run and closed automatically once everything passes. A check that
 #   can't run at all is reported too.
 
@@ -36,7 +35,6 @@ on:
     branches: [main]
     paths:
       - "opencore_legacy_patcher/**"
-      - "payloads/Config/**"
       - "requirements.txt"
       - ".github/scripts/check_root_patching.py"
       - ".github/workflows/root-patching-check.yml"
@@ -54,20 +52,20 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # What sys_patch imports besides the macOS-only modules (pyobjc, wx, ...),
+  # What the patcher imports besides the macOS-only modules (pyobjc, wx, ...),
   # which the script replaces with inert stubs on Linux.
   CHECK_DEPS: "requests packaging py_sip_xnu markdown markdown2"
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     permissions:
       contents: read
       pull-requests: read
     steps:
-      # PRs that change nothing the root patcher or the check depends on pass
-      # right away - their root patching is identical to main's, checked on push.
+      # PRs that change nothing the patcher or the check depends on pass right
+      # away - their behaviour is identical to main's, which is checked on push.
       - name: Decide what to check
         id: scope
         env:
@@ -84,12 +82,12 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          relevant=$(printf '%s\n' "$files" | grep -E '^(opencore_legacy_patcher/|payloads/Config/|requirements\.txt$|\.github/scripts/check_root_patching\.py$|\.github/workflows/root-patching-check\.yml$)' || true)
+          relevant=$(printf '%s\n' "$files" | grep -E '^(opencore_legacy_patcher/|requirements\.txt$|\.github/scripts/check_root_patching\.py$|\.github/workflows/root-patching-check\.yml$)' || true)
           if [ -n "$relevant" ]; then
             echo "Relevant changes:"; printf '  %s\n' $relevant
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "This PR doesn't change the patcher, payloads/Config or the check - nothing to check"
+            echo "This PR doesn't change the patcher or the check - nothing to check"
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -101,9 +99,9 @@ jobs:
           # A clean result, so an earlier complaint on this PR is resolved
           echo '{"fatal": null, "cases": {}, "new": [], "known": [], "errors": [], "not_relevant": true}' > "$out/result.json"
           echo "rc=0" > "$out/rc"
-          echo "## Root patching check" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Root patching bootability check" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "✅ This PR doesn't change the patcher, \`payloads/Config\` or the check - nothing to check." >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ This PR doesn't change the patcher or the check - nothing to check." >> "$GITHUB_STEP_SUMMARY"
 
       # Trusted copy: the base branch for PRs, otherwise the pushed/released commit.
       # The check script is always taken from here.
@@ -178,13 +176,13 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-      - name: Fail if root patching could leave a Mac unbootable
+      - name: Fail if root patching can leave an unbootable system
         if: steps.check.outputs.rc != '' && steps.check.outputs.rc != '0'
         run: |
           if [ "${{ steps.check.outputs.rc }}" = "2" ]; then
             echo "::error::The root patching check could not run - see the log above"
           else
-            echo "::error::Root patching could leave a Mac unbootable - see the summary"
+            echo "::error::Root patching can leave an unbootable system - see the summary"
           fi
           exit 1
 
@@ -213,7 +211,7 @@ jobs:
           script: |
             const fs = require('fs');
             const MARKER = '<!-- root-patching-main-report -->';
-            const TITLE = 'Root patching check: boot-breaking problems on main';
+            const TITLE = 'Root patching check: unbootable-system risks on main';
             const MAX = 150;
             const { owner, repo } = context.repo;
             const dir = `${process.env.RUNNER_TEMP}/result`;
@@ -241,8 +239,8 @@ jobs:
             if (!fatal && !problems.length) {
               if (existing && existing.state === 'open') {
                 await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body:
-                  `✅ ${where}: no root-patching problem that could leave a Mac unbootable was found anymore ([run](${runUrl})). Closing.\n\n` +
-                  `✅ ${where}: Kein Root-Patching-Problem mehr gefunden, das einen Mac unbootbar machen könnte. Wird geschlossen.` });
+                  `✅ ${where}: no checked root patching scenario can leave an unbootable system anymore ([run](${runUrl})). Closing.\n\n` +
+                  `✅ ${where}: Kein geprüftes Root-Patching-Szenario kann das System mehr unbootbar machen. Wird geschlossen.` });
                 await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
               }
               return;
@@ -250,19 +248,18 @@ jobs:
 
             let body =
               `${MARKER}\n` +
-              (isRelease ? `> [!CAUTION]\n> **Release \`${tag}\` is affected.** Root patching in this release can leave a Mac that no longer boots - ` +
-                           `consider pulling it or marking it as broken before people update.\n\n` : '') +
+              (isRelease ? `> [!CAUTION]\n> **Release \`${tag}\` is affected.** Consider pulling it or marking it as broken before people root patch with it.\n\n` : '') +
               `Automatic report of the root patching check on ${where}, [run](${runUrl}). ` +
               `Updated on every push to \`main\`, every release and every Monday; closed automatically once everything passes.\n\n` +
-              `**Why this matters:** root patching edits a copy of the sealed system volume and then blesses a new APFS snapshot of it. ` +
-              `Whatever is in that snapshot is what the Mac boots next - a deleted kernel or core kext, a half-finished copy, a snapshot ` +
-              `created after a step already failed, or a patch written to the live root instead of the mounted copy all end in a Mac that doesn't start.\n\n` +
+              `**Why this matters:** root patching seals a new APFS snapshot that becomes the boot target. If that seal happens after a failed ` +
+              `\`kmutil\`, a failed KDK merge or a half-finished copy, or the patch deleted a boot-critical file, the Mac no longer boots into macOS ` +
+              `and can't be reverted from inside it.\n\n` +
               `<details><summary>Deutsch</summary>\n\n` +
               `Automatischer Bericht des Root-Patching-Checks auf ${where}. Wird bei jedem Push auf \`main\`, jedem Release und jeden Montag aktualisiert ` +
               `und automatisch geschlossen, sobald alles besteht.\n\n` +
-              `**Warum das wichtig ist:** Root Patching bearbeitet eine Kopie des versiegelten System-Volumes und erzeugt danach einen neuen APFS-Snapshot davon. ` +
-              `Was in diesem Snapshot steckt, bootet der Mac beim nächsten Start - ein gelöschter Kernel oder Kern-Kext, eine halb fertige Kopie, ein Snapshot ` +
-              `nach einem bereits fehlgeschlagenen Schritt oder ein Patch auf das laufende statt das gemountete Root-Volume enden alle in einem Mac, der nicht mehr startet.\n` +
+              `**Warum das wichtig ist:** Root Patching versiegelt einen neuen APFS-Snapshot, von dem der Mac danach startet. Passiert das nach einem ` +
+              `fehlgeschlagenen \`kmutil\`, einem fehlgeschlagenen KDK-Merge oder einem halb fertigen Kopiervorgang, oder hat der Patch eine bootkritische ` +
+              `Datei gelöscht, startet macOS nicht mehr und lässt sich auch nicht mehr aus macOS heraus zurücksetzen.\n` +
               (isRelease ? `\n**Release \`${tag}\` ist betroffen** - ggf. zurückziehen oder als defekt markieren.\n` : '') +
               `</details>\n\n`;
 

@@ -1,44 +1,42 @@
 #!/usr/bin/env python3
 """
-check_root_patching.py: catch root-patching bugs that leave a Mac unbootable.
+check_root_patching.py: make sure root patching can't leave a Mac that no
+longer boots.
 
-Root patching edits a mounted copy of the sealed system volume and then blesses
-a new APFS snapshot of it. Whatever ends up in that snapshot is what the Mac
-boots next time - so a patch that deletes the wrong file, a failed copy that
-goes unnoticed, or a snapshot created after something already went wrong all
-turn into a Mac that no longer starts. The SecureBootModel check
-(check_secure_boot_model.py) covers the EFI side; this one covers the
-root-patching side.
+Root patching edits the mounted system volume, rebuilds the Kernel Collections
+and then seals a new APFS snapshot with `bless --create-snapshot`, which becomes
+the boot target. Anything that goes wrong *before* that seal is harmless - the
+booted snapshot stays untouched. Anything that goes wrong and gets sealed
+anyway is what bricks a Mac: a half-written KC, KCs built without the Kernel
+Debug Kit, half-copied frameworks, files written to the live (sealed) root
+instead of the mounted copy, or a patchset that deletes a file the system needs
+to boot.
 
-Like the SecureBootModel check, this runs the real code - the real patchset
-definitions, the real detection gates, the real sys_patch flow - with every
-host value simulated, instead of grepping for patterns:
+Unlike a grep, this script runs the real patcher code. Every command it would
+run (cp, rm, rsync, kmutil, bless, ...) goes to a simulator that works inside a
+temporary sandbox and can be told to fail, so the actual control flow of
+sys_patch.py is what gets checked:
 
-  patchsets:paths       every patchset, for every supported macOS version:
-                        nothing deletes or replaces files the Mac needs to boot
-                        (kernel, Kernel Collections, boot.efi, launchd, dyld,
-                        core kexts ...), no empty/".."/"/" file names (rm -R of a
-                        whole folder), only absolute target folders, only known
-                        PatchTypes, and every installed file has a source
-  sys_patch:destination _get_destination_path() sends every *_SYSTEM_VOLUME
-                        patch to the mounted copy, never to the live, sealed
-                        root (the REMOVE_SYSTEM_VOLUME bug fixed in 059cc9a)
-  sys_patch:seal-guard  PatchSysVolume with simulated failures: if installing,
-                        removing, the AppleHDA patch or the Kernel Collection
-                        rebuild fails, no new snapshot may be created and the
-                        run may not report success; when a KC rebuild is
-                        required it has to happen before the snapshot
-  files:failures        install_new_file()/remove_file() with a failing
-                        cp/rm/rsync: the failure has to reach the caller,
-                        otherwise sys_patch seals a half-patched volume
-  detect:gates          HardwarePatchsetDetection must block root patching when
-                        FileVault is on, SIP is not lowered, AMFI is active,
-                        Secure Boot is on, the OS is unsupported or the root
-                        volume is already modified - and the FileVault and SIP
-                        probes themselves must report a stock setup as blocked
-  detect:gpu-mix        Metal and non-Metal (and, on Sequoia+, Metal 3802 and
-                        31001) patchsets are never installed together - mixing
-                        them leaves WindowServer unable to start
+  flow:success          everything works -> the patched files really land on the
+                        mounted volume, the right Kernel Collections are rebuilt
+                        after the last file operation and before the snapshot,
+                        bless seals the mounted volume, nothing touches the live
+                        root and the run reports success
+  flow:kc-failure       kmutil fails -> no snapshot may be sealed
+  flow:kdk-failure      the Kernel Debug Kit can't be merged although it is
+                        required (Ventura+) -> no KC rebuild, no snapshot
+  flow:file-failure     copying a kext / merging a framework fails -> no snapshot
+  flow:snapshot-failure bless fails -> the run must not report success
+  flow:revert           reverting goes back to the last sealed snapshot of the
+                        mounted volume and never seals a new one
+  static:patchsets      every patchset, for every supported macOS: no removal or
+                        replacement of boot-critical files (kernel, KCs,
+                        boot.efi, apfs.kext, ...), no empty/relative/'..' paths
+                        (an empty file name turns `rm -R dir/name` into
+                        `rm -R dir/`), no data-volume patch type pointing into
+                        /System (that hits the sealed live root)
+  gate:detect           detect.py still blocks root patching with FileVault on,
+                        SIP enabled, a broken seal, or an unsupported macOS
 
 Usage:
   check_root_patching.py --root DIR [--baseline DIR] --json OUT [--summary OUT.md]
@@ -50,8 +48,9 @@ Usage:
 Exit code: 0 = OK, 1 = problems (new ones, if --baseline is given),
            2 = the check itself could not run against --root.
 
-Nothing here touches a real volume: every subprocess, mount, kmutil and bless
-call is replaced, and off macOS pyobjc/wx are replaced by inert stubs.
+The patcher imports pyobjc/wx. Off macOS those modules are replaced by inert
+stubs. Nothing here touches the real disk outside a temporary directory, and no
+command is ever executed for real.
 """
 
 import argparse
@@ -64,86 +63,57 @@ import time
 from pathlib import Path
 
 CASES = [
-    "patchsets:paths",
-    "sys_patch:destination",
-    "sys_patch:seal-guard",
-    "files:failures",
-    "detect:gates",
-    "detect:gpu-mix",
+    "flow:success",
+    "flow:kc-failure",
+    "flow:kdk-failure",
+    "flow:file-failure",
+    "flow:snapshot-failure",
+    "flow:revert",
+    "static:patchsets",
+    "gate:detect",
 ]
 
 WORKER_TIMEOUT = 15 * 60
 
-MOUNT = "/System/Volumes/Update/mnt1"
-
-# (xnu_major, xnu_minor, build) - one per supported release plus the minor
-# versions patchsets branch on (base.py: macOS_12_4 ... macOS_26_0)
-OS_MATRIX = [
-    (20, 6, "20G1427"),                                             # Big Sur
-    (21, 1, "21A559"), (21, 5, "21F79"), (21, 6, "21H1320"),        # Monterey
-    (22, 4, "22E252"), (22, 6, "22H730"),                           # Ventura
-    (23, 1, "23B74"), (23, 2, "23C64"), (23, 4, "23E214"), (23, 6, "23H626"),  # Sonoma
-    (24, 2, "24C101"), (24, 3, "24D60"), (24, 6, "24G90"),          # Sequoia
-    (25, 0, "25A354"), (25, 6, "25G76"),                            # Tahoe
+# (XNU major, label) - Big Sur is the first release with sealed system volumes
+FLOW_OSES = [
+    (20, "macOS 11"),
+    (21, "macOS 12"),
+    (22, "macOS 13"),
+    (23, "macOS 14"),
+    (24, "macOS 15"),
+    (25, "macOS 26"),
 ]
+VENTURA = 22
 
-# Files and folders the Mac needs to get to the login window. A patchset may
-# never delete or replace these (or anything inside them). Folder entries end
-# with "/".
-BOOT_CRITICAL = [
-    "/System/Library/Kernels/",
-    "/System/Library/KernelCollections/",
-    "/System/Library/PrelinkedKernels/",
-    "/System/Library/Caches/com.apple.kext.caches/",
-    "/System/Library/CoreServices/boot.efi",
-    "/System/Library/CoreServices/bootbase.efi",
-    "/System/Library/CoreServices/PlatformSupport.plist",
-    "/System/Library/CoreServices/SystemVersion.plist",
-    "/System/Library/CoreServices/BridgeVersion.plist",
-    "/usr/standalone/i386/",
-    "/sbin/launchd",
-    "/usr/lib/dyld",
-    "/usr/lib/libSystem.B.dylib",
-    "/System/Library/dyld/",
-    "/System/Cryptexes/",
-    "/System/Library/Frameworks/Kernel.framework/",
-    "/System/Library/Frameworks/IOKit.framework/",
-    "/System/Library/PrivateFrameworks/CoreTrust.framework/",
-    "/System/Library/Extensions/apfs.kext",
-    "/System/Library/Extensions/AppleAPFS.kext",
-    "/System/Library/Extensions/IOStorageFamily.kext",
-    "/System/Library/Extensions/IOPCIFamily.kext",
-    "/System/Library/Extensions/IOACPIFamily.kext",
-    "/System/Library/Extensions/AppleACPIPlatform.kext",
-    "/System/Library/Extensions/AppleSMC.kext",
-    "/System/Library/Extensions/AppleEFIRuntime.kext",
-    "/System/Library/Extensions/AppleRTC.kext",
-    "/System/Library/Extensions/AppleKeyStore.kext",
-    "/System/Library/Extensions/AppleSEPManager.kext",
-    "/System/Library/Extensions/AppleCredentialManager.kext",
-    "/System/Library/Extensions/AppleImage4.kext",
-    "/System/Library/Extensions/AppleMobileFileIntegrity.kext",
-    "/System/Library/Extensions/CoreTrust.kext",
-    "/System/Library/Extensions/corecrypto.kext",
-    "/System/Library/Extensions/Sandbox.kext",
-    "/System/Library/Extensions/IONVMeFamily.kext",
-    "/System/Library/Extensions/IOAHCIFamily.kext",
-    "/System/Library/Extensions/AppleAHCIPort.kext",
-    "/System/Library/Extensions/IOPlatformPluginFamily.kext",
-    "/System/Library/Extensions/System.kext",
-]
+# Files a patchset must never remove or replace. Removing or replacing any of
+# these leaves a system that can't boot (or can't even be reverted from inside
+# macOS). A directory mapped to None means "anything in it".
+BOOT_CRITICAL = {
+    "/System/Library/Kernels": None,
+    "/System/Library/KernelCollections": None,
+    "/System/Library/PrelinkedKernels": None,
+    "/System/Library/dyld": None,
+    "/System/Library/CoreServices": {
+        "boot.efi", "bootbase.efi", "PlatformSupport.plist", "SystemVersion.plist",
+        "BridgeVersion.plist", "BridgeVersion.bin", "com.apple.Boot.plist",
+    },
+    "/System/Library/Extensions": {
+        "apfs.kext", "AppleACPIPlatform.kext", "AppleAPIC.kext", "AppleSMC.kext",
+        "IOACPIFamily.kext", "IOPCIFamily.kext", "IOPlatformPluginFamily.kext",
+        "IOStorageFamily.kext", "IONVMeFamily.kext", "IOAHCIFamily.kext", "AppleAHCIPort.kext",
+        "AppleKeyStore.kext", "AppleSEPManager.kext", "AppleImage4.kext",
+        "AppleMobileFileIntegrity.kext", "AppleSystemPolicy.kext", "Sandbox.kext",
+        "System.kext", "corecrypto.kext", "AppleFSCompressionTypeZlib.kext",
+        "AppleEFIRuntime.kext", "AppleRTC.kext", "IOSystemManagementFamily.kext",
+    },
+    "/usr/lib": {"dyld", "libSystem.B.dylib", "libc++.1.dylib", "libobjc.A.dylib"},
+    "/sbin": {"launchd", "mount", "mount_apfs", "fsck_apfs"},
+    "/usr/standalone/i386": None,
+}
 
-# Folders whose own entries may never be removed or replaced as a whole.
-NEVER_AS_TARGET = {"/", "/System", "/System/Library", "/System/Library/Extensions",
-                   "/System/Library/Frameworks", "/System/Library/PrivateFrameworks",
-                   "/System/Library/CoreServices", "/usr", "/usr/lib", "/Library",
-                   "/Library/Extensions", "/private", "/private/var", "/Applications"}
-
-
-def _macos(xnu, minor=None) -> str:
-    """Darwin 20-24 = macOS 11-15, Darwin 25 = macOS 26 (Tahoe)"""
-    major = int(xnu) + 1 if int(xnu) >= 25 else int(xnu) - 9
-    return f"{major}.{minor}" if minor is not None else str(major)
+LIVE_SYSTEM_PREFIXES = ("/System/", "/usr/", "/bin/", "/sbin/")
+LIVE_ALLOWED_PREFIXES = ("/usr/local/",)
 
 
 # ----------------------------------------------------------------------------
@@ -186,11 +156,87 @@ def _problem(case, subject, message, **extra):
     return entry
 
 
+class CommandSimulator:
+    """
+    Stands in for every process the patcher would start.
+
+    Records each command in order. File operations whose paths all lie inside
+    the sandbox are carried out there for real, so later steps (and the
+    checks) see their effect; anything outside the sandbox is only recorded.
+    `fail` decides per command which exit code to return instead of 0.
+    """
+
+    def __init__(self, sandbox: Path):
+        self.sandbox = str(sandbox)
+        self.calls = []
+        self.fail = lambda argv: 0
+        self.readonly = ()   # path prefixes that behave like the sealed live root
+
+    def _inside(self, path: str) -> bool:
+        return os.path.abspath(path).startswith(self.sandbox + os.sep)
+
+    def note(self, *argv):
+        self.calls.append([str(a) for a in argv])
+
+    def handle(self, argv, *args, **kwargs):
+        import subprocess as _sp
+        if isinstance(argv, (str, bytes)):
+            argv = str(argv).split(" ")
+        argv = [str(a) for a in argv]
+        self.calls.append(argv)
+        rc = self.fail(argv) or 0
+        if rc:
+            return _sp.CompletedProcess(argv, rc, b"simulated failure\n", b"")
+        if self.readonly and os.path.basename(argv[0]) in ("rm", "cp", "rsync", "mv", "mkdir", "ditto") and \
+                any(a.startswith(self.readonly) for a in argv[1:]):
+            return _sp.CompletedProcess(argv, 1, b"Read-only file system\n", b"")
+        out = b""
+        try:
+            out = self._apply(argv) or b""
+        except Exception as e:  # a broken simulated op is a failed op
+            return _sp.CompletedProcess(argv, 1, f"simulator: {e}\n".encode(), b"")
+        return _sp.CompletedProcess(argv, 0, out, b"")
+
+    def _apply(self, argv):
+        import shutil
+        tool = os.path.basename(argv[0])
+        rest = [a for a in argv[1:] if not a.startswith("-")]
+        if tool == "mkdir":
+            for p in rest:
+                if self._inside(p):
+                    os.makedirs(p, exist_ok=True)
+        elif tool == "rm":
+            for p in rest:
+                if self._inside(p):
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        shutil.rmtree(p, ignore_errors=True)
+                    elif os.path.lexists(p):
+                        os.unlink(p)
+        elif tool in ("cp", "ditto") and len(rest) >= 2:
+            src, dst = rest[-2], rest[-1]
+            if self._inside(src) and self._inside(dst):
+                if os.path.isdir(dst):
+                    dst = os.path.join(dst, os.path.basename(src.rstrip("/")))
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dst)
+        elif tool == "rsync" and len(rest) >= 2:
+            src, dst = rest[-2], rest[-1]
+            if self._inside(src) and self._inside(dst):
+                target = os.path.join(dst, os.path.basename(src.rstrip("/")))
+                if os.path.isdir(src):
+                    shutil.copytree(src, target, symlinks=True, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, target)
+        elif tool == "mv" and len(rest) >= 2:
+            if self._inside(rest[-2]) and self._inside(rest[-1]):
+                shutil.move(rest[-2], rest[-1])
+        return b""
+
+
 def _worker(root: str, case: str, out_path: str) -> None:
-    import copy
     import logging
-    import subprocess as real_subprocess
-    from types import SimpleNamespace
 
     os.chdir(root)
     sys.path.insert(0, root)
@@ -198,571 +244,693 @@ def _worker(root: str, case: str, out_path: str) -> None:
         _install_stubs()
     logging.disable(logging.CRITICAL)
 
-    from opencore_legacy_patcher import constants
-    from opencore_legacy_patcher.datasets import example_data, os_data, sip_data
-    from opencore_legacy_patcher.support import utilities, subprocess_wrapper
-    from opencore_legacy_patcher.sys_patch.patchsets import detect
-    from opencore_legacy_patcher.sys_patch.patchsets.base import PatchType
-
+    from opencore_legacy_patcher.support import utilities
     try:
         utilities.disable_cls()
     except Exception:
         pass
 
-    # Simulated host: no NVRAM, no ROM, nothing loaded, nothing on disk to find
-    utilities.get_nvram = lambda *a, **k: None
-    utilities.get_rom = lambda *a, **k: None
-    utilities.check_kext_loaded = lambda *a, **k: False
-    utilities.find_any_oclp_manifest = lambda *a, **k: None
-
-    problems, checked, errors = [], 0, []
-    host_dump = example_data.iMac.iMac201_Stock
-    install_types = [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.OVERWRITE_DATA_VOLUME,
-                     PatchType.MERGE_SYSTEM_VOLUME, PatchType.MERGE_DATA_VOLUME]
-    remove_types = [PatchType.REMOVE_SYSTEM_VOLUME, PatchType.REMOVE_DATA_VOLUME]
-    system_types = [PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.MERGE_SYSTEM_VOLUME, PatchType.REMOVE_SYSTEM_VOLUME]
-
-    def new_constants(xnu=os_data.os_data.tahoe, minor=6, build="25G76", computer=None):
-        c = constants.Constants()
-        c.computer = copy.deepcopy(computer or host_dump)
-        c.detected_os = xnu
-        c.detected_os_minor = minor
-        c.detected_os_build = build
-        c.detected_os_version = _macos(xnu, minor)
-        c.wxpython_variant = False
-        return c
-
-    # Every probe that would touch the host. Gates are switched on one by one
-    # in detect:gates; everywhere else they are "all clear".
-    GATE_METHODS = [
-        "_validation_check_unsupported_host_os",
-        "_validation_check_missing_network_connection",
-        "_validation_check_filevault_is_enabled",
-        "_validation_check_system_integrity_protection_enabled",
-        "_validation_check_secure_boot_model_enabled",
-        "_validation_check_amfi_enabled",
-        "_validation_check_whatevergreen_missing",
-        "_validation_check_force_opengl_missing",
-        "_validation_check_force_compat_missing",
-        "_validation_check_nvda_drv_missing",
-        "_validation_check_root_is_dirty",
-    ]
-    Detection = detect.HardwarePatchsetDetection
-    originals = {name: getattr(Detection, name) for name in GATE_METHODS if hasattr(Detection, name)}
-
-    def clear_gates(blocked=()):
-        for name in originals:
-            value = name in blocked
-            setattr(Detection, name, lambda self, *a, _v=value, **k: _v)
-        Detection._is_cached_kernel_debug_kit_present = lambda self: True
-        Detection._is_cached_metallib_support_pkg_present = lambda self: True
-        Detection._already_has_networking_patches = lambda self: False
-
-    class FakeSip:
-        def __init__(self, value):
-            self._value = value
-
-        def get_sip_status(self):
-            return SimpleNamespace(value=self._value)
-
-    detect.py_sip_xnu = SimpleNamespace(SipXnu=lambda: FakeSip(0x803))
-
-    # ------------------------------------------------------------------------
-    if case == "patchsets:paths":
-        clear_gates()
-        critical_dirs = [p.rstrip("/") for p in BOOT_CRITICAL if p.endswith("/")]
-        critical_files = [p for p in BOOT_CRITICAL if not p.endswith("/")]
-
-        def critical_hit(full_path):
-            for d in critical_dirs:
-                if full_path == d or full_path.startswith(d + "/"):
-                    return d + "/"
-            for f in critical_files:
-                if full_path == f or full_path.startswith(f + "/"):
-                    return f
-            return None
-
-        seen = set()
-        for xnu, minor, build in OS_MATRIX:
-            version = _macos(xnu, minor)
-            c = new_constants(xnu, minor, build)
-            try:
-                patches = Detection(c, xnu_major=xnu, xnu_minor=minor, os_build=build,
-                                    os_version=version, validation=True).patches
-            except Exception as e:
-                errors.append({"case": case, "subject": f"macOS {version}",
-                               "message": f"patchset detection raised {e!r}"[:300]})
-                continue
-            if not isinstance(patches, dict):
-                errors.append({"case": case, "subject": f"macOS {version}", "message": "patches is not a dict"})
-                continue
-
-            for name, patchset in patches.items():
-                checked += 1
-
-                def report(where, message):
-                    key = (name, where, message)
-                    if key in seen:
-                        return
-                    seen.add(key)
-                    problems.append(_problem(case, f"{name}: {where}", f"{message} (first seen on macOS {version})"))
-
-                if not isinstance(patchset, dict):
-                    report("-", "patchset is not a dict")
-                    continue
-                for ptype, content in patchset.items():
-                    if ptype not in list(PatchType):
-                        report(str(ptype), "unknown PatchType - sys_patch silently ignores it")
-                        continue
-                    if ptype == PatchType.EXECUTE:
-                        for command in content or {}:
-                            if not str(command).startswith("/"):
-                                report(str(command)[:80], "EXECUTE command without an absolute path - the privileged helper can't run it")
-                        continue
-                    if not isinstance(content, dict):
-                        report(str(ptype), "expected {folder: {file: source}}")
-                        continue
-                    for folder, entries in content.items():
-                        folder = str(folder)
-                        where = f"{ptype.value} {folder}"
-                        if not folder.startswith("/"):
-                            report(where, "target folder isn't absolute - it would be resolved relative to the mount point")
-                        if ".." in folder.split("/") or "//" in folder.rstrip("/"):
-                            report(where, "target folder contains '..' or '//'")
-                        if folder.startswith(MOUNT) or folder.startswith("/System/Volumes/"):
-                            report(where, "target folder already contains a mount point - sys_patch adds it itself")
-                        # Installs are {file: source}, removals {file: ...} or [file, ...]
-                        if isinstance(entries, dict):
-                            items = list(entries.items())
-                        elif isinstance(entries, (list, tuple)) and ptype in remove_types:
-                            items = [(entry, None) for entry in entries]
-                        else:
-                            report(where, "expected {file: source}" if ptype in install_types else "expected a list of files")
-                            continue
-                        for file_name, source in items:
-                            file_name = str(file_name)
-                            if file_name in ("", ".", "..") or "/" in file_name or file_name.strip() != file_name:
-                                report(f"{where}/{file_name!r}",
-                                       "file name is empty, '.', '..', contains '/' or surrounding spaces - "
-                                       "rm -R would hit the folder itself or something outside it")
-                                continue
-                            full = f"{folder.rstrip('/')}/{file_name}"
-                            if folder.rstrip("/") in NEVER_AS_TARGET and ptype in remove_types and file_name in ("Extensions", "Frameworks"):
-                                report(full, "removes a whole system folder")
-                            hit = critical_hit(full)
-                            if hit:
-                                verb = "deletes" if ptype in remove_types else "replaces"
-                                report(full, f"{verb} {hit}, which the Mac needs to boot - the next boot fails")
-                            if ptype in install_types and (not isinstance(source, str) or not source.strip()):
-                                report(full, f"no source version given ({source!r}) - install would copy from the payload root")
-
-        if not checked:
-            errors.append({"case": case, "subject": "-", "message": "no patchsets were produced for any macOS version"})
-
-    # ------------------------------------------------------------------------
-    elif case == "sys_patch:destination":
-        from opencore_legacy_patcher.sys_patch import sys_patch
-
-        obj = sys_patch.PatchSysVolume.__new__(sys_patch.PatchSysVolume)
-        obj.mount_location = MOUNT
-        obj.mount_location_data = ""
-        for ptype in list(install_types) + list(remove_types):
-            for folder in ("/System/Library/Extensions", "/System/Library/Frameworks", "/Library/Extensions"):
-                checked += 1
-                try:
-                    dest = obj._get_destination_path(ptype, folder)
-                except Exception as e:
-                    errors.append({"case": case, "subject": f"{ptype.value} {folder}", "message": repr(e)[:300]})
-                    continue
-                if ptype in system_types:
-                    if dest != MOUNT + folder:
-                        problems.append(_problem(case, f"{ptype.value} {folder}",
-                            f"resolves to '{dest}' instead of '{MOUNT}{folder}' - the patch would hit the live, "
-                            f"sealed root volume instead of the mounted copy (see 059cc9a)"))
-                else:
-                    if dest != folder:
-                        problems.append(_problem(case, f"{ptype.value} {folder}",
-                            f"data-volume patch resolves to '{dest}' instead of '{folder}'"))
-
-    # ------------------------------------------------------------------------
-    elif case == "sys_patch:seal-guard":
-        from opencore_legacy_patcher.sys_patch import sys_patch
-
-        events = []
-
-        class Boom(Exception):
-            pass
-
-        def scenario(label, *, fail=None, kdk_required=True, extra_patch=None, kc_result=True):
-            """Run _patch_root_vol() with simulated subsystems; return (events, succeeded)."""
-            events.clear()
-
-            def fake_install(src, dest, name, method):
-                events.append(("install", name))
-                if fail == "install":
-                    raise Boom("cp failed")
-
-            def fake_remove(dest, name):
-                events.append(("remove", name))
-                if fail == "remove":
-                    raise Boom("rm failed")
-
-            class FakeRebuild:
-                def __init__(self, **kwargs):
-                    self.kwargs = kwargs
-
-                def rebuild(self):
-                    events.append(("kc_rebuild", bool(self.kwargs.get("auxiliary_cache_only"))))
-                    if fail == "kc_raise":
-                        raise Boom("kmutil crashed")
-                    return kc_result
-
-            class FakeKCSupport:
-                def __init__(self, *a, **k):
-                    pass
-
-                def add_auxkc_support(self, install_file, source, folder, dest):
-                    return dest
-
-                def check_kexts_needs_authentication(self, name):
-                    return False
-
-            class FakeSnapshot:
-                def __init__(self, *a, **k):
-                    pass
-
-                def create_snapshot(self):
-                    events.append(("snapshot",))
-                    return True
-
-                def revert_snapshot(self):
-                    return True
-
-            class FakeHelpers:
-                def __init__(self, *a, **k):
-                    pass
-
-                def tahoe_applehda_patch(self, *a, **k):
-                    events.append(("applehda",))
-                    if fail == "applehda":
-                        raise Boom("codesign failed")
-
-                def __getattr__(self, name):
-                    return lambda *a, **k: True
-
-            class FakeAutoPatcher:
-                def __init__(self, *a, **k):
-                    pass
-
-                def install_auto_patcher_launch_agent(self, *a, **k):
-                    pass
-
-            sys_patch.install_new_file = fake_install
-            sys_patch.remove_file = fake_remove
-            sys_patch.kernelcache = SimpleNamespace(RebuildKernelCache=FakeRebuild, KernelCacheSupport=FakeKCSupport)
-            sys_patch.APFSSnapshot = FakeSnapshot
-            sys_patch.sys_patch_helpers = SimpleNamespace(SysPatchHelpers=FakeHelpers)
-            sys_patch.InstallAutomaticPatchingServices = FakeAutoPatcher
-            sys_patch.subprocess_wrapper = SimpleNamespace(
-                run_as_root=lambda *a, **k: real_subprocess.CompletedProcess(a, 0, b"", b""),
-                run_as_root_and_verify=lambda *a, **k: None,
-                run_and_verify=lambda *a, **k: None,
-                run=lambda *a, **k: real_subprocess.CompletedProcess(a, 0, b"", b""),
-            )
-
-            c = new_constants()
-            obj = sys_patch.PatchSysVolume.__new__(sys_patch.PatchSysVolume)
-            obj.model = "iMac20,1"
-            obj.constants = c
-            obj.computer = c.computer
-            obj.root_supports_snapshot = True
-            obj.mount_location = MOUNT
-            obj.mount_location_data = ""
-            obj.needs_kmutil_exemptions = False
-            obj.kdk_path = None
-            obj.metallib_path = None
-            obj._metallib_preflight_refresh_attempted = False
-            obj.hardware_details = {
-                detect.HardwarePatchsetSettings.KERNEL_DEBUG_KIT_REQUIRED: kdk_required,
-                detect.HardwarePatchsetSettings.METALLIB_SUPPORT_PKG_REQUIRED: False,
-            }
-            obj.skip_root_kmutil_requirement = not kdk_required
-            obj.requires_kdk_caching = kdk_required
-            obj.requires_metallib_caching = False
-            obj.mount_obj = SimpleNamespace(mount=lambda: True, unmount=lambda *a, **k: True)
-            obj._preflight_checks = lambda patches, src: patches
-            obj._unmount_root_vol = lambda: events.append(("unmount",))
-            obj._write_patchset = lambda patches: events.append(("manifest",))
-
-            patchset = {
-                "Test Graphics": {
-                    PatchType.REMOVE_SYSTEM_VOLUME: {"/System/Library/Extensions": {"OldDriver.kext": "26.0"}},
-                    PatchType.OVERWRITE_SYSTEM_VOLUME: {"/System/Library/Extensions": {"TestDriver.kext": "12.5"}},
-                },
-            }
-            if extra_patch:
-                patchset.update(extra_patch)
-            obj.patch_set_dictionary = patchset
-
-            c.root_patcher_succeeded = False
-            obj._patch_root_vol()
-            return list(events), bool(c.root_patcher_succeeded)
-
-        def snapshot_index(ev):
-            return next((i for i, e in enumerate(ev) if e[0] == "snapshot"), None)
-
-        # Sanity: a clean run has to seal, otherwise the harness is broken
-        try:
-            ev, ok = scenario("ok")
-        except Exception as e:
-            ev, ok = None, None
-            errors.append({"case": case, "subject": "clean run", "message": f"_patch_root_vol() raised {e!r}"[:300]})
-        if ev is not None:
-            if snapshot_index(ev) is None or not ok:
-                errors.append({"case": case, "subject": "clean run",
-                               "message": f"a run without failures did not seal/succeed (events: {ev}) - scenario not reproduced"})
-            else:
-                checked += 1
-                kc = next((i for i, e in enumerate(ev) if e[0] == "kc_rebuild"), None)
-                if kc is None:
-                    problems.append(_problem(case, "kext patch + Kernel Debug Kit required",
-                        "the Kernel Collection is never rebuilt although a kext was installed into "
-                        "/System/Library/Extensions - the sealed snapshot boots a KC that doesn't match"))
-                elif kc > snapshot_index(ev):
-                    problems.append(_problem(case, "kext patch + Kernel Debug Kit required",
-                        "the Kernel Collection is rebuilt after the snapshot was created - the new KC isn't in the snapshot that boots"))
-
-        failures = [
-            ("install", {}, "installing a file fails"),
-            ("remove", {}, "removing a file fails"),
-            ("kc_raise", {}, "the Kernel Collection rebuild raises"),
-            (None, {"kc_result": False}, "the Kernel Collection rebuild reports failure"),
-            ("applehda", {"extra_patch": {"Modern Audio": {
-                PatchType.OVERWRITE_SYSTEM_VOLUME: {"/System/Library/Extensions": {"AppleHDA.kext": "26.0"}}}}},
-             "the AppleHDA patch/re-sign fails"),
-        ]
-        for fail, kwargs, label in failures:
-            try:
-                ev, ok = scenario(label, fail=fail, **kwargs)
-            except Exception as e:
-                # An exception escaping _patch_root_vol() is fine for safety as long as nothing was sealed
-                ev, ok = list(events), False
-                escaped = repr(e)
-            else:
-                escaped = None
-            checked += 1
-            if snapshot_index(ev) is not None:
-                problems.append(_problem(case, label,
-                    f"a new APFS snapshot is still created when {label} - the half-patched volume becomes "
-                    f"the boot target and the Mac may not start again"))
-            if ok:
-                problems.append(_problem(case, label,
-                    f"root patching reports success when {label}"))
-            if escaped:
-                errors.append({"case": case, "subject": label,
-                               "message": f"_patch_root_vol() let {escaped[:150]} escape (nothing sealed, but the GUI gets an exception)"})
-
-    # ------------------------------------------------------------------------
-    elif case == "files:failures":
-        from opencore_legacy_patcher.sys_patch.utilities import files
-
-        calls = []
-        failing = {"name": None}
-
-        def fake_run_as_root(cmd, *a, **k):
-            cmd = [str(x) for x in cmd]
-            calls.append(cmd)
-            rc = 1 if Path(cmd[0]).name == failing["name"] else 0
-            return real_subprocess.CompletedProcess(cmd, rc, b"", b"simulated failure" if rc else b"")
-
-        subprocess_wrapper.run_as_root = fake_run_as_root
-        files.subprocess_wrapper = subprocess_wrapper
-        # The real one probes clonefile() support through macOS-only APIs
-        files.generate_copy_arguments = lambda s, d: ["/bin/cp", "-R", s, d] if Path(s).is_dir() else ["/bin/cp", s, d]
-
-        def make_tree():
-            base = Path(tempfile.mkdtemp())
-            src, dst = base / "src", base / "dst"
-            (src / "Thing.framework" / "Versions").mkdir(parents=True)
-            (src / "Driver.kext" / "Contents").mkdir(parents=True)
-            (src / "libthing.dylib").write_bytes(b"x")
-            dst.mkdir()
-            (dst / "Old.kext").mkdir()
-            (dst / "libold.dylib").write_bytes(b"x")
-            (dst / "Driver.kext").mkdir()
-            (dst / "libthing.dylib").write_bytes(b"old")
-            return str(src), str(dst)
-
-        scenarios = [
-            ("rsync", "install", PatchType.MERGE_SYSTEM_VOLUME, "Thing.framework",
-             "merging a framework (MERGE_SYSTEM_VOLUME) and rsync fails"),
-            ("cp", "install", PatchType.OVERWRITE_SYSTEM_VOLUME, "libthing.dylib",
-             "replacing a file and cp fails"),
-            ("cp", "install", PatchType.OVERWRITE_SYSTEM_VOLUME, "Driver.kext",
-             "replacing a kext and cp fails"),
-            ("rm", "install", PatchType.OVERWRITE_SYSTEM_VOLUME, "Driver.kext",
-             "replacing a kext and removing the old one fails"),
-            ("rm", "remove", None, "Old.kext", "removing a kext and rm fails"),
-            ("rm", "remove", None, "libold.dylib", "removing a file and rm fails"),
-        ]
-        for binary, action, ptype, name, label in scenarios:
-            src, dst = make_tree()
-            failing["name"] = binary
-            calls.clear()
-            raised = None
-            try:
-                if action == "install":
-                    files.install_new_file(src, dst, name, ptype)
-                else:
-                    files.remove_file(dst, name)
-            except Exception as e:
-                raised = e
-            ran = any(Path(c[0]).name == binary for c in calls)
-            if not ran:
-                errors.append({"case": case, "subject": label,
-                               "message": f"{binary} was never called - scenario not reproduced (calls: {[c[0] for c in calls]})"})
-                continue
-            checked += 1
-            if raised is None:
-                problems.append(_problem(case, label,
-                    f"{binary} exits non-zero but {('install_new_file' if action == 'install' else 'remove_file')}() "
-                    f"returns normally - sys_patch rebuilds the KC and seals a half-patched volume as if it had worked"))
-
-    # ------------------------------------------------------------------------
-    elif case == "detect:gates":
-        host = example_data.iMac.iMac122_Upgraded  # needs non-Metal + Metal patches on Tahoe
-        gate_names = {
-            "_validation_check_unsupported_host_os": "the macOS version is unsupported",
-            "_validation_check_filevault_is_enabled": "FileVault is on",
-            "_validation_check_system_integrity_protection_enabled": "SIP isn't lowered",
-            "_validation_check_secure_boot_model_enabled": "Apple Secure Boot is on",
-            "_validation_check_amfi_enabled": "AMFI is active",
-            "_validation_check_root_is_dirty": "the root volume is already modified",
-        }
-
-        def run_detection(blocked=()):
-            clear_gates(blocked)
-            c = new_constants(computer=host)
-            return Detection(c, validation=False, disabled_patchsets=[])
-
-        try:
-            base = run_detection()
-        except Exception as e:
-            base = None
-            errors.append({"case": case, "subject": "all clear", "message": f"detection raised {e!r}"[:300]})
-        if base is not None:
-            if not base.can_patch:
-                blockers = [k for k, v in (base.device_properties or {}).items() if str(k).startswith("Validation:") and v is True]
-                errors.append({"case": case, "subject": "all clear",
-                               "message": f"root patching blocked with every gate clear ({blockers}) - scenario not reproduced"})
-            else:
-                for method, label in gate_names.items():
-                    if method not in originals:
-                        checked += 1
-                        problems.append(_problem(case, method,
-                            f"HardwarePatchsetDetection.{method}() is gone - nothing blocks root patching when {label}"))
-                        continue
-                    try:
-                        det = run_detection(blocked=(method,))
-                    except Exception as e:
-                        errors.append({"case": case, "subject": method, "message": f"detection raised {e!r}"[:300]})
-                        continue
-                    checked += 1
-                    if det.can_patch:
-                        problems.append(_problem(case, method,
-                            f"root patching is still allowed when {label} - the gate isn't wired into the requirements"))
-                    if method == "_validation_check_system_integrity_protection_enabled" and det.can_unpatch:
-                        problems.append(_problem(case, method,
-                            "reverting root patches is still allowed when SIP isn't lowered - the revert can't mount the system volume"))
-
-        # The probes themselves, against a simulated stock Mac
-        for name, func in originals.items():
-            setattr(Detection, name, func)
-        Detection._is_cached_kernel_debug_kit_present = lambda self: True
-        Detection._is_cached_metallib_support_pkg_present = lambda self: True
-
-        probe = Detection.__new__(Detection)
-        probe._constants = new_constants()
-        probe._xnu_major = os_data.os_data.tahoe
-        probe._xnu_minor = 6
-
-        real_run = real_subprocess.run
-        try:
-            detect.subprocess.run = lambda *a, **k: real_subprocess.CompletedProcess(a, 0, b"FileVault is On.\n", b"")
-            fv = Detection._validation_check_filevault_is_enabled
-            fv = getattr(fv, "__wrapped__", fv)
-            checked += 1
-            if fv(probe) is not True:
-                problems.append(_problem(case, "_validation_check_filevault_is_enabled",
-                    "reports FileVault as off while fdesetup says 'FileVault is On.' - root patching would go ahead "
-                    "with FileVault on"))
-        except Exception as e:
-            errors.append({"case": case, "subject": "FileVault probe", "message": repr(e)[:300]})
-        finally:
-            detect.subprocess.run = real_run
-
-        try:
-            saved = copy.deepcopy(sip_data.system_integrity_protection.csr_values)
-            utilities.py_sip_xnu = SimpleNamespace(SipXnu=lambda: FakeSip(0))
-            configs = sip_data.system_integrity_protection.root_patch_sip_ventura
-            checked += 1
-            if Detection._validation_check_system_integrity_protection_enabled(probe, configs) is not True:
-                problems.append(_problem(case, "_validation_check_system_integrity_protection_enabled",
-                    "reports SIP as lowered on a Mac with SIP fully enabled (csr-active-config 0) - root patching "
-                    "would try to write to the sealed system volume"))
-            sip_data.system_integrity_protection.csr_values.clear()
-            sip_data.system_integrity_protection.csr_values.update(saved)
-        except Exception as e:
-            errors.append({"case": case, "subject": "SIP probe", "message": repr(e)[:300]})
-
-    # ------------------------------------------------------------------------
-    elif case == "detect:gpu-mix":
-        from opencore_legacy_patcher.sys_patch.patchsets.hardware.base import HardwareVariantGraphicsSubclass as Sub
-
-        class FakeGPU:
-            def __init__(self, name, sub):
-                self._name, self._sub = name, sub
-
-            def name(self):
-                return self._name
-
-            def hardware_variant_graphics_subclass(self):
-                return self._sub
-
-        combos = [
-            (os_data.os_data.tahoe, [("Graphics: Intel Sandy Bridge", Sub.NON_METAL_GRAPHICS), ("Graphics: AMD Polaris", Sub.METAL_31001_GRAPHICS)]),
-            (os_data.os_data.tahoe, [("Graphics: Nvidia Tesla", Sub.NON_METAL_GRAPHICS), ("Graphics: Intel Ivy Bridge", Sub.METAL_3802_GRAPHICS)]),
-            (os_data.os_data.ventura, [("Graphics: AMD TeraScale 2", Sub.NON_METAL_GRAPHICS), ("Graphics: Nvidia Kepler", Sub.METAL_3802_GRAPHICS)]),
-            (os_data.os_data.sequoia, [("Graphics: Intel Ivy Bridge", Sub.METAL_3802_GRAPHICS), ("Graphics: AMD Polaris", Sub.METAL_31001_GRAPHICS)]),
-            (os_data.os_data.tahoe, [("Graphics: Nvidia Kepler", Sub.METAL_3802_GRAPHICS), ("Graphics: AMD Vega", Sub.METAL_31001_GRAPHICS)]),
-        ]
-        for xnu, gpus in combos:
-            det = Detection.__new__(Detection)
-            det._xnu_major = xnu
-            det._constants = new_constants(xnu)
-            subject = f"macOS {_macos(xnu)}: " + " + ".join(n for n, _ in gpus)
-            try:
-                result = det._strip_incompatible_hardware([FakeGPU(n, s) for n, s in gpus])
-            except Exception as e:
-                errors.append({"case": case, "subject": subject, "message": f"_strip_incompatible_hardware() raised {e!r}"[:300]})
-                continue
-            checked += 1
-            subs = {g.hardware_variant_graphics_subclass() for g in result}
-            metal = subs & {Sub.METAL_3802_GRAPHICS, Sub.METAL_31001_GRAPHICS}
-            if Sub.NON_METAL_GRAPHICS in subs and metal:
-                problems.append(_problem(case, subject,
-                    "Metal and non-Metal graphics patches would be installed together - WindowServer can't start"))
-            elif xnu >= os_data.os_data.sequoia and metal == {Sub.METAL_3802_GRAPHICS, Sub.METAL_31001_GRAPHICS}:
-                problems.append(_problem(case, subject,
-                    "Metal 3802 and Metal 31001 patches would be installed together on Sequoia or newer"))
-            if not result:
-                problems.append(_problem(case, subject, "every graphics patchset was stripped - no acceleration at all"))
-
+    if case.startswith("flow:"):
+        result = _worker_flow(case)
+    elif case == "static:patchsets":
+        result = _worker_static()
+    elif case == "gate:detect":
+        result = _worker_gate()
     else:
         raise SystemExit(f"unknown case {case}")
 
+    problems, checked, errors = result
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({"case": case, "checked": checked, "problems": problems, "errors": errors}, f)
+
+
+# ---------------------------- flow:* -----------------------------------------
+
+def _worker_flow(case: str):
+    import copy
+    import plistlib
+    import shutil
+    import subprocess as real_subprocess
+
+    from opencore_legacy_patcher import constants
+    from opencore_legacy_patcher.datasets import example_data
+    from opencore_legacy_patcher.support import subprocess_wrapper, utilities
+    from opencore_legacy_patcher.sys_patch import sys_patch as sp_mod
+    from opencore_legacy_patcher.sys_patch import sys_patch_helpers
+    from opencore_legacy_patcher.sys_patch.patchsets import HardwarePatchsetSettings, PatchType
+
+    problems, checked, errors = [], 0, []
+
+    sandbox = Path(tempfile.mkdtemp(prefix="oclp-root-patch-"))
+    sim = CommandSimulator(sandbox)
+
+    # Every process goes to the simulator - through the wrapper and directly.
+    subprocess_wrapper.run = sim.handle
+    subprocess_wrapper.run_as_root = sim.handle
+    real_subprocess.run = sim.handle
+    real_subprocess.Popen = lambda argv, *a, **k: (_ for _ in ()).throw(
+        OSError(f"simulator: Popen not supported ({argv!r})"))
+    try:
+        import importlib
+        copy_mod = importlib.import_module("opencore_legacy_patcher.volume.copy")
+        copy_mod.can_copy_on_write = lambda *a, **k: False
+    except Exception:
+        pass
+    utilities.check_if_root_is_apfs_snapshot = lambda *a, **k: True
+    utilities.get_nvram = lambda *a, **k: None
+
+    class FakeMount:
+        def __init__(self, *a, **k):
+            pass
+
+        def mount(self):
+            sim.note("<mount>")
+            return sp_mod.MOUNT_LOCATION_BASE
+
+        def unmount(self, ignore_errors=True):
+            sim.note("<unmount>")
+            return True
+
+    kdk_mode = {"fail": False}
+
+    class FakeKDKMerge:
+        """KernelDebugKitMerge: returns None when no KDK is needed, raises like the real one on failure."""
+        def __init__(self, global_constants, mount_location, skip_root_kmutil_requirement):
+            self.skip = skip_root_kmutil_requirement
+
+        def merge(self, save_hid_cs=False):
+            if self.skip:
+                return None
+            sim.note("<kdk-merge>")
+            if kdk_mode["fail"]:
+                raise Exception("Failed to merge KDK with Root Volume (simulated)")
+            return "/Library/Developer/KDKs/KDK_simulated.kdk"
+
+    sp_mod.RootVolumeMount = FakeMount
+    sp_mod.KernelDebugKitMerge = FakeKDKMerge
+    sys_patch_helpers.SysPatchHelpers.install_rsr_repair_binary = lambda self, *a, **k: sim.note("<rsr-repair>")
+    sys_patch_helpers.SysPatchHelpers.generate_patchset_plist = lambda self, *a, **k: False
+
+    host = example_data.iMac.iMac201_Stock
+
+    def fresh_tree(xnu):
+        """A minimal system volume, data volume and payload inside the sandbox."""
+        for child in sandbox.iterdir():
+            shutil.rmtree(child, ignore_errors=True)
+        mnt = sandbox / "mnt1"
+        data = sandbox / "data"
+        payload = sandbox / "payload"
+        (mnt / "System/Library/CoreServices").mkdir(parents=True)
+        (mnt / "System/Library/KernelCollections").mkdir(parents=True)
+        (mnt / "System/Library/Frameworks").mkdir(parents=True)
+        (mnt / "System/Library/Extensions/OCLPCheckOld.kext/Contents").mkdir(parents=True)
+        (mnt / "System/Library/Extensions/OCLPCheckOld.kext/Contents/Info.plist").write_bytes(b"")
+        with (mnt / "System/Library/CoreServices/SystemVersion.plist").open("wb") as f:
+            plistlib.dump({"ProductBuildVersion": "SIM1", "ProductVersion": "0.0"}, f)
+        (data / "Library/Extensions").mkdir(parents=True)
+        # The live (booted, sealed) root as seen through the data volume prefix
+        (data / "System/Library/Extensions/OCLPCheckOld.kext/Contents").mkdir(parents=True)
+        (data / "System/Library/Frameworks").mkdir(parents=True)
+        (data / "Library/Application Support").mkdir(parents=True)
+
+        kext = payload / "System/Library/Extensions/OCLPCheck.kext/Contents"
+        kext.mkdir(parents=True)
+        with (kext / "Info.plist").open("wb") as f:
+            plistlib.dump({"CFBundleIdentifier": "com.apple.driver.OCLPCheck",
+                           "OSBundleRequired": "Root"}, f)
+        (kext / "MacOS").mkdir()
+        (kext / "MacOS/OCLPCheck").write_bytes(b"\0" * 16)
+        fw = payload / "System/Library/Frameworks/OCLPCheck.framework/Versions/A"
+        fw.mkdir(parents=True)
+        (fw / "OCLPCheck").write_bytes(b"\0" * 16)
+        return mnt, data, payload
+
+    def patchset(payload):
+        src = str(payload)
+        return {
+            "OCLP Check Patch": {
+                PatchType.OVERWRITE_SYSTEM_VOLUME: {"/System/Library/Extensions": {"OCLPCheck.kext": src}},
+                PatchType.MERGE_SYSTEM_VOLUME:     {"/System/Library/Frameworks": {"OCLPCheck.framework": src}},
+                PatchType.REMOVE_SYSTEM_VOLUME:    {"/System/Library/Extensions": ["OCLPCheckOld.kext"]},
+            }
+        }
+
+    def run(xnu, kdk_required, fail=None, kdk_fail=False, revert=False):
+        """Run the real _patch_root_vol() (or _unpatch_root_vol()) once."""
+        mnt, data, payload = fresh_tree(xnu)
+        sp_mod.MOUNT_LOCATION_BASE = str(mnt)
+        sim.calls = []
+        sim.fail = fail or (lambda argv: 0)
+        sim.readonly = tuple(str(data) + p for p in LIVE_SYSTEM_PREFIXES)
+        kdk_mode["fail"] = kdk_fail
+
+        c = constants.Constants()
+        c.computer = copy.deepcopy(host)
+        c.detected_os = xnu
+        c.detected_os_minor = 0
+        c.detected_os_build = "SIM1"
+        c.detected_os_version = "0.0"
+        c.wxpython_variant = False
+        c.gui_mode = False
+
+        details = {
+            HardwarePatchsetSettings.KERNEL_DEBUG_KIT_REQUIRED:     kdk_required,
+            HardwarePatchsetSettings.KERNEL_DEBUG_KIT_MISSING:      False,
+            HardwarePatchsetSettings.METALLIB_SUPPORT_PKG_REQUIRED: False,
+            HardwarePatchsetSettings.METALLIB_SUPPORT_PKG_MISSING:  False,
+        }
+        patcher = sp_mod.PatchSysVolume("iMac20,1", c, hardware_details=details)
+        if patcher.mount_location != str(mnt):
+            raise RuntimeError(f"PatchSysVolume mounts at {patcher.mount_location!r}, not at "
+                               f"MOUNT_LOCATION_BASE - can't simulate the mounted volume")
+        # The data volume is '/' on a real Mac; relocate it into the sandbox
+        patcher.mount_location_data = str(data)
+        patcher.mount_application_support = f"{data}/Library/Application Support"
+        patcher.patch_set_dictionary = patchset(payload)
+
+        exit_code = None
+        try:
+            if revert:
+                patcher._unpatch_root_vol()
+            else:
+                patcher._patch_root_vol()
+        except SystemExit as e:
+            exit_code = e.code
+        return {
+            "calls": list(sim.calls),
+            "succeeded": bool(getattr(c, "root_patcher_succeeded", False)),
+            "mnt": str(mnt), "data": str(data),
+            "skip_kc": patcher.skip_root_kmutil_requirement,
+            "exit": exit_code,
+        }
+
+    def idx(calls, pred):
+        return [i for i, a in enumerate(calls) if pred(a)]
+
+    def is_tool(a, name):
+        return os.path.basename(a[0]) == name
+
+    def is_seal(a):
+        return is_tool(a, "bless") and "--create-snapshot" in a
+
+    def is_kmutil(a):
+        return is_tool(a, "kmutil")
+
+    def is_sysvol_fileop(a, mnt):
+        return os.path.basename(a[0]) in ("cp", "rm", "rsync", "mv", "ditto", "mkdir") and \
+               any(x.startswith(mnt + "/") for x in a[1:])
+
+    def live_root_writes(calls, sandbox_root, data_root):
+        # On a real Mac the data volume prefix is '' - so anything the patcher
+        # sends to <data>/System, <data>/usr, ... would land on the live root.
+        live_via_data = tuple(data_root + p for p in LIVE_SYSTEM_PREFIXES)
+        bad = []
+        for a in calls:
+            tool = os.path.basename(a[0])
+            paths = []
+            if tool in ("rm", "mkdir", "chmod", "chown", "touch", "ln"):
+                paths = [x for x in a[1:] if x.startswith("/")]
+            elif tool in ("cp", "rsync", "ditto", "mv"):
+                rest = [x for x in a[1:] if not x.startswith("-")]
+                paths = rest[-1:] if tool != "mv" else rest[-2:]
+            elif tool == "kmutil":
+                for flag in ("--volume-root", "--boot-path", "--system-path"):
+                    if flag in a and a.index(flag) + 1 < len(a):
+                        paths.append(a[a.index(flag) + 1])
+            elif tool == "bless":
+                for flag in ("--mount", "--folder"):
+                    if flag in a and a.index(flag) + 1 < len(a):
+                        paths.append(a[a.index(flag) + 1])
+            for p in paths:
+                if p.startswith(live_via_data):
+                    bad.append(" ".join(a)[:200])
+                    break
+                if p.startswith(sandbox_root):
+                    continue
+                if p.startswith(LIVE_ALLOWED_PREFIXES):
+                    continue
+                if p.startswith(LIVE_SYSTEM_PREFIXES) or p == "/":
+                    bad.append(" ".join(a)[:200])
+                    break
+        return bad
+
+    def scenarios_for(case):
+        out = []
+        for xnu, label in FLOW_OSES:
+            modes = [False] if xnu < VENTURA else [True, False]
+            for kdk in modes:
+                subject = f"{label} (Darwin {xnu})" + ("" if xnu < VENTURA else (", KDK" if kdk else ", no KDK"))
+                out.append((xnu, kdk, subject))
+        return out
+
+    sandbox_root = str(sandbox) + os.sep
+
+    for xnu, kdk, subject in scenarios_for(case):
+        try:
+            if case == "flow:success":
+                r = run(xnu, kdk)
+                checked += 1
+                calls, mnt = r["calls"], r["mnt"]
+                seals = idx(calls, is_seal)
+                kcs = idx(calls, is_kmutil)
+                fileops = idx(calls, lambda a: is_sysvol_fileop(a, mnt))
+
+                if xnu >= VENTURA and not kdk:
+                    want, want_desc = (lambda a: "--new" in a and "aux" in a), "the Auxiliary KC (kmutil create --new aux)"
+                else:
+                    want, want_desc = (lambda a: "--volume-root" in a and mnt in a), f"the Boot/System KCs (kmutil --volume-root {mnt})"
+                good_kc = [i for i in kcs if want(calls[i])]
+
+                if not good_kc:
+                    problems.append(_problem(case, subject,
+                        f"Kexts were added to / removed from the system volume, but {want_desc} was never rebuilt - "
+                        f"the snapshot is sealed with Kernel Collections that don't match the patched kexts"
+                        + (" (the AuxKC is skipped whenever no KDK is needed, so the patched kexts never load)"
+                           if xnu >= VENTURA and not kdk else "")))
+                elif fileops and good_kc[-1] < fileops[-1]:
+                    problems.append(_problem(case, subject,
+                        "Files on the system volume were changed after the Kernel Collections were rebuilt - "
+                        "the sealed KCs don't contain the final state"))
+                if not seals:
+                    problems.append(_problem(case, subject,
+                        "Patching finished without sealing a snapshot (bless --create-snapshot never ran) - "
+                        "the patches never become the boot target"))
+                else:
+                    a = calls[seals[-1]]
+                    target = a[a.index("--mount") + 1] if "--mount" in a else (a[a.index("--folder") + 1] if "--folder" in a else "")
+                    if target not in (mnt, f"{mnt}/System/Library/CoreServices"):
+                        problems.append(_problem(case, subject,
+                            f"bless seals '{target}' instead of the mounted, patched volume ({mnt})"))
+                    if good_kc and seals[-1] < good_kc[-1]:
+                        problems.append(_problem(case, subject,
+                            "The snapshot is sealed before the Kernel Collections are rebuilt - "
+                            "it boots with stale KCs"))
+                if not r["succeeded"]:
+                    problems.append(_problem(case, subject,
+                        "A fully successful run doesn't report success (root_patcher_succeeded is False)"))
+
+                bad = live_root_writes(calls, sandbox_root, r["data"])
+                if bad:
+                    problems.append(_problem(case, subject,
+                        f"Writes to the live, sealed root volume instead of the mounted copy "
+                        f"({len(bad)}x, first: {bad[0]}) - this is the Issue #161 class of bug"))
+
+                expected_kext_dir = (Path(r["data"]) / "Library/Extensions") if (xnu >= VENTURA and not kdk) \
+                                    else (Path(mnt) / "System/Library/Extensions")
+                missing = []
+                if not (expected_kext_dir / "OCLPCheck.kext/Contents/Info.plist").exists():
+                    missing.append(f"OCLPCheck.kext in {expected_kext_dir}")
+                if not (Path(mnt) / "System/Library/Frameworks/OCLPCheck.framework/Versions/A/OCLPCheck").exists():
+                    missing.append("merged OCLPCheck.framework")
+                if (Path(mnt) / "System/Library/Extensions/OCLPCheckOld.kext").exists():
+                    missing.append("removal of OCLPCheckOld.kext")
+                if missing:
+                    problems.append(_problem(case, subject,
+                        "Patch files didn't end up on the mounted volume (" + ", ".join(missing) +
+                        ") although the run went on to seal the snapshot"))
+
+            elif case == "flow:kc-failure":
+                r = run(xnu, kdk, fail=lambda a: 1 if is_kmutil(a) else 0)
+                checked += 1
+                if not idx(r["calls"], is_kmutil):
+                    continue  # covered by flow:success (KC never rebuilt)
+                if idx(r["calls"], is_seal):
+                    problems.append(_problem(case, subject,
+                        "kmutil failed, but the snapshot was sealed anyway - the Mac boots into broken "
+                        "Kernel Collections"))
+                if r["succeeded"]:
+                    problems.append(_problem(case, subject, "kmutil failed, but the run reports success"))
+
+            elif case == "flow:kdk-failure":
+                if xnu < VENTURA or not kdk:
+                    continue
+                r = run(xnu, kdk, kdk_fail=True)
+                checked += 1
+                calls = r["calls"]
+                if not idx(calls, lambda a: a[0] == "<kdk-merge>"):
+                    errors.append({"case": case, "subject": subject,
+                                   "message": "the KDK merge was never attempted - scenario not reproduced"})
+                    continue
+                if idx(calls, is_kmutil) or idx(calls, is_seal) or r["succeeded"]:
+                    did = [w for w, hit in (("ran kmutil", idx(calls, is_kmutil)),
+                                            ("sealed the snapshot", idx(calls, is_seal)),
+                                            ("reported success", r["succeeded"])) if hit]
+                    problems.append(_problem(case, subject,
+                        "Merging the Kernel Debug Kit failed, but patching went on and " + ", ".join(did) +
+                        ". On Ventura+ the system volume has no kext binaries without the KDK, so the "
+                        "rebuilt Kernel Collections can miss kexts the Mac needs to boot "
+                        "(_merge_kdk_with_root() swallows the exception)"))
+
+            elif case == "flow:file-failure":
+                for what, pred in (
+                    ("copying OCLPCheck.kext", lambda a: 1 if is_tool(a, "cp") and any(x.endswith("/OCLPCheck.kext") for x in a[1:-1]) else 0),
+                    ("merging OCLPCheck.framework (rsync)", lambda a: 23 if is_tool(a, "rsync") else 0),
+                ):
+                    r = run(xnu, kdk, fail=pred)
+                    checked += 1
+                    hits = [w for w, hit in (("sealed the snapshot", idx(r["calls"], is_seal)),
+                                             ("reported success", r["succeeded"])) if hit]
+                    if hits:
+                        problems.append(_problem(case, f"{subject}: {what}",
+                            f"{what[0].upper() + what[1:]} failed, but the run " + " and ".join(hits) +
+                            " - the Mac boots a snapshot with half-installed patches"))
+
+            elif case == "flow:snapshot-failure":
+                r = run(xnu, kdk, fail=lambda a: 1 if is_seal(a) else 0)
+                checked += 1
+                if not idx(r["calls"], is_seal):
+                    continue  # covered by flow:success
+                if r["succeeded"]:
+                    problems.append(_problem(case, subject,
+                        "bless --create-snapshot failed, but the run reports success - the user is told to reboot "
+                        "into patches that were never sealed"))
+
+            elif case == "flow:revert":
+                r = run(xnu, kdk, revert=True)
+                checked += 1
+                calls, mnt = r["calls"], r["mnt"]
+                reverts = idx(calls, lambda a: is_tool(a, "bless") and "--last-sealed-snapshot" in a)
+                if not reverts:
+                    problems.append(_problem(case, subject,
+                        "Reverting never runs bless --last-sealed-snapshot - the patched snapshot stays the boot target"))
+                else:
+                    a = calls[reverts[0]]
+                    target = a[a.index("--mount") + 1] if "--mount" in a else ""
+                    if target != mnt:
+                        problems.append(_problem(case, subject,
+                            f"Reverting points bless at '{target}' instead of the mounted root volume ({mnt})"))
+                if idx(calls, is_seal):
+                    problems.append(_problem(case, subject, "Reverting seals a new snapshot instead of going back"))
+                bad = live_root_writes(calls, sandbox_root, r["data"])
+                if bad:
+                    problems.append(_problem(case, subject,
+                        f"Reverting writes to the live, sealed root volume ({bad[0]})"))
+
+                # A failed revert must never be reported as done
+                r = run(xnu, kdk, revert=True,
+                        fail=lambda a: 1 if is_tool(a, "bless") and "--last-sealed-snapshot" in a else 0)
+                checked += 1
+                if r["succeeded"]:
+                    problems.append(_problem(case, f"{subject}: bless fails",
+                        "Reverting failed, but the run reports success"))
+        except Exception as e:
+            errors.append({"case": case, "subject": subject, "message": f"{type(e).__name__}: {e}"[:300]})
+
+    shutil.rmtree(sandbox, ignore_errors=True)
+    # Keep messages stable between runs (and between --root and --baseline)
+    for entry in problems + errors:
+        entry["message"] = entry["message"].replace(str(sandbox), "<sandbox>")
+    return problems, checked, errors
+
+
+# ---------------------------- static:patchsets -------------------------------
+
+def _worker_static():
+    import copy
+    import posixpath
+
+    from opencore_legacy_patcher import constants
+    from opencore_legacy_patcher.datasets import example_data
+    from opencore_legacy_patcher.sys_patch.patchsets import detect
+    from opencore_legacy_patcher.sys_patch.patchsets.base import PatchType, DynamicPatchset
+
+    problems, checked, errors = [], 0, []
+    case = "static:patchsets"
+
+    system_types = {PatchType.OVERWRITE_SYSTEM_VOLUME, PatchType.MERGE_SYSTEM_VOLUME, PatchType.REMOVE_SYSTEM_VOLUME}
+    data_types = {PatchType.OVERWRITE_DATA_VOLUME, PatchType.MERGE_DATA_VOLUME, PatchType.REMOVE_DATA_VOLUME}
+    remove_types = {PatchType.REMOVE_SYSTEM_VOLUME, PatchType.REMOVE_DATA_VOLUME}
+    file_types = system_types | data_types
+
+    # Use detect.py's own list of patchsets, so a new one is checked automatically
+    detect.HardwarePatchsetDetection._detect = lambda self: None
+
+    seen = set()
+
+    def report(subject, message):
+        key = (subject, message)
+        if key in seen:
+            return
+        seen.add(key)
+        problems.append(_problem(case, subject, message))
+
+    def bad_name(name):
+        if not isinstance(name, str):
+            return f"is not a string ({type(name).__name__})"
+        if name.strip() != name or not name:
+            return "is empty or has leading/trailing whitespace"
+        if name in (".", "..") or "/" in name:
+            return "is '.', '..' or contains '/'"
+        if any(ch in name for ch in "*?[]"):
+            return "contains a glob character"
+        return None
+
+    def bad_dir(d):
+        if not isinstance(d, str) or not d.startswith("/"):
+            return "is not an absolute path"
+        if d.rstrip("/") == "":
+            return "is the volume root"
+        if ".." in d.split("/"):
+            return "contains '..'"
+        return None
+
+    for xnu in range(20, 26):
+        for minor in (0, 5):
+            c = constants.Constants()
+            c.computer = copy.deepcopy(example_data.iMac.iMac201_Stock)
+            c.detected_os = xnu
+            c.detected_os_minor = minor
+            c.detected_os_build = "SIM1"
+            c.detected_os_version = f"{xnu - 9}.{minor}"
+            try:
+                d = detect.HardwarePatchsetDetection(c, xnu_major=xnu, xnu_minor=minor,
+                                                     os_build="SIM1", os_version=c.detected_os_version,
+                                                     validation=True)
+                variants = list(d._hardware_variants)
+            except Exception as e:
+                errors.append({"case": case, "subject": f"Darwin {xnu}.{minor}",
+                               "message": f"couldn't list patchsets: {type(e).__name__}: {e}"[:300]})
+                continue
+
+            for hw in variants:
+                label = f"{hw.__module__.rsplit('.', 1)[-1]}.{hw.__name__}"
+                try:
+                    item = hw(xnu_major=xnu, xnu_minor=minor, os_build="SIM1", global_constants=c)
+                    patches = item.patches()
+                except Exception as e:
+                    errors.append({"case": case, "subject": f"{label} on Darwin {xnu}.{minor}",
+                                   "message": f"patches() raised {type(e).__name__}: {e}"[:300]})
+                    continue
+                checked += 1
+                if not isinstance(patches, dict):
+                    report(label, f"patches() returns {type(patches).__name__}, not a dict")
+                    continue
+
+                for patch_name, body in patches.items():
+                    subject = f"{label} / {patch_name}"
+                    if not isinstance(body, dict):
+                        report(subject, "patch body is not a dict")
+                        continue
+                    for ptype, entries in body.items():
+                        if ptype == PatchType.EXECUTE or ptype not in file_types:
+                            if ptype not in file_types and ptype != PatchType.EXECUTE:
+                                report(subject, f"unknown patch type '{ptype}' - sys_patch.py silently ignores it")
+                            continue
+                        if not isinstance(entries, dict):
+                            report(subject, f"{ptype}: not a dict of directories")
+                            continue
+                        for directory, files in entries.items():
+                            why = bad_dir(directory)
+                            if why:
+                                report(subject, f"{ptype}: directory {directory!r} {why}")
+                                continue
+                            norm = posixpath.normpath(directory)
+                            if ptype in data_types and (norm == "/System" or norm.startswith("/System/")):
+                                report(subject,
+                                       f"{ptype} targets {directory} - data-volume patches are applied to the live root, "
+                                       f"which is sealed and read-only on Big Sur+, so patching fails half way "
+                                       f"(the Issue #161 class of bug)")
+                            names = list(files) if ptype in remove_types else (list(files) if isinstance(files, dict) else None)
+                            if names is None:
+                                report(subject, f"{ptype}: {directory} is not a dict of file -> source")
+                                continue
+                            for name in names:
+                                why = bad_name(name)
+                                if why:
+                                    report(subject, f"{ptype}: file name {name!r} in {directory} {why} - "
+                                                    f"`rm -R {directory}/{name}` would hit far more than one file")
+                                    continue
+                                if ptype not in remove_types:
+                                    src = files[name]
+                                    if not (isinstance(src, str) and src) and src not in list(DynamicPatchset):
+                                        report(subject, f"{ptype}: {directory}/{name} has no source ({src!r})")
+                                crit = BOOT_CRITICAL.get(norm, False)
+                                if crit is None or (crit and name in crit):
+                                    verb = "removes" if ptype in remove_types else "replaces"
+                                    report(subject,
+                                           f"{verb} {norm}/{name} - the Mac can't boot (or be reverted from macOS) "
+                                           f"without the original")
+
+    return problems, checked, errors
+
+
+# ---------------------------- gate:detect ------------------------------------
+
+def _worker_gate():
+    import copy
+    import plistlib
+    import subprocess as real_subprocess
+    from types import SimpleNamespace
+
+    import py_sip_xnu
+
+    from opencore_legacy_patcher import constants
+    from opencore_legacy_patcher.datasets import example_data, sip_data
+    from opencore_legacy_patcher.support import utilities, global_settings
+    from opencore_legacy_patcher.sys_patch.patchsets import detect
+
+    problems, checked, errors = [], 0, []
+    case = "gate:detect"
+
+    state = {"fv": False, "seal": "Yes", "sip": 0, "nvram": {}}
+
+    def fake_run(argv, *a, **k):
+        argv = [str(x) for x in (argv if isinstance(argv, (list, tuple)) else str(argv).split(" "))]
+        out = b""
+        if argv and argv[0].endswith("fdesetup"):
+            out = b"FileVault is On.\n" if state["fv"] else b"FileVault is Off.\n"
+        elif argv[:2] == ["/usr/sbin/diskutil", "info"]:
+            out = plistlib.dumps({"Sealed": state["seal"], "APFSSnapshot": True})
+        return real_subprocess.CompletedProcess(argv, 0, out, b"")
+
+    real_subprocess.run = fake_run
+    detect.subprocess.run = fake_run
+
+    class FakeSip:
+        def get_sip_status(self):
+            return SimpleNamespace(value=state["sip"])
+
+    py_sip_xnu.SipXnu = FakeSip
+    utilities.get_nvram = lambda name, *a, **k: state["nvram"].get(name)
+    utilities.check_secure_boot_level = lambda *a, **k: False    # covered by the SecureBootModel check
+    utilities.check_kext_loaded = lambda *a, **k: None
+    utilities.find_any_oclp_manifest = lambda *a, **k: None
+    detect.network_handler.NetworkUtilities.verify_network_connection = lambda self, *a, **k: True
+
+    class FakeAmfi:
+        def __init__(self, *a, **k):
+            pass
+
+        def check_config(self, level):
+            return True
+
+    detect.amfi_detect.AmfiConfigurationDetection = FakeAmfi
+
+    class FakeSettings:
+        def __init__(self, *a, **k):
+            pass
+
+        def read_property(self, *a, **k):
+            return None
+
+        def write_property(self, *a, **k):
+            return True
+
+        def delete_property(self, *a, **k):
+            return True
+
+    global_settings.GlobalEnviromentSettings = FakeSettings
+    detect.HardwarePatchsetDetection._is_cached_kernel_debug_kit_present = lambda self: True
+    detect.HardwarePatchsetDetection._is_cached_metallib_support_pkg_present = lambda self: True
+    detect.HardwarePatchsetDetection._dortania_internal_check = lambda self: False
+
+    # A Mac that actually needs root patches on every macOS checked here
+    host = example_data.MacBookPro.MacBookPro111_Stock
+
+    def evaluate(xnu):
+        csr = sip_data.system_integrity_protection.csr_values
+        for k in csr:                          # csr_decode() caches set bits in this global
+            csr[k] = False
+        c = constants.Constants()
+        c.computer = copy.deepcopy(host)
+        c.detected_os = xnu
+        c.detected_os_minor = 0
+        c.detected_os_build = "SIM1"
+        c.detected_os_version = f"{xnu - 9}.0"
+        d = detect.HardwarePatchsetDetection(c, xnu_major=xnu, xnu_minor=0, os_build="SIM1",
+                                             os_version=c.detected_os_version)
+        return d
+
+    def lowered_sip(xnu):
+        from opencore_legacy_patcher.datasets.sip_data import system_integrity_protection as s
+        configs = s.root_patch_sip_ventura if xnu >= 22 else s.root_patch_sip_big_sur
+        value = 0
+        for cfg in configs:
+            if cfg in s.csr_values_extended:
+                value |= s.csr_values_extended[cfg]["value"]
+        return value
+
+    blocked_scenarios = [
+        ("FileVault is on", dict(fv=True),
+         "root patching must not run with FileVault on (the patched system fails to boot)"),
+        ("SIP is enabled", dict(sip=0),
+         "root patching must not run with SIP enabled (mounting/sealing fails half way)"),
+        ("the system volume's seal is broken", dict(seal="Broken"),
+         "patching on top of a broken seal without reverting first stacks changes on an unknown state"),
+    ]
+
+    # MacBookPro11,1 needs root patches (Haswell graphics) from Ventura on
+    for xnu in (22, 23, 25):
+        base = dict(fv=False, seal="Yes", sip=lowered_sip(xnu), nvram={})
+        subject_os = f"Darwin {xnu}"
+        try:
+            state.update(base)
+            control = evaluate(xnu)
+        except Exception as e:
+            errors.append({"case": case, "subject": subject_os,
+                           "message": f"detection raised {type(e).__name__}: {e}"[:300]})
+            continue
+        if not control.can_patch:
+            blockers = [k for k, v in control.device_properties.items() if str(k).startswith("Validation:") and v is True]
+            errors.append({"case": case, "subject": f"{subject_os}: control",
+                           "message": "patching is blocked even with every requirement met - the gate can't be "
+                                      "checked (" + "; ".join(str(b) for b in blockers)[:200] + ")"})
+            continue
+        if not control.patches:
+            errors.append({"case": case, "subject": f"{subject_os}: control",
+                           "message": "the simulated Mac needs no patches here - the gate can't be checked"})
+            continue
+        checked += 1
+
+        for label, change, why in blocked_scenarios:
+            state.update(base)
+            state.update(change)
+            try:
+                d = evaluate(xnu)
+            except Exception as e:
+                errors.append({"case": case, "subject": f"{subject_os}: {label}",
+                               "message": f"detection raised {type(e).__name__}: {e}"[:300]})
+                continue
+            checked += 1
+            if d.can_patch:
+                problems.append(_problem(case, f"{subject_os}: {label}",
+                                         f"detect.py allows root patching although {label} - {why}"))
+
+    for xnu, label in ((19, "macOS 10.15 (no sealed volume support)"), (26, "an unknown, newer macOS")):
+        state.update(dict(fv=False, seal="Yes", sip=lowered_sip(25), nvram={}))
+        try:
+            d = evaluate(xnu)
+        except Exception as e:
+            errors.append({"case": case, "subject": f"Darwin {xnu}",
+                           "message": f"detection raised {type(e).__name__}: {e}"[:300]})
+            continue
+        checked += 1
+        if d.can_patch:
+            problems.append(_problem(case, f"Darwin {xnu}",
+                                     f"detect.py allows root patching on {label} - patches for other releases "
+                                     f"would be installed and sealed"))
+
+    return problems, checked, errors
 
 
 # ----------------------------------------------------------------------------
@@ -790,7 +958,8 @@ def run_tree(root: Path) -> dict:
 
         if data is None:
             tail = (proc.stderr.decode("utf-8", "replace")[-1500:] if proc else "timed out")
-            results["fatal"] = results["fatal"] or f"{case}: the check could not run ({tail.strip().splitlines()[-1] if tail.strip() else 'no output'})"
+            last = tail.strip().splitlines()[-1] if tail.strip() else "no output"
+            results["fatal"] = results["fatal"] or f"{case}: the check could not run ({last})"
             results["cases"][case] = {"checked": 0, "problems": 0, "errors": 1, "seconds": round(time.time() - start)}
             print(f"[{case}] could not run:\n{tail}", file=sys.stderr)
             continue
@@ -808,17 +977,17 @@ def run_tree(root: Path) -> dict:
 
 
 def _key(p):
-    return (p["case"], p["subject"], p["message"].split(" (first seen")[0])
+    return (p["case"], p["subject"], p["message"])
 
 
 def write_summary(path: str, result: dict) -> None:
-    lines = ["## Root patching check", ""]
+    lines = ["## Root patching bootability check", ""]
     if result["fatal"]:
         lines.append(f"❌ The check could not run: `{result['fatal']}`")
     elif result["new"]:
         lines.append(f"❌ {len(result['new'])} problem(s)")
     else:
-        lines.append("✅ No root-patching problem that could leave a Mac unbootable was found.")
+        lines.append("✅ No checked root patching scenario can leave an unbootable system.")
     lines += ["", "| Case | Checked | Problems | Couldn't check |", "|---|---|---|---|"]
     for case, c in result["cases"].items():
         lines.append(f"| `{case}` | {c['checked']} | {c['problems']} | {c['errors']} |")
