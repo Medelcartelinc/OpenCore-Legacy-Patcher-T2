@@ -750,15 +750,18 @@ def mount_dmg(
         return subprocess.CompletedProcess(args=cmd, returncode=process.returncode, stdout=stdout)
 
     logging.info("- Unprivileged hdiutil attach failed, retrying with administrator privileges")
-    # AuthorizationExecuteWithPrivileges() gives the child no stdin we can write to, so
-    # '-stdinpass' would read EOF and fail with "Authentication error". The passphrases
-    # used here are fixed, public constants (see dmg_mount.UNIVERSAL_BINARIES_PASSPHRASE,
-    # reroute_payloads), so passing them on argv exposes nothing.
-    elevated_cmd = [arg for arg in cmd if arg != "-stdinpass"]
+    # AuthorizationExecuteWithPrivileges() gives the child no stdin we can write to.
+    # We used to pass '-passphrase' on the argv, but Apple removed this flag in macOS 15,
+    # causing the elevated hdiutil to fail immediately. Instead, we wrap the command in
+    # a shell and pipe the password to '-stdinpass'.
     if password:
-        elevated_cmd.extend(["-passphrase", password])
-
-    action = elevated_cmd.pop(0)
+        import shlex
+        sh_cmd = f"printf '%s' {shlex.quote(password)} | " + " ".join(shlex.quote(str(arg)) for arg in cmd)
+        elevated_cmd = ["-c", sh_cmd]
+        action = "/bin/sh"
+    else:
+        elevated_cmd = [arg for arg in cmd if arg != "-stdinpass"]
+        action = elevated_cmd.pop(0)
     result = utilities.get_admin_permission(action=action, args=elevated_cmd, reason=admin_password_prompt)
 
     # get_admin_permission() only reports whether authorization/launch succeeded, not
