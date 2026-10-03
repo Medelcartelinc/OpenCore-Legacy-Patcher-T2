@@ -583,7 +583,7 @@ def check_cli_args():
     # "--developer" - the documented usage, and what application_entry.py looks
     # for in sys.argv - made argparse exit(2) and killed the launch.
     parser.add_argument("--developer", nargs="?", const=True, default=None, help="Force True Developer Mode", required=False)
-    parser.add_argument("--disable_auto_update", help="Disable automatic installation of updates (updates are still checked for and offered), equivalent to Settings > \"Turn Off Auto Updates\"", 
+    parser.add_argument("--disable_auto_update", help="Disable automatic installation of updates (updates are still checked for and offered), equivalent to Settings > \"Turn Off Auto Updates\"", action="store_true", required=False)
 
     args = parser.parse_args()
     if not (
