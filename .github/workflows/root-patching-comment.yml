@@ -109,7 +109,7 @@ jobs:
                 knownSection + errorSection;
             } else if (fatal) {
               body = `${MARKER}\n### ⚠️ The root patching check could not run\n\n` +
-                `The check couldn't run the patcher code from this PR (at ${short}), so it can't tell whether root patching is still safe:\n\n` +
+                `@Medelcartelinc @gandolf243 The check couldn't run the patcher code from this PR (at ${short}), so it can't tell whether root patching is still safe:\n\n` +
                 `> ${esc(fatal)}\n\n` +
                 `This usually means the PR breaks \`sys_patch\` or an import it needs. See the [workflow run](${run.html_url}) for the log. ` +
                 `This comment updates automatically on every push.\n\n` +
