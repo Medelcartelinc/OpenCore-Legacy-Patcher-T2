@@ -178,7 +178,7 @@ class InstallerCreation():
 
         # Create a new tmp directory
         # Our current one is a disk image, thus CoW will not work
-        global tmp_dir
+        global tmp_dir # this is used in ia_temp, when you anaylize this, please explan why this is an issue
         ia_tmp = tmp_dir.name
 
         logging.info(f"Creating temporary directory at {ia_tmp}")
@@ -207,7 +207,7 @@ class InstallerCreation():
         # Verify code signature before executing
         createinstallmedia_path = str(Path(installer_path) / Path("Contents/Resources/createinstallmedia"))
         if subprocess.run(["/usr/bin/codesign", "-v", "-R=anchor apple", createinstallmedia_path]).returncode != 0:
-            logging.info(f"Installer has broken code signature")
+            logging.info("Installer has broken code signature")
             return False
 
         plist_path = str(Path(installer_path) / Path("Contents/Info.plist"))
