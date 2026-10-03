@@ -1,0 +1,141 @@
+name: Comment root patching check result
+
+# Posts the result of "Check root patching for boot-breaking problems" on the PR.
+#
+# The check itself runs on `pull_request` with a read-only token because it
+# executes the PR's code. This workflow runs afterwards via
+# workflow_run, from the default branch, with permission to comment - and it
+# never checks out or runs anything from the PR. The artifact it reads was
+# produced by PR code, so everything in it is treated as untrusted data:
+# the PR is looked up through the API (not taken from the artifact), and every
+# string is escaped before it goes into the comment.
+
+on:
+  workflow_run:
+    workflows: ["Check root patching for boot-breaking problems"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  comment:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: root-patching-result
+          path: ${{ runner.temp }}/result
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Comment on the PR
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- root-patching-bot -->';
+            const MAX = 40;
+            const { owner, repo } = context.repo;
+            const run = context.payload.workflow_run;
+            const headSha = run.head_sha, short = headSha.slice(0, 7);
+            const dir = `${process.env.RUNNER_TEMP}/result`;
+
+            // --- Find the PR through the API, never from the artifact ---
+            let number = null;
+            for (const p of run.pull_requests || []) {
+              if (p.head && p.head.sha === headSha) number = p.number;
+            }
+            if (!number && run.head_repository) {
+              const pulls = await github.paginate(github.rest.pulls.list, {
+                owner, repo, state: 'open', per_page: 100,
+                head: `${run.head_repository.owner.login}:${run.head_branch}` });
+              const match = pulls.find(p => p.head.sha === headSha);
+              if (match) number = match.number;
+            }
+            if (!number) { core.info(`No open PR at ${headSha} - nothing to comment on`); return; }
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+            if (pr.state !== 'open' || pr.head.sha !== headSha) {
+              core.info(`PR #${number} has moved on from ${short} - the newer run will comment`);
+              return;
+            }
+
+            // --- Read the result (untrusted data) ---
+            if (fs.existsSync(`${dir}/skipped`)) return;
+            let result = null;
+            try { result = JSON.parse(fs.readFileSync(`${dir}/result.json`, 'utf8')); } catch {}
+            if (!result && run.conclusion === 'success') return;   // nothing ran, nothing to say
+
+            const arr = v => Array.isArray(v) ? v : [];
+            const fatal = !result ? 'no result was produced' : (result.fatal ? String(result.fatal) : null);
+            const problems = result ? arr(result.new) : [];
+            const known = result ? arr(result.known) : [];
+            const errors = result ? arr(result.errors) : [];
+            const esc = s => String(s ?? '').replace(/[|`<>\[\]\\]/g, c => '&#' + c.charCodeAt(0) + ';')
+                                            .replace(/@/g, '@\u200b').replace(/\s+/g, ' ').slice(0, 400);
+            const rows = list => `| Case | Where | Problem |\n|---|---|---|\n` +
+              list.slice(0, MAX).map(p => `| <code>${esc(p.case)}</code> | <code>${esc(p.subject)}</code> | ${esc(p.message)} |`).join('\n') +
+              (list.length > MAX ? `\n\n…and ${list.length - MAX} more - see the [workflow run](${run.html_url}).` : '');
+
+            const knownSection = known.length
+              ? `\n\n<details><summary>ℹ️ Already broken on <code>main</code> - ${known.length} problem(s), not caused by this PR</summary>\n\n` +
+                `These don't fail this check, but they are just as dangerous - fixing them here is welcome.\n\n${rows(known)}\n</details>`
+              : '';
+            const errorSection = errors.length
+              ? `\n\n<details><summary>${errors.length} scenario(s) couldn't be checked</summary>\n\n` +
+                `These scenarios couldn't be reproduced, so they weren't checked at all.\n\n| Case | Where | Error |\n|---|---|---|\n` +
+                errors.slice(0, MAX).map(e => `| <code>${esc(e.case)}</code> | <code>${esc(e.subject)}</code> | ${esc(e.message)} |`).join('\n') +
+                `\n</details>`
+              : '';
+
+            // Only our own comments - anybody can paste the marker into a comment
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.includes(MARKER) && c.user && c.user.type === 'Bot' && c.user.login === 'github-actions[bot]');
+
+            let body;
+            if (!fatal && !problems.length) {
+              if (!existing) return;   // never complained - stay quiet
+              body = `${MARKER}\n### ✅ Root patching check OK\n\n` +
+                `No root-patching problem that could leave a Mac unbootable was found anymore (checked at ${short}). Thanks!\n\n` +
+                `<details><summary>Deutsch</summary>\n\nKein Root-Patching-Problem mehr gefunden, das einen Mac unbootbar machen könnte (geprüft bei ${short}). Danke!\n</details>` +
+                knownSection + errorSection;
+            } else if (fatal) {
+              body = `${MARKER}\n### ⚠️ The root patching check could not run\n\n` +
+                `The check couldn't run the root patcher from this PR (at ${short}), so it can't tell whether root patching could leave a Mac unbootable:\n\n` +
+                `> ${esc(fatal)}\n\n` +
+                `This usually means the PR breaks \`sys_patch\` or an import it needs. See the [workflow run](${run.html_url}) for the log. ` +
+                `This comment updates automatically on every push.\n\n` +
+                `<details><summary>Deutsch</summary>\n\n` +
+                `Der Check konnte den Root Patcher aus diesem PR (bei ${short}) nicht ausführen und kann daher nicht prüfen, ob Root Patching einen Mac unbootbar machen könnte. ` +
+                `Meist bricht der PR \`sys_patch\` oder einen benötigten Import. Details im Workflow-Log. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
+                knownSection + errorSection;
+            } else {
+              body = `${MARKER}\n### 🛑 This PR could leave Macs unbootable after root patching\n\n` +
+                `With this PR (at ${short}), root patching can end up in a state the Mac may not boot from:\n\n${rows(problems)}\n\n` +
+                `**Why this is critical:** root patching edits a copy of the sealed system volume and then blesses a new APFS snapshot of it. ` +
+                `Whatever is in that snapshot is what the Mac boots next - a deleted kernel or core kext, a failed copy that goes unnoticed, ` +
+                `a snapshot created after a step already failed, or a patch written to the live root instead of the mounted copy all end in a Mac that doesn't start. ` +
+                `Every failure before the snapshot has to abort the run, and patchsets may never touch the files listed in \`BOOT_CRITICAL\` ` +
+                `(\`.github/scripts/check_root_patching.py\`).\n\n` +
+                `Only problems introduced by this PR are listed above. This comment updates automatically on every push.\n\n` +
+                `<details><summary>Deutsch</summary>\n\n` +
+                `Mit diesem PR (bei ${short}) kann Root Patching in einem Zustand enden, aus dem der Mac nicht mehr bootet (siehe Tabelle oben).\n\n` +
+                `**Warum das kritisch ist:** Root Patching bearbeitet eine Kopie des versiegelten System-Volumes und erzeugt danach einen neuen APFS-Snapshot davon. ` +
+                `Was in diesem Snapshot steckt, bootet der Mac beim nächsten Start - ein gelöschter Kernel oder Kern-Kext, eine unbemerkt fehlgeschlagene Kopie, ` +
+                `ein Snapshot nach einem bereits fehlgeschlagenen Schritt oder ein Patch auf das laufende statt das gemountete Root-Volume enden alle in einem Mac, der nicht mehr startet. ` +
+                `Jeder Fehler vor dem Snapshot muss den Lauf abbrechen, und Patchsets dürfen die in \`BOOT_CRITICAL\` aufgeführten Dateien nie anfassen.\n\n` +
+                `Aufgeführt sind nur Fehler, die dieser PR neu einführt. Dieser Kommentar aktualisiert sich bei jedem Push automatisch.\n</details>` +
+                knownSection + errorSection;
+            }
+
+            if (body.length > 65000) body = body.slice(0, 64000) + `\n\n…truncated - see the [workflow run](${run.html_url}).`;
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
