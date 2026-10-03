@@ -226,11 +226,8 @@ def configure_ca_certificates() -> None:
 # This also runs before the rich Live spinner starts, so install output and the MacPorts
 # admin password dialog are not drawn over.
 if __name__ == "__main__" and not any(arg in ("-h", "--help") for arg in sys.argv[1:]):
-    _openssl3_prefix = ensure_openssl3(allow_install="--no-install-openssl" not in sys.argv[1:])
-    if _openssl3_prefix is not None:
-        export_openssl3_environment(_openssl3_prefix)
-        verify_python_ssl()
-        configure_ca_certificates()
+    pass
+
 
 
 # Import der internen Module
@@ -398,7 +395,14 @@ def main() -> None:
     # would collide with a release that already has its assets is refused. --ignore-release
     # builds anyway.
     status = f"[0/{TOTAL_STEPS}] Checking the release state"
-    release_guard.ReleaseGuard(ignore_release=args.ignore_release).check()
+    repo_to_check = release_guard.DEFAULT_REPO
+    if args.update_channel:
+        from opencore_legacy_patcher.constants import Constants
+        channel = Constants().update_channels.get(args.update_channel)
+        if channel:
+            repo_to_check = channel["repo"].replace("https://github.com/", "").strip("/")
+            
+    release_guard.ReleaseGuard(repo=repo_to_check, ignore_release=args.ignore_release).check()
 
     try:
         # 1. Assets
