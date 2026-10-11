@@ -20,20 +20,16 @@ Other Macs:
 WiFi:
 - fixes root patching aborting on every Mac that needs WiFi patches (Legacy and Modern Wireless, Monterey and newer): the patcher looked for YBronst's WiFi payloads in `-YB` folders, but PatcherSupportPkg ships them in the regular folders (no release ever contained `-YB` folders), so the preflight check failed with "Failed to find ...-YB..." and no patches at all were installed. The `-YB` suffix is gone; `use_ybronst_wifi` still keeps YBronst's approach of reusing the Sequoia (`-24`) builds on Tahoe, thx @YBronst and @Medelcartelinc
 
-macOS installer USB:
-- after picking a disk in the installer flashing screen, you can now choose to erase only a single partition on it instead of the whole disk. Only that partition is reformatted (`diskutil eraseVolume`, or `apfs deleteContainer` for APFS physical stores); all other partitions stay untouched. Partitions larger than 14 GB are offered (no EFI, Recovery or Microsoft Reserved partitions), and a warning is shown if the disk doesn't use GPT. Erasing the entire disk works as before
-- the disk holding the currently booted macOS (e.g. when booting from an external SSD) is never offered for flashing
-- the AutoPkg install and its integrity check now use the actual target partition instead of always assuming `s2`
+macOS installer creation:
+- when creating a macOS installer, you can now erase only a single partition instead of the whole disk: after picking a disk, choose "Erase Entire Disk" (previous behavior) or "Choose Partition". Only the selected partition is reformatted, all other partitions on the disk stay untouched. APFS partitions are erased as a whole container (every volume inside it is lost, the dialog warns about this). Only partitions larger than 14 GB are listed; EFI, Recovery and Microsoft Reserved partitions are never offered, and you get a warning if the disk doesn't use a GUID partition map
+- the disk macOS is currently booted from is no longer offered for erasing, even if it is an external drive (e.g. when booting Tahoe from an external SSD)
+- disk and partition identifiers are now validated before they are written into the installer script, which runs as root
 
-Security:
-- fixes a local privilege escalation when installing launch services (e.g. the RSRMonitor and auto-patcher daemons): the plists were staged in a user-writable temporary folder and then copied by root into `/Library/LaunchDaemons` without checking what was copied. A process running as the same user could swap the staged plist (or replace it with a symlink) in between, to run arbitrary code as root or disclose root-only files. The plists are now rendered in memory, staged with `O_EXCL|O_NOFOLLOW`, and the installed file is read back and compared; on a mismatch it is removed and the install fails
-- the RSRMonitor plist is no longer written into the app bundle (this broke the code signature and failed on root-owned bundles)
-- symlinked entries in `/Library/Extensions` are no longer added to the RSRMonitor's root `rm -Rfv`
-- when installing OpenCore to disk, the target is now validated before root deletes `EFI/OC` and `System` with `rm -rf`: it must be a FAT/EFI partition at a real mount point (not `/`) where `diskutil` reports exactly that partition. ESPs mounted outside `/Volumes` keep working
-- disk and partition identifiers are validated before they are written into the root-executed `installer.sh` when flashing the installer USB
-
-Other:
-- fixes a crash (`UnboundLocalError`) in recovery mode right after OpenCore was installed successfully; unmount failures are now logged as a warning
+Security and OpenCore installation:
+- hardens installing the launch services for the auto patcher: the files were prepared in a temporary folder the user can write to and then copied by root into /Library/LaunchDaemons without checking what was copied, so another process of the same user could swap them for its own root LaunchDaemon. They are now created in memory, written safely, and checked after installation (a mismatch removes the file and stops the install)
+- the RSRMonitor launch daemon is no longer written into the app itself (this broke the app's code signature and failed on root-owned app bundles), and symlinks in /Library/Extensions are no longer included in its root cleanup
+- before deleting the old EFI/OC and System folders as root when installing OpenCore, the target is now checked to be the selected FAT/EFI partition actually mounted there (custom mount points outside /Volumes still work)
+- fixes OpenCore installation crashing at the end in Recovery mode (UnboundLocalError) even though the install had succeeded; a failed unmount is now only logged as a warning
 
 Not yet verified on real hardware.
 
