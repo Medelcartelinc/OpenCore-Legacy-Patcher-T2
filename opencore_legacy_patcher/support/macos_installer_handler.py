@@ -305,7 +305,13 @@ fi
         list_disks: dict = {}
 
         # Partitions that can never be used as installer target
-        skip_content = ["EFI", "Apple_Boot", "Microsoft Reserved", "Apple_KernelCoreDump"]
+        # They are still listed (greyed out) in the partition picker, with the reason
+        skip_content = {
+            "EFI":                  "EFI partition",
+            "Apple_Boot":           "Recovery partition",
+            "Microsoft Reserved":   "reserved by Windows",
+            "Apple_KernelCoreDump": "reserved by macOS",
+        }
         booted_partitions = self._booted_physical_partitions()
 
         # TODO: AllDisksAndPartitions is not supported in Snow Leopard and older
@@ -325,7 +331,7 @@ fi
                 ungarbafied_output = re.sub(r'(<key>MediaName</key>\s*<string>).*?(</string>)', r'\1\2', diskutil_output).encode()
                 disk_info = plistlib.loads(ungarbafied_output)
             try:
-                all_disks[disk["DeviceIdentifier"]] = {"identifier": disk_info["DeviceNode"], "name": disk_info.get("MediaName", "Disk"), "size": disk_info["TotalSize"], "removable": disk_info["Internal"], "partitions": {}}
+                all_disks[disk["DeviceIdentifier"]] = {"identifier": disk_info["DeviceNode"], "name": disk_info.get("MediaName", "Disk"), "size": disk_info["TotalSize"], "removable": disk_info["Internal"], "partitions": {}, "unavailable_partitions": {}}
             except KeyError:
                 # Avoid crashing with CDs installed
                 continue
@@ -337,17 +343,21 @@ fi
                 identifier = partition.get("DeviceIdentifier", "")
                 if not identifier or identifier in booted_partitions:
                     continue
-                if partition.get("Content", "") in skip_content:
-                    continue
-                # Same 14GB minimum as for whole disks
-                if partition.get("Size", 0) <= 15032385536:
-                    continue
-                all_disks[disk["DeviceIdentifier"]]["partitions"][identifier] = {
+                entry = {
                     "identifier": identifier,
                     "name":       partition.get("VolumeName", "") or ("APFS Container" if partition.get("Content", "") == "Apple_APFS" else "Untitled"),
                     "content":    partition.get("Content", ""),
                     "size":       partition.get("Size", 0),
                 }
+                if partition.get("Content", "") in skip_content:
+                    entry["reason"] = skip_content[partition.get("Content", "")]
+                # Same 14GB minimum as for whole disks
+                elif partition.get("Size", 0) <= 15032385536:
+                    entry["reason"] = "too small, needs at least 14 GB"
+                if "reason" in entry:
+                    all_disks[disk["DeviceIdentifier"]]["unavailable_partitions"][identifier] = entry
+                    continue
+                all_disks[disk["DeviceIdentifier"]]["partitions"][identifier] = entry
 
         for disk in all_disks:
             # Strip disks that are under 14GB (15,032,385,536 bytes)
@@ -369,6 +379,7 @@ fi
                     "size": all_disks[disk]["size"],
                     "scheme": all_disks[disk]["scheme"],
                     "partitions": all_disks[disk]["partitions"],
+                    "unavailable_partitions": all_disks[disk]["unavailable_partitions"],
                 }
             })
 
