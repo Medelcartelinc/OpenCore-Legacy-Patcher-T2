@@ -5,7 +5,6 @@ defaults.py: Generate default data for host/target
 import logging
 import os
 import plistlib
-import subprocess
 
 from pathlib import Path
 
