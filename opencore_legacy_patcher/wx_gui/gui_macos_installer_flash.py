@@ -165,7 +165,7 @@ class macOSInstallerFlashFrame(wx.Frame):
 
         # Fetch local disks
         def _fetch_disks():
-            self.available_disks = macos_installer_handler.InstallerCreation().list_disk_to_format()
+            self.available_disks = macos_installer_handler.InstallerCreation().list_disk_to_format(installer['OS'])
 
             # Need to clean up output on pre-Sierra
             # Disk images are mixed in with regular disks (ex. payloads.dmg)

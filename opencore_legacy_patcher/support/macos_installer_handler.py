@@ -26,6 +26,23 @@ from ..volume import (
 
 APPLICATION_SEARCH_PATH:  str = "/Applications"
 
+# Minimum size of the target disk/partition for createinstallmedia
+# createinstallmedia isn't great at detecting if a disk has enough space
+MIN_INSTALLER_SIZE:       int = 15032385536   # 14 GB (14 GiB)
+MIN_INSTALLER_SIZE_TAHOE: int = 20000000000   # 20 GB (as shown in Finder/Disk Utility), macOS 26 Tahoe and newer
+
+
+def min_installer_size(installer_os: int) -> tuple:
+    """
+    Minimum target size for an installer of the given macOS (kernel major)
+
+    Returns:
+        tuple: (size in bytes, label for the UI)
+    """
+    if installer_os >= os_data.os_data.tahoe:
+        return MIN_INSTALLER_SIZE_TAHOE, "20 GB"
+    return MIN_INSTALLER_SIZE, "14 GB"
+
 tmp_dir = tempfile.TemporaryDirectory()
 
 
@@ -287,11 +304,11 @@ fi
         return partitions
 
 
-    def list_disk_to_format(self) -> dict:
+    def list_disk_to_format(self, installer_os: int = 0) -> dict:
         """
         List applicable disks for macOS installer creation
         Only lists disks that are:
-        - 14GB or larger
+        - 14GB or larger (20GB or larger for macOS 26 Tahoe and newer)
         - External
 
         Current limitations:
@@ -303,6 +320,8 @@ fi
 
         all_disks:  dict = {}
         list_disks: dict = {}
+
+        min_size, min_size_label = min_installer_size(installer_os)
 
         # Partitions that can never be used as installer target
         # They are still listed (greyed out) in the partition picker, with the reason
@@ -351,18 +370,18 @@ fi
                 }
                 if partition.get("Content", "") in skip_content:
                     entry["reason"] = skip_content[partition.get("Content", "")]
-                # Same 14GB minimum as for whole disks
-                elif partition.get("Size", 0) <= 15032385536:
-                    entry["reason"] = "too small, needs at least 14 GB"
+                # Same minimum as for whole disks
+                elif partition.get("Size", 0) < min_size:
+                    entry["reason"] = f"too small, needs at least {min_size_label}"
                 if "reason" in entry:
                     all_disks[disk["DeviceIdentifier"]]["unavailable_partitions"][identifier] = entry
                     continue
                 all_disks[disk["DeviceIdentifier"]]["partitions"][identifier] = entry
 
         for disk in all_disks:
-            # Strip disks that are under 14GB (15,032,385,536 bytes)
+            # Strip disks that are under the minimum size (14GB, 20GB for Tahoe and newer)
             # createinstallmedia isn't great at detecting if a disk has enough space
-            if not any(all_disks[disk]['size'] > 15032385536 for partition in all_disks[disk]):
+            if not any(all_disks[disk]['size'] >= min_size for partition in all_disks[disk]):
                 continue
             # Strip internal disks as well (avoid user formatting their SSD/HDD)
             # Ensure user doesn't format their boot drive
