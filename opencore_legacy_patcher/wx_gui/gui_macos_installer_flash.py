@@ -264,14 +264,8 @@ class macOSInstallerFlashFrame(wx.Frame):
         # Build labels first so buttons and dialog can be sized to the longest one,
         # partition labels (name + type + size) don't fit into the fixed 300px used for disks.
         # Sort by slice number so the list matches the on-disk order (disk3s2, disk3s3, ...)
-        # Partitions that can't be used (EFI, Recovery, too small, ...) are shown greyed out with the reason
-        all_partitions = {**disk.get("unavailable_partitions", {}), **disk["partitions"]}
-        partitions = sorted(all_partitions.items(), key=lambda item: int(item[0].rsplit("s", 1)[1]))
-        labels = {}
-        for identifier, partition in partitions:
-            labels[identifier] = f"{identifier}: {partition['name']} ({partition['content']}) - {utilities.human_fmt(partition['size'])}"
-            if "reason" in partition:
-                labels[identifier] += f" - {partition['reason']}"
+        partitions = sorted(disk["partitions"].items(), key=lambda item: int(item[0].rsplit("s", 1)[1]))
+        labels = {identifier: f"{identifier}: {partition['name']} ({partition['content']}) - {utilities.human_fmt(partition['size'])}" for identifier, partition in partitions}
         button_width = max([300] + [self.frame_modal.GetTextExtent(label)[0] + 40 for label in labels.values()])
         self.frame_modal.SetSize((button_width + 50, 200))
 
@@ -291,10 +285,7 @@ class macOSInstallerFlashFrame(wx.Frame):
             label = labels[identifier]
             logging.info(f" - {label}")
             partition_button = wx.Button(self.frame_modal, label=label, pos=(-1, warning_label.GetPosition()[1] + warning_label.GetSize()[1] + spacer), size=(button_width, 30))
-            if "reason" in partition:
-                partition_button.Disable()
-            else:
-                partition_button.Bind(wx.EVT_BUTTON, lambda event, temp=identifier: self.on_select_partition(disk, disk["partitions"][temp], installer))
+            partition_button.Bind(wx.EVT_BUTTON, lambda event, temp=identifier: self.on_select_partition(disk, disk["partitions"][temp], installer))
             partition_button.Centre(wx.HORIZONTAL)
             spacer += 25
 

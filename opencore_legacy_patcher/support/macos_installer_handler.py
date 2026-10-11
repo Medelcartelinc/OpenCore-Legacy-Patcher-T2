@@ -321,16 +321,11 @@ fi
         all_disks:  dict = {}
         list_disks: dict = {}
 
-        min_size, min_size_label = min_installer_size(installer_os)
+        min_size, _ = min_installer_size(installer_os)
 
-        # Partitions that can never be used as installer target
-        # They are still listed (greyed out) in the partition picker, with the reason.
-        # The EFI partition is not listed at all: it's where OpenCore goes, never the macOS installer
-        skip_content = {
-            "Apple_Boot":           "Recovery partition",
-            "Microsoft Reserved":   "reserved by Windows",
-            "Apple_KernelCoreDump": "reserved by macOS",
-        }
+        # Partitions that can never be used as installer target, they are not listed at all
+        # (EFI is where OpenCore goes, never the macOS installer)
+        skip_content = ["EFI", "Apple_Boot", "Microsoft Reserved", "Apple_KernelCoreDump"]
         booted_partitions = self._booted_physical_partitions()
 
         # TODO: AllDisksAndPartitions is not supported in Snow Leopard and older
@@ -350,7 +345,7 @@ fi
                 ungarbafied_output = re.sub(r'(<key>MediaName</key>\s*<string>).*?(</string>)', r'\1\2', diskutil_output).encode()
                 disk_info = plistlib.loads(ungarbafied_output)
             try:
-                all_disks[disk["DeviceIdentifier"]] = {"identifier": disk_info["DeviceNode"], "name": disk_info.get("MediaName", "Disk"), "size": disk_info["TotalSize"], "removable": disk_info["Internal"], "partitions": {}, "unavailable_partitions": {}}
+                all_disks[disk["DeviceIdentifier"]] = {"identifier": disk_info["DeviceNode"], "name": disk_info.get("MediaName", "Disk"), "size": disk_info["TotalSize"], "removable": disk_info["Internal"], "partitions": {}}
             except KeyError:
                 # Avoid crashing with CDs installed
                 continue
@@ -362,8 +357,6 @@ fi
                 identifier = partition.get("DeviceIdentifier", "")
                 if not identifier or identifier in booted_partitions:
                     continue
-                if partition.get("Content", "") == "EFI":
-                    continue
                 entry = {
                     "identifier": identifier,
                     "name":       partition.get("VolumeName", "") or ("APFS Container" if partition.get("Content", "") == "Apple_APFS" else "Untitled"),
@@ -371,12 +364,9 @@ fi
                     "size":       partition.get("Size", 0),
                 }
                 if partition.get("Content", "") in skip_content:
-                    entry["reason"] = skip_content[partition.get("Content", "")]
+                    continue
                 # Same minimum as for whole disks
-                elif partition.get("Size", 0) < min_size:
-                    entry["reason"] = f"too small, needs at least {min_size_label}"
-                if "reason" in entry:
-                    all_disks[disk["DeviceIdentifier"]]["unavailable_partitions"][identifier] = entry
+                if partition.get("Size", 0) < min_size:
                     continue
                 all_disks[disk["DeviceIdentifier"]]["partitions"][identifier] = entry
 
@@ -400,7 +390,6 @@ fi
                     "size": all_disks[disk]["size"],
                     "scheme": all_disks[disk]["scheme"],
                     "partitions": all_disks[disk]["partitions"],
-                    "unavailable_partitions": all_disks[disk]["unavailable_partitions"],
                 }
             })
 
