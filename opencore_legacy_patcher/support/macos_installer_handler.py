@@ -324,9 +324,9 @@ fi
         min_size, min_size_label = min_installer_size(installer_os)
 
         # Partitions that can never be used as installer target
-        # They are still listed (greyed out) in the partition picker, with the reason
+        # They are still listed (greyed out) in the partition picker, with the reason.
+        # The EFI partition is not listed at all: it's where OpenCore goes, never the macOS installer
         skip_content = {
-            "EFI":                  "EFI partition",
             "Apple_Boot":           "Recovery partition",
             "Microsoft Reserved":   "reserved by Windows",
             "Apple_KernelCoreDump": "reserved by macOS",
@@ -361,6 +361,8 @@ fi
             for partition in disk.get("Partitions", []):
                 identifier = partition.get("DeviceIdentifier", "")
                 if not identifier or identifier in booted_partitions:
+                    continue
+                if partition.get("Content", "") == "EFI":
                     continue
                 entry = {
                     "identifier": identifier,
