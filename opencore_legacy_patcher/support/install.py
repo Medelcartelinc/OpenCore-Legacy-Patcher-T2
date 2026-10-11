@@ -3,6 +3,7 @@ install.py: Installation of OpenCore files to ESP
 """
 
 import logging
+import os
 import plistlib
 import subprocess
 import re
@@ -145,9 +146,19 @@ class tui_disk_installation:
             logging.error("The EFI couldn't be mounted because the directory doesn't exist.")
             return False
 
-        # Nur unterhalb von /Volumes arbeiten (nie "/" oder ein Symlink-Ziel woanders)
-        if mount_path.resolve().parent != Path("/Volumes"):
+        # Der Mountpunkt darf beliebig liegen (die ESP muss nicht unter /Volumes/EFI gemountet
+        # sein, z. B. bei eigenem Mountpunkt oder bereits anderweitig gemounteter ESP). Statt eines
+        # festen Pfads wird geprüft, dass der Pfad wirklich ein Mountpunkt ist und genau DIESE
+        # Partition dort gemountet ist - sonst würde "rm -rf" auf einem fremden Dateisystem landen.
+        if not mount_path.is_absolute() or mount_path.resolve() == Path("/") or not os.path.ismount(mount_path):
             logging.error(f"Refusing to install OpenCore to unexpected mount point: {mount_path}")
+            return False
+        try:
+            mounted_info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", str(mount_path)], stdout=subprocess.PIPE).stdout)
+        except Exception:
+            mounted_info = {}
+        if mounted_info.get("DeviceIdentifier") != partition_info.get("DeviceIdentifier"):
+            logging.error(f"Refusing to install OpenCore: {mount_path} does not belong to {full_disk_identifier}.")
             return False
 
         # Start der Dateioperationen
