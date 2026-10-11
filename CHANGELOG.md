@@ -35,8 +35,6 @@ Security and OpenCore installation:
   Impact: data loss, not an attack. If a wrong partition was passed in, root deleted `EFI/OC`, `System` and `boot.efi` on that drive. If the EFI reported no mount point, the paths were taken relative to the app's working directory, which is `/` when the app is opened from Finder, so root ran `rm -rf` on `/System`. With SIP's filesystem protection disabled (common after root patching), this could reach user data through `/System/Volumes/Data`
 - fixes OpenCore installation crashing at the end in Recovery mode (UnboundLocalError) even though the install had succeeded; a failed unmount is now only logged as a warning. Impact: not a security issue; the crash made a successful install look like it had failed
 
-Not yet verified on real hardware.
-
 ## 4.0.0.190009.3 - 4.0.0 alpha 19.9.3
 This release:
 - adds an end-of-life warning: if the main project repository (albert-mueller/OpenCore-Legacy-Patcher-T2) is archived or deleted, the main menu shows a warning on launch and a "Download OpenCore Legacy Patcher from Dortania" button that opens Dortania's latest release. The check runs once per launch in the background; a missing internet connection or a GitHub rate limit never triggers it, and a renamed repository still counts as active
