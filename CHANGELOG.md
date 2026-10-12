@@ -6,6 +6,7 @@ T2 Macs:
   - the default bridge-model is now `J214kAP` (and `hw.target` reports the same), matching the default board-id `Mac-5F9802EFE386AA28` (both MacBookPro16,2)
   - no new boot-args are needed: OCLP keeps adding `-spoofvmmbid` on unsupported T2 Macs only
 - this is an alpha build of SpoofVMM and only a Release build exists, so the Release build is also used when kext debugging is enabled
+- removes the RestrictEvents boot-args `-revbeta` and `revpatch=sbvmm` from T2 configs (also when left over from a template or older build). RestrictEvents is not injected on T2 Macs, so they had no effect; SpoofVMM handles the VMM spoof
 - this is not yet tested on real hardware. Please report whether Stage 2 of the Tahoe installer gets past "Failed to install a software update" (attach `/var/log/install.log`)
 
 ## 4.0.0.190009.5 - 4.0.0 alpha 19.9.5

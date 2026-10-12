@@ -220,10 +220,17 @@ class BuildOpenCore:
                 raw_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].get("boot-args", "")
                 # Also drop dart=0: it is only meant for pre-T2 targets and must not
                 # survive into a T2 config via the template or a previous build.
-                scrubbed_args = " ".join([arg for arg in raw_args.split() if not arg.startswith("-lilu") and arg != "dart=0"])
+                # RestrictEvents args (-revbeta, revpatch=, revblock=) are dropped too:
+                # RestrictEvents is not injected on T2 Macs, SpoofVMM does the VMM spoof.
+                scrubbed_args = " ".join([
+                    arg for arg in raw_args.split()
+                    if not arg.startswith("-lilu")
+                    and arg not in ["dart=0", "-revbeta"]
+                    and not arg.startswith(("revpatch=", "revblock="))
+                ])
 
                 # Append required T2 args safely without compounding spaces
-                t2_args = "-ibtcompatbeta -revbeta revpatch=sbvmm"
+                t2_args = "-ibtcompatbeta"
                 self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = f"{scrubbed_args} {t2_args}".strip()
 
                 # RestrictEvents.kext is intentionally NOT injected on T2 Macs; they will use a
