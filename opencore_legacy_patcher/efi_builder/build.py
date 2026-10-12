@@ -115,6 +115,11 @@ class BuildOpenCore:
         utilities.cls()
         logging.info(f"Building Configuration {'for external' if self.constants.custom_model else 'on model'}: {self.model}")
 
+        # Determine T2 status upfront: it also selects the OpenCore payload
+        # (T2 fork for T2 Macs, OpenCore 1.0.8 for all other Macs) in _generate_base()
+        is_t2 = self.model in model_array.T2Macs or "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
+        self.constants.opencore_build_for_t2 = is_t2
+
         self._generate_base()
         self._set_revision()
 
@@ -127,9 +132,6 @@ class BuildOpenCore:
         if self.model in _T2_UHD630_MODELS:
             logging.info(f"- Disabling VMM CPUID for {self.model} to prevent UHD 630 driver stall")
             self.constants.set_vmm_cpuid = False
-
-        # Determine T2 status upfront
-        is_t2 = self.model in model_array.T2Macs or "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
 
         if is_t2:
             try:
@@ -337,6 +339,9 @@ class BuildOpenCore:
             except TypeError:
                 shutil.rmtree(staging_folder, ignore_errors=True)
 
+        if not Path(self.constants.opencore_zip_source).exists():
+            raise FileNotFoundError(f"OpenCore payload missing: {self.constants.opencore_zip_source}")
+        logging.info(f"- Using OpenCore payload {self.constants.opencore_zip_name} ({'T2' if self.constants.opencore_build_for_t2 else 'non-T2'} target)")
         shutil.copy(self.constants.opencore_zip_source, self.constants.build_path)
         zipfile.ZipFile(self.constants.opencore_zip_copied).extractall(self.constants.build_path)
 

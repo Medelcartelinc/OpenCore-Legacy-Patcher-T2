@@ -69,8 +69,16 @@ class Constants:
         self.installer_pkg_url:               str = f"{self.repo_link.rstrip('/')}/releases/download/{self.patcher_version}/AutoPkg-Assets-T2.pkg"
 
         # OpenCore Versioning
+        # T2 Macs use our own OpenCorePkg fork with T2 support:
         # https://github.com/albert-mueller/OpenCorePkg-add-T2-support
-        self.opencore_version: str = "2.0.4" #T2
+        #   payloads/OpenCore/OpenCore-{DEBUG,RELEASE}.zip
+        # Non-T2 Macs use OpenCore 1.0.8:
+        #   payloads/OpenCore/OpenCore-NON-T2-{DEBUG,RELEASE}.zip
+        # Which one is used is decided per build by the EFI builder (opencore_build_for_t2),
+        # opencore_version / opencore_zip_source / opencore_zip_copied follow it.
+        self.opencore_version_t2:     str  = "2.0.4" #T2
+        self.opencore_version_non_t2: str  = "1.0.8" #Non-T2
+        self.opencore_build_for_t2:   bool = True    # Set by efi_builder/build.py for the target model
 
 
         # Kext Versioning
@@ -352,8 +360,26 @@ class Constants:
 
     # OpenCore
     @property
+    def opencore_version(self) -> str:
+        """
+        OpenCore version of the payload used for the current build:
+        our T2 fork for T2 Macs, OpenCore 1.0.8 for every other Mac
+        """
+        return self.opencore_version_t2 if self.opencore_build_for_t2 is True else self.opencore_version_non_t2
+
+    @property
+    def opencore_zip_name(self) -> str:
+        """
+        OpenCore-{DEBUG,RELEASE}.zip for T2 Macs, OpenCore-NON-T2-{DEBUG,RELEASE}.zip otherwise
+        """
+        variant = "DEBUG" if self.opencore_debug is True else "RELEASE"
+        if self.opencore_build_for_t2 is not True:
+            variant = f"NON-T2-{variant}"
+        return f"OpenCore-{variant}.zip"
+
+    @property
     def opencore_zip_source(self):
-        return self.payload_path / Path(f"OpenCore/OpenCore-{'DEBUG' if self.opencore_debug is True else 'RELEASE'}.zip")
+        return self.payload_path / Path("OpenCore") / Path(self.opencore_zip_name)
 
     @property
     def plist_template(self):
@@ -764,7 +790,7 @@ class Constants:
 
     @property
     def opencore_zip_copied(self):
-        return self.build_path / Path(f"OpenCore-{'DEBUG' if self.opencore_debug is True else 'RELEASE'}.zip")
+        return self.build_path / Path(self.opencore_zip_name)
 
     @property
     def oc_folder(self):
