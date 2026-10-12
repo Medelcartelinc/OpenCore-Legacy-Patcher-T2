@@ -9,6 +9,9 @@ T2 Macs:
 - removes the RestrictEvents boot-args `-revbeta` and `revpatch=sbvmm` from T2 configs (also when left over from a template or older build). RestrictEvents is not injected on T2 Macs, so they had no effect; SpoofVMM handles the VMM spoof
 - this is not yet tested on real hardware. Please report whether Stage 2 of the Tahoe installer gets past "Failed to install a software update" (attach `/var/log/install.log`)
 
+Non-T2 Macs:
+- fixes MacBookPro11,1, 11,2 and 11,3 (2013/2014 Haswell) freezing at the Apple logo on macOS 15 Sequoia and macOS 26 Tahoe (#218). Since alpha 18 these models got the `ProvideCurrentCpuInfo` kernel quirk, which on Intel CPUs patches the core count to the thread count (meant for Alder Lake and other asymmetrical CPUs) and gave the kernel a wrong CPU topology. It is now only used on MacBookAir8,1 and 8,2 again. Rebuild and reinstall OpenCore to pick up the fix
+
 ## 4.0.0.190009.5 - 4.0.0 alpha 19.9.5
 OpenCore:
 - non-T2 Macs now get OpenCore 1.0.8 (`payloads/OpenCore/OpenCore-NON-T2-{DEBUG,RELEASE}.zip`) instead of the T2 OpenCorePkg fork. T2 Macs keep using the T2 fork (`OpenCore-{DEBUG,RELEASE}.zip`, 2.0.4). The payload is picked per build target, so building on a T2 Mac for a non-T2 Mac (and the other way round) uses the right one; the build log and `#Revision > OpenCore-Version` in config.plist show which version was used. The fork was never designed for non-T2 Macs and would cause issues if used on a non-T2 system, including stalls and kernel panics.
