@@ -1,4 +1,13 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190009.6 - 4.0.0 alpha 19.9.6
+T2 Macs:
+- updates SpoofVMM from 4.9.1 to 4.9.6-alpha2 (`payloads/Kexts/T2/SpoofVMM-4.9.6-alpha2-Release.zip`), thx @Medelcartelinc:
+  - in-kernel Stage 2 installer bypass: patches `-[... runReturningError:]` of `OSIUpdateFirmwareElement`, `OSIVerifyROMElement`, `OSIInstallPersonalizedManifestsElement`, `OSIMSUInstallElement` and `OSIMSUCleanupElement` to return success, so the installer no longer stops at the BridgeOS firmware step on T2 Macs Apple dropped from macOS 26 Tahoe. It is on by default; `-spoofvmmnobypass`, `-spoofvmmnostage2` and `-spoofvmmnocs` turn it off for testing
+  - the default bridge-model is now `J214kAP` (and `hw.target` reports the same), matching the default board-id `Mac-5F9802EFE386AA28` (both MacBookPro16,2)
+  - no new boot-args are needed: OCLP keeps adding `-spoofvmmbid` on unsupported T2 Macs only
+- this is an alpha build of SpoofVMM and only a Release build exists, so the Release build is also used when kext debugging is enabled
+- this is not yet tested on real hardware. Please report whether Stage 2 of the Tahoe installer gets past "Failed to install a software update" (attach `/var/log/install.log`)
+
 ## 4.0.0.190009.5 - 4.0.0 alpha 19.9.5
 OpenCore:
 - non-T2 Macs now get OpenCore 1.0.8 (`payloads/OpenCore/OpenCore-NON-T2-{DEBUG,RELEASE}.zip`) instead of the T2 OpenCorePkg fork. T2 Macs keep using the T2 fork (`OpenCore-{DEBUG,RELEASE}.zip`, 2.0.4). The payload is picked per build target, so building on a T2 Mac for a non-T2 Mac (and the other way round) uses the right one; the build log and `#Revision > OpenCore-Version` in config.plist show which version was used. The fork was never designed for non-T2 Macs and would cause issues if used on a non-T2 system, including stalls and kernel panics.
