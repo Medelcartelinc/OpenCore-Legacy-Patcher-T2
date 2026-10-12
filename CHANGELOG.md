@@ -1,7 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
-## Unreleased
+## 4.0.0.190009.5 - 4.0.0 alpha 19.9.5
 OpenCore:
-- non-T2 Macs now get OpenCore 1.0.8 (`payloads/OpenCore/OpenCore-NON-T2-{DEBUG,RELEASE}.zip`) instead of the T2 OpenCorePkg fork. T2 Macs keep using the T2 fork (`OpenCore-{DEBUG,RELEASE}.zip`, 2.0.4). The payload is picked per build target, so building on a T2 Mac for a non-T2 Mac (and the other way round) uses the right one; the build log and `#Revision > OpenCore-Version` in config.plist show which version was used
+- non-T2 Macs now get OpenCore 1.0.8 (`payloads/OpenCore/OpenCore-NON-T2-{DEBUG,RELEASE}.zip`) instead of the T2 OpenCorePkg fork. T2 Macs keep using the T2 fork (`OpenCore-{DEBUG,RELEASE}.zip`, 2.0.4). The payload is picked per build target, so building on a T2 Mac for a non-T2 Mac (and the other way round) uses the right one; the build log and `#Revision > OpenCore-Version` in config.plist show which version was used. The fork was never designed for non-T2 Macs and would cause issues if used on a non-T2 system, including stalls and kernel panics.
 
 ## 4.0.0.190009.4 - 4.0.0 alpha 19.9.4
 This release fixes root patching problems introduced or left over while porting Dortania's macOS 26 Tahoe patching scheme:
