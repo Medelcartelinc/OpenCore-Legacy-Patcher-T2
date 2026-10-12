@@ -7,6 +7,7 @@ T2 Macs:
   - no new boot-args are needed: OCLP keeps adding `-spoofvmmbid` on unsupported T2 Macs only
 - this is an alpha build of SpoofVMM and only a Release build exists, so the Release build is also used when kext debugging is enabled
 - removes the RestrictEvents boot-args `-revbeta` and `revpatch=sbvmm` from T2 configs (also when left over from a template or older build). RestrictEvents is not injected on T2 Macs, so they had no effect; SpoofVMM handles the VMM spoof
+- SpoofVMM is now only taken from the bundled release: the build no longer falls back to another SpoofVMM zip or to an old, previously extracted `SpoofVMM.kext` (possible when running from source), checks that the added kext really is 4.9.6, and stops with an error if the payload is missing. The second SpoofVMM injection in the T2 handling (logged as "3.0.0") uses the same path now
 - this is not yet tested on real hardware. Please report whether Stage 2 of the Tahoe installer gets past "Failed to install a software update" (attach `/var/log/install.log`)
 
 ## 4.0.0.190009.5 - 4.0.0 alpha 19.9.5

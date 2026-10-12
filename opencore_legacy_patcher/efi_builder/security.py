@@ -338,9 +338,7 @@ class BuildSecurity:
 
                 if self.is_tahoe_target:
                     logging.info("- Injecting SpoofVMM for macOS Tahoe bypass on T2")
-                    support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                        "SpoofVMM.kext", self.constants.spoofvmm_version, self.constants.spoofvmm_path
-                    )
+                    support.BuildSupport(self.model, self.constants, self.config).enable_spoofvmm()
 
                     # SpoofVMM >= 4.9.1: the board-id swap is opt-in via -spoofvmmbid.
                     # Without it, MobileSoftwareUpdate (MSU) on T2 Macs that Apple dropped

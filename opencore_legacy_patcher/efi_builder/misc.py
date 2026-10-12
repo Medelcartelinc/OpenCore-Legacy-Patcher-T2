@@ -535,13 +535,19 @@ class BuildMiscellaneous:
             for kext, ver, path in [
                 ("WhateverGreen.kext", self.constants.whatevergreen_version, self.constants.whatevergreen_path),
                 ("CryptexFixup.kext", "1.0.5", self.constants.kexts_path),
-                ("SpoofVMM.kext", "3.0.0", self.constants.kexts_path),
                 # ("AMFIPass.kext", "1.4.1", self.constants.kexts_path) # Temporarily disabled for testing AMFI stall
             ]:
                 obj = builder.get_kext_by_bundle_path(kext)
                 if not obj or obj.get("Enabled") is not True:
                     logging.info(f"- Enabling {kext}")
                     builder.enable_kext(kext, ver, path)
+
+            # SpoofVMM only ever comes from the bundled release (constants.spoofvmm_path),
+            # never from an older zip or a stale extracted kext.
+            spoofvmm = builder.get_kext_by_bundle_path("SpoofVMM.kext")
+            if not spoofvmm or spoofvmm.get("Enabled") is not True:
+                logging.info("- Enabling SpoofVMM.kext")
+                builder.enable_spoofvmm()
 
             # Handle explicit performance/timeout panics on specific MacBook lines
             # Der Grund warum MinKernel auf 24.0.0 (Sequoias Version von Darwin) stattdessen von 25.x.x eingestellt ist, ist es die Installationsprogramm läuft auf Darwin 24 noch, auch die von 26 Tahoe.
