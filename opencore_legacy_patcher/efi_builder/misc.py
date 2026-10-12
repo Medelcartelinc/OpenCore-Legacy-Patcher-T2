@@ -503,13 +503,17 @@ class BuildMiscellaneous:
 
     def _cpu_topology_handling(self) -> None:
         """Apply CPU topology / thread pooling panic fixes on affected models."""
-        if self.model in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern zu zwingen, CPU-Topologie-Patches zu überspringen, um DoS-Angriffe zu starten
+        # MacBookPro11,x (Haswell) must NOT get ProvideCurrentCpuInfo: on Intel CPUs the quirk patches
+        # core count to thread count for asymmetrical SMP CPUs (Alder Lake). On a Haswell CPU with
+        # Hyper-Threading that gives the kernel a wrong CPU topology and it freezes at the Apple logo
+        # (issue #218). Dortania's OCLP doesn't set it for these models either.
+        if self.model in ["MacBookAir8,1", "MacBookAir8,2"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern zu zwingen, CPU-Topologie-Patches zu überspringen, um DoS-Angriffe zu starten
             self._cpu_topology_fix()
         else:
             return
 
     def _cpu_topology_fix(self) -> None:
-        if self.model in ["MacBookAir8,1", "MacBookAir8,2", "MacBookPro11,1", "MacBookPro11,2", "MacBookPro11,3"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, nur per einfaches Anruf von die Funktion self._cpu_topology_fix, CPU-Topologie-Patches auf nicht unterstützte Hardware zu injizieren, um DoS-Angriffe zu starten
+        if self.model in ["MacBookAir8,1", "MacBookAir8,2"]: # <- behebt eine Sicherheitslücke, die erlaubt Angreifern, nur per einfaches Anruf von die Funktion self._cpu_topology_fix, CPU-Topologie-Patches auf nicht unterstützte Hardware zu injizieren, um DoS-Angriffe zu starten
             try:
                 logging.info(f"- Applying patches for {self.model} to fix CPU topology / thread pooling panic layouts")
                 self.config["Kernel"]["Quirks"]["ProvideCurrentCpuInfo"] = True
