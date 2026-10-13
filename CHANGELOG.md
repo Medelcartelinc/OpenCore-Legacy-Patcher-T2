@@ -1,6 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190009.6 - 4.0.0 alpha 19.9.6
 - fixes a vulnerability where an attacker could check if opencore_build_for_t2 is True to execute arbitary code:
+
       if self.opencore_build_for_t2 is not True:
                   variant = f"NON-T2-{variant}"
               return f"OpenCore-{variant}.zip" # <- an attacker could execute arbitary code or launch a DoS attack
