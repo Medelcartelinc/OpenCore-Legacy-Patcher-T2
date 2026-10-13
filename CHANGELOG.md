@@ -1,5 +1,10 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190009.6 - 4.0.0 alpha 19.9.6
+- fixes a vulnerability where an attacker could check if opencore_build_for_t2 is True to execute arbitary code:
+      if self.opencore_build_for_t2 is not True:
+                  variant = f"NON-T2-{variant}"
+              return f"OpenCore-{variant}.zip" # <- an attacker could execute arbitary code or launch a DoS attack
+Impact: an attacker could check if the Mac is a T2 Mac or not and if yes, to execute arbitary code instead of injecting OpenCore to disk. Or worse, an attacker could inject OpenCore 2.0.7 that is known to cause issues on non-T2 Macs to intentionally corrupt the system. This vulnerability is fixed by ensuring OpenCore ever gets injected if the opencore_build_for_t2 condition exists and is set to either True or False.
 T2 Macs:
 - updates SpoofVMM from 4.9.1 to 4.9.6-alpha2 (`payloads/Kexts/T2/SpoofVMM-4.9.6-alpha2-Release.zip`), thx @Medelcartelinc:
   - in-kernel Stage 2 installer bypass: patches `-[... runReturningError:]` of `OSIUpdateFirmwareElement`, `OSIVerifyROMElement`, `OSIInstallPersonalizedManifestsElement`, `OSIMSUInstallElement` and `OSIMSUCleanupElement` to return success, so the installer no longer stops at the BridgeOS firmware step on T2 Macs Apple dropped from macOS 26 Tahoe. It is on by default; `-spoofvmmnobypass`, `-spoofvmmnostage2` and `-spoofvmmnocs` turn it off for testing
