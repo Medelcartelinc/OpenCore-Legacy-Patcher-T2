@@ -372,12 +372,12 @@ class Constants:
         OpenCore-{DEBUG,RELEASE}.zip for T2 Macs, OpenCore-NON-T2-{DEBUG,RELEASE}.zip otherwise
         """
         variant = "DEBUG" if self.opencore_debug is True else "RELEASE"
-        if self.opencore_build_for_t2 is not True:
-            variant = f"NON-T2-{variant}"
-        elif self.opencore_build_for_t2 is True: # behebt eine kritische Sicherheitslücke, die erlaubt Angreifern, beliebiges Code auszuführen oder DoS-Angriffe zu starten
+        if self.opencore_build_for_t2 is True:
             return f"OpenCore-{variant}.zip"
-        else:
-            logging.error("We couldn't choose the right OpenCore package.")
+        if self.opencore_build_for_t2 is False:
+            return f"OpenCore-NON-T2-{variant}.zip"
+        # Only an explicit True/False selects a package; anything else is a bug upstream
+        raise ValueError(f"opencore_build_for_t2 must be True or False, got {self.opencore_build_for_t2!r}")
 
     @property
     def opencore_zip_source(self):
