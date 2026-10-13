@@ -55,6 +55,9 @@ class BuildWirelessNetworking:
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("IOSkywalkFamily.kext", self.constants.ioskywalk_version, self.constants.ioskywalk_path)
                 support.BuildSupport(self.model, self.constants, self.config).enable_kext("IO80211FamilyLegacy.kext", self.constants.io80211legacy_version, self.constants.io80211legacy_path)
                 support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("IO80211FamilyLegacy.kext/Contents/PlugIns/AirPortBrcmNIC.kext")["Enabled"] = True
+                # Tahoe: the Sequoia AirPortBrcmNIC plugin is capped at MaxKernel 24.99.99, load the
+                # Tahoe build instead (port of dortania/OpenCore-Legacy-Patcher@d9604c3, MinKernel 25.0.0)
+                support.BuildSupport(self.model, self.constants, self.config).enable_kext("AirPortBrcmNIC-Tahoe.kext", self.constants.airport_brcmnic_tahoe_version, self.constants.airport_brcmnic_tahoe_path)
                 support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", "com.apple.iokit.IOSkywalkFamily")["Enabled"] = True
                 # IOSkywalkFamily/IO80211FamilyLegacy only load on Sonoma+ (MinKernel 23.0.0),
                 # so the boot-args below are only needed there. detected_os is a Darwin major:
@@ -132,6 +135,9 @@ class BuildWirelessNetworking:
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("IOSkywalkFamily.kext", self.constants.ioskywalk_version, self.constants.ioskywalk_path)
             support.BuildSupport(self.model, self.constants, self.config).enable_kext("IO80211FamilyLegacy.kext", self.constants.io80211legacy_version, self.constants.io80211legacy_path)
             support.BuildSupport(self.model, self.constants, self.config).get_kext_by_bundle_path("IO80211FamilyLegacy.kext/Contents/PlugIns/AirPortBrcmNIC.kext")["Enabled"] = True
+            # Tahoe: the Sequoia AirPortBrcmNIC plugin is capped at MaxKernel 24.99.99, load the
+            # Tahoe build instead (port of dortania/OpenCore-Legacy-Patcher@d9604c3, MinKernel 25.0.0)
+            support.BuildSupport(self.model, self.constants, self.config).enable_kext("AirPortBrcmNIC-Tahoe.kext", self.constants.airport_brcmnic_tahoe_version, self.constants.airport_brcmnic_tahoe_path)
             support.BuildSupport(self.model, self.constants, self.config).get_item_by_kv(self.config["Kernel"]["Block"], "Identifier", "com.apple.iokit.IOSkywalkFamily")["Enabled"] = True
             # Sonoma+ only, see _on_model() (detected_os is a Darwin major, 15 = El Capitan)
             if self.constants.detected_os >= os_data.os_data.sonoma:
