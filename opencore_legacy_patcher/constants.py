@@ -491,7 +491,7 @@ class Constants:
     @property
     def spoofvmm_path(self):
         path = self.payload_kexts_path / Path(f"T2/SpoofVMM-{self.spoofvmm_version}-{self.kext_variant.capitalize()}.zip")
-        # SpoofVMM 4.9.7-alpha3 was only released as a Release build. Fall back to it
+        # SpoofVMM 4.9.7-alpha4 was only released as a Release build. Fall back to it
         # when no Debug build is bundled, instead of failing the build or validation.
         if not path.exists():
             release_path = self.payload_kexts_path / Path(f"T2/SpoofVMM-{self.spoofvmm_version}-Release.zip")
