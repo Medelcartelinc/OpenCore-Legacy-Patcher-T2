@@ -89,7 +89,9 @@ def is_esp(content: str) -> bool:
 SHARED_ESP_HELP = (
     "On T2 Macs OpenCore must not share the EFI partition with Windows or Linux, because their boot "
     "loaders and OpenCore would interfere with each other there.\n\n"
-    "On Windows 11 on T2 Macs if OpenCore is flashed to the ESP, it results in This device needs to be repaired error."
+    "On Windows 11 on T2 Macs if OpenCore is flashed to the ESP, it results in This device needs to \n\n"
+    "be repaired error. On T2 Macs unfortuantely their UEFI is very sensitive and would be impossible to fix \n\n"
+    "if this happened."
     "Create a separate partition for OpenCore instead: in Disk Utility select the disk, click "
     "\"Partition\", add a new partition of about 300 MB, format it as \"MS-DOS (FAT)\" and name it "
     "\"OPENCORE\". Then search for disks again and select that partition."
