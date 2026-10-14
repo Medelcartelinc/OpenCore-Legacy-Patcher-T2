@@ -237,21 +237,50 @@ class InstallOCFrame(wx.Frame):
         text_label.Centre(wx.HORIZONTAL)
 
         partitions = install.tui_disk_installation(self.constants).list_partitions(disk, dataset)
+        if any(partitions[partition].get('blocked_reason') for partition in partitions):
+            # Room for the T2 shared-EFI explanation below the partition list
+            dialog.SetSize((400, -1))
+            text_label.Centre(wx.HORIZONTAL)
         items = len(partitions)
         longest_label = max((len(partitions[partition]['partition']) + len(partitions[partition]['name']) + len(str(partitions[partition]['size']))) for partition in partitions)
         longest_label = longest_label * 10
         spacer = 0
         logging.info(f"Available partitions for {disk}:")
+        blocked_reasons = []
         for partition in partitions:
-            logging.info(f"- {partitions[partition]['partition']} - {partitions[partition]['name']} - {partitions[partition]['size']}")
+            blocked_reason = partitions[partition].get('blocked_reason')
+            logging.info(f"- {partitions[partition]['partition']} - {partitions[partition]['name']} - {partitions[partition]['size']}" + (f" (blocked: {blocked_reason})" if blocked_reason else ""))
             disk_button = wx.Button(dialog, label=f"{partitions[partition]['partition']} - {partitions[partition]['name']} - {partitions[partition]['size']}", size=(longest_label,30), pos=(-1, text_label.GetPosition()[1] + text_label.GetSize()[1] + 5 + spacer))
             disk_button.Centre(wx.HORIZONTAL)
-            disk_button.Bind(wx.EVT_BUTTON, lambda event, partition=partition: self._install_oc_process(partition))
-            if items == 1 or self.constants.booted_oc_disk == partitions[partition]['partition']:
-                disk_button.SetDefault()
+            if blocked_reason:
+                # T2 Macs: EFI partition shared with Windows/Linux - OpenCore needs its own partition
+                disk_button.Disable()
+                disk_button.SetToolTip(f"Not available on T2 Macs: {blocked_reason}")
+                if blocked_reason not in blocked_reasons:
+                    blocked_reasons.append(blocked_reason)
+            else:
+                disk_button.Bind(wx.EVT_BUTTON, lambda event, partition=partition: self._install_oc_process(partition))
+                if items == 1 or self.constants.booted_oc_disk == partitions[partition]['partition']:
+                    disk_button.SetDefault()
             spacer += 25
 
-        return_button = wx.Button(dialog, label="Return to Main Menu", size=(150,30), pos=(-1, disk_button.GetPosition()[1] + disk_button.GetSize()[1]))
+        last_control = disk_button
+        if blocked_reasons:
+            if all(partitions[partition].get('blocked_reason') for partition in partitions):
+                note_text = f"The EFI partition can't be used ({', '.join(blocked_reasons)}).\n\n{install.SHARED_ESP_HELP}"
+            else:
+                note_text = f"The EFI partition is disabled ({', '.join(blocked_reasons)}). On T2 Macs, select a separate FAT32 partition for OpenCore instead."
+            shared_esp_note = wx.StaticText(dialog, label=note_text, pos=(15, disk_button.GetPosition()[1] + disk_button.GetSize()[1] + 10))
+            shared_esp_note.SetFont(gui_support.font_factory(10, wx.FONTWEIGHT_NORMAL))
+            shared_esp_note.Wrap(dialog.GetSize()[0] - 30)
+            last_control = shared_esp_note
+
+            search_button = wx.Button(dialog, label="Search for disks again", size=(170,30), pos=(-1, last_control.GetPosition()[1] + last_control.GetSize()[1] + 10))
+            search_button.Centre(wx.HORIZONTAL)
+            search_button.Bind(wx.EVT_BUTTON, self.on_reload_frame)
+            last_control = search_button
+
+        return_button = wx.Button(dialog, label="Return to Main Menu", size=(150,30), pos=(-1, last_control.GetPosition()[1] + last_control.GetSize()[1]))
         return_button.Centre(wx.HORIZONTAL)
         return_button.Bind(wx.EVT_BUTTON, self.on_return_to_main_menu)
 
