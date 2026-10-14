@@ -1,6 +1,9 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190009.7 - 4.0.0 alpha 19.9.7
 This release:
+- on T2 Macs, now no longer allows flashing to the ESP if Windows or Linux is installed. On Linux is untested whether flashing OpenCore to the ESP causes issues, but on Windows 11 it results in This device needs to be repaired. Now if Windows is installed, it'll show this warning instead:
+<img width="512" height="379" alt="image" src="https://github.com/user-attachments/assets/39d4946e-47ee-437d-bf66-01d05098bc6b" />
+
 - fixes a bug in the Spoof-VMM.kext where on unsupported T2 Macs when trying to boot the installer causes a kernel panic
 - updates the Intel Skylake and AMD Legacy GCN patches to fix a kernel panic on MacBookPro13,3 by updating PatcherSupportPkg to 2.0.8, thx @Jazzzny and @Dortania
 ## 4.0.0.190009.6 - 4.0.0 alpha 19.9.6
