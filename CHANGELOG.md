@@ -1,4 +1,8 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190009.7 - 4.0.0 alpha 19.9.7
+This release:
+- fixes a bug in the Spoof-VMM.kext where on unsupported T2 Macs when trying to boot the installer causes a kernel panic
+- updates the Intel Skylake and AMD Legacy GCN patches to fix a kernel panic on MacBookPro13,3 by updating PatcherSupportPkg to 2.0.8, thx @Jazzzny and @Dortania
 ## 4.0.0.190009.6 - 4.0.0 alpha 19.9.6
 - fixes a vulnerability where an attacker could check if opencore_build_for_t2 is True to execute arbitary code:
 
