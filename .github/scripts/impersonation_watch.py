@@ -14,7 +14,8 @@ import urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import copied_commit, fingerprints, get, paginate, post, request, summary  # noqa: E402
+from typosquat_watch import (copied_commit, describe_copy, fingerprints, get, paginate, post, request,
+                             shared_history, summary)  # noqa: E402
 from typosquat_sites import DOWNLOAD_EXT, UA, fetch, rdap  # noqa: E402
 
 ORIGINAL = os.environ["ORIGINAL_REPO"]
@@ -112,11 +113,14 @@ def scan_repos(owner, root, shas, tracked):
             # talks about the project and sends people to downloads outside GitHub.
             if not in_meta and not (in_readme and downloads):
                 continue
+            sha, own = shared_history(full)
+            if not sha:
+                sha, own = copied_commit(full, shas), None
             found.append({
                 "kind": "repo", "key": key, "name": full, "url": cand["html_url"],
                 "description": (cand.get("description") or "").strip(),
                 "where": ", ".join(x for x, hit in (("name/description", in_meta), ("README", in_readme)) if hit),
-                "sha": copied_commit(full, shas),
+                "copy": describe_copy(sha, own),
                 "fork_of": source if cand.get("fork") else None,
                 "downloads": downloads,
                 "owner_age": account_age_days(cand["owner"]["login"]),
@@ -179,7 +183,6 @@ def scan_web(site_host, tracked):
 # ----------------------------------------------------------------- texts --
 
 def repo_body(f):
-    sha = f"yes (`{f['sha'][:12]}`)" if f["sha"] else "no"
     age = f"{f['owner_age']} days" if f["owner_age"] is not None else "—"
     lines = [
         f"Found a GitHub repository that presents itself as this project but isn't part of its fork network: "
@@ -187,8 +190,8 @@ def repo_body(f):
         "",
         f"- **Description:** {f['description'] or '—'}",
         f"- **Mentions the project in:** {f['where']}",
-        f"- **Contains commits from this project:** {sha}",
-        f"- **Fork of:** {f['fork_of'] or 'not a fork'}",
+        f"- **Copy of this project:** {f['copy']}",
+        f"- **Fork of:** {f['fork_of'] or 'not a GitHub fork (imported, mirrored or detached)'}",
         f"- **Download links outside GitHub:** {', '.join(f['downloads']) or 'none'}",
         f"- **Owner account age:** {age}",
         f"- **Last pushed:** {f['pushed'] or '—'}",

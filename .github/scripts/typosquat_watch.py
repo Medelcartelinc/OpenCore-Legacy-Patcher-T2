@@ -152,6 +152,29 @@ def copied_commit(full, shas):
     return None
 
 
+def shared_history(full, limit=100):
+    """Where a candidate's history meets this project's.
+
+    Walks the candidate's newest commits and returns (sha, own) for the newest one
+    this repo also has, where `own` is how many commits the candidate added on top
+    (0 = an unchanged copy). Returns (None, None) if no shared commit is found within
+    `limit` commits. Unlike copied_commit(), this also finds copies made long ago.
+    """
+    commits = get(f"/repos/{full}/commits?per_page={limit}") or []
+    for own, c in enumerate(commits):
+        if get(f"/repos/{ORIGINAL}/commits/{c['sha']}"):
+            return c["sha"], own
+    return None, None
+
+
+def describe_copy(sha, own):
+    if not sha:
+        return "no"
+    if own == 0:
+        return f"yes, an unchanged copy (up to `{sha[:12]}`)"
+    return f"yes, copied at `{sha[:12]}` with {own} commit{'s' if own != 1 else ''} of its own on top"
+
+
 # ------------------------------------------------------------ assessment --
 
 def assess(cand, owner_squat, our_owner):
@@ -210,14 +233,16 @@ To the owner: if this was not intentional, please rename the repository or re-cr
 """
 
 
-def tracking_issue(full, sha, suspicious, reasons, their_issue, note):
+def tracking_issue(full, sha, suspicious, reasons, their_issue, note, own=None):
     bullet = "\n".join(f"- {r}" for r in reasons) or "- none"
     action = ("Report it using **Report repository** in the copy's sidebar, so GitHub can review the impersonation."
               if suspicious else
               "Wait for the owner to respond to the rename request." if their_issue else
               "Ask the owner to rename the repository (the workflow couldn't contact them).")
     link = their_issue or note
-    return f"""Detected **[{full}](https://github.com/{full})**, which contains commit `{sha}` from this project, sits outside the fork network, and has a typosquatted name.
+    return f"""Detected **[{full}](https://github.com/{full})**, which sits outside the fork network and has a typosquatted name.
+
+**Copy of this project:** {describe_copy(sha, own)}
 
 **Assessment:** {"⚠️ suspicious" if suspicious else "likely unintentional"}
 
@@ -293,14 +318,16 @@ def main():
             continue
         if cand.get("fork") and (cand.get("source") or {}).get("full_name", "").lower() == root:
             continue  # inside our fork network, so it's a legitimate fork
-        sha = copied_commit(full, shas)
+        sha, own = shared_history(full)
+        if not sha:
+            sha, own = copied_commit(full, shas), None
         if not sha:
             continue  # similar name, but not a copy of this project
 
         found += 1
         suspicious, reasons = assess(cand, owner_sq, owner)
         verdict = "suspicious" if suspicious else "likely unintentional"
-        summary(f"- **{full}** — {verdict}; contains `{sha[:12]}`; "
+        summary(f"- **{full}** — {verdict}; {describe_copy(sha, own)}; "
                 + ("; ".join(reasons) or "no extra signals"))
         if DRY_RUN:
             continue
@@ -333,7 +360,7 @@ def main():
         # 4. Tracking issue in our repo
         status, data = post(f"/repos/{ORIGINAL}/issues", {
             "title": f"Typosquatting copy: {full} ({verdict})",
-            "body": tracking_issue(full, sha, suspicious, reasons, their_url, note),
+            "body": tracking_issue(full, sha, suspicious, reasons, their_url, note, own),
             "labels": [LABEL],
         })
         if status >= 300:
