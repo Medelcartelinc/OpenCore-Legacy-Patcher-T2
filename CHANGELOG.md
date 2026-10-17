@@ -1,7 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.190009.9 - 4.0.0 alpha 19.9.9
 This release:
-- replaces Spoof-VMM with T2TahoeFixup, thx @matteoiacca, @gandolf243 and @zkennedy147
+- replaces Spoof-VMM with T2TahoeFixup, thx @matteoiacca, @gandolf243 and @@zkennedy137
 - fixes a serious bug where boot.efi in both the T2 OpenCorePkg package and the non-T2 one were using the version from 1.0.4 instead of the latest one (2.0.7 for T2 Macs, 1.0.8 for the rest of the Macs). This could result in an unstable macOS 26 Tahoe and macOS 15 Sequoia installations, as OpenCore 1.0.4 was released long before Tahoe ever got announced at WWDC 2025. In fact, it was released around April 2025 or even earlier.
 
 ## 4.0.0.190009.8 - 4.0.0 alpha 19.9.8
