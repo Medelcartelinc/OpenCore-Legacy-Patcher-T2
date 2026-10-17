@@ -18,6 +18,9 @@ MAX_DIST = int(os.environ.get("MAX_DISTANCE", "2"))
 FP_COUNT = int(os.environ.get("FINGERPRINT_COMMITS", "20"))
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
 CONTACT_SUSPICIOUS = os.environ.get("CONTACT_SUSPICIOUS", "true").lower() == "true"
+# Without a PAT the built-in GITHUB_TOKEN is used: it can scan and open issues
+# here, but it can't open issues in other people's repositories.
+HAS_PAT = os.environ.get("HAS_PAT", "false").lower() == "true"
 ALLOWLIST = {s.lower() for s in os.environ.get("ALLOWLIST", "").split()}
 LABEL = "typosquat"
 OUR_MARKER = "<!-- typosquat:{} -->"
@@ -211,7 +214,8 @@ def tracking_issue(full, sha, suspicious, reasons, their_issue, note):
     bullet = "\n".join(f"- {r}" for r in reasons) or "- none"
     action = ("Report it using **Report repository** in the copy's sidebar, so GitHub can review the impersonation."
               if suspicious else
-              "Wait for the owner to respond to the rename request.")
+              "Wait for the owner to respond to the rename request." if their_issue else
+              "Ask the owner to rename the repository (the workflow couldn't contact them).")
     link = their_issue or note
     return f"""Detected **[{full}](https://github.com/{full})**, which contains commit `{sha}` from this project, sits outside the fork network, and has a typosquatted name.
 
@@ -241,9 +245,11 @@ def summary(line):
 
 
 def main():
-    me = (get("/user") or {}).get("login")
-    if not me:
-        raise SystemExit("TYPOSQUAT_PAT is missing or invalid.")
+    me = (get("/user") or {}).get("login") if HAS_PAT else None
+    if HAS_PAT and not me:
+        raise SystemExit("TYPOSQUAT_PAT is set but invalid.")
+    if not HAS_PAT:
+        print("::notice::No TYPOSQUAT_PAT configured; copies will be tracked here but their owners won't be contacted.")
     repo = get(f"/repos/{ORIGINAL}")
     owner, name = repo["owner"]["login"], repo["name"]
     root = (repo.get("source") or repo)["full_name"].lower()
@@ -304,6 +310,8 @@ def main():
         contact = CONTACT_SUSPICIOUS or not suspicious
         if not contact:
             note = "not contacted (CONTACT_SUSPICIOUS=false)"
+        elif not me:
+            note = "not contacted, because no TYPOSQUAT_PAT secret is configured"
         elif not cand.get("has_issues"):
             note = "not possible, because issues are disabled"
         else:
