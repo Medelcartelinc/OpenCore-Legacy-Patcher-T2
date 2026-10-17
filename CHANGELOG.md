@@ -6,6 +6,7 @@ Non-T2 Macs:
   - Legacy Wireless: Dortania's `12.7.2-25` frameworks. YBronst's `airportd`, `wps` and `wifip2pd` builds still apply on Tahoe
 - macOS 13 Ventura to macOS 15 Sequoia are not affected: the Wi-Fi root patches there keep using YBronst's builds
 - this is not yet tested on real hardware. If Wi-Fi still does not work on Tahoe after root patching, please attach the root patching log
+- since the repository for the Metallibs API has been renamed, the links are changed to point to the new repo's link
 
 ## 4.0.0.190009.7 - 4.0.0 alpha 19.9.7
 This release:
