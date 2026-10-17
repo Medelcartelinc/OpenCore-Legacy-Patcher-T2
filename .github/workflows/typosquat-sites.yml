@@ -41,6 +41,10 @@ jobs:
           TLDS: "com net org io app dev info site xyz"
           # Substrings searched for in certificate-transparency logs (crt.sh)
           CT_KEYWORDS: "legacy-patcher-t2 legacypatchert2 oclp-t2 oclpt2"
+          # Newly registered domains (WhoisDS daily lists): days to look back, and names to
+          # match in them; a hit is filed even before the domain shows any content
+          NRD_DAYS: "3"
+          NRD_KEYWORDS: "opencore-legacy-patcher-t2 oclp-t2 legacy-patcher-t2"
           # A site only counts if its page mentions one of these (case-insensitive, | separated)
           CONTENT_MARKERS: "opencore legacy patcher t2|opencore-legacy-patcher-t2|oclp-t2|oclp t2"
           # Hosts (and their subdomains) that are never flagged

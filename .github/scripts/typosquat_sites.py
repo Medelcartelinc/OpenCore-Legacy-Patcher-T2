@@ -2,7 +2,10 @@
 """Find websites that imitate this project's name or its GitHub Pages site,
 and open a tracking issue in this repository for each one."""
 
+import base64
 import concurrent.futures as cf
+import datetime
+import io
 import json
 import os
 import re
@@ -13,9 +16,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import get, paginate, post, summary, variants  # noqa: E402
+from typosquat_watch import MAX_DIST, get, lev, paginate, post, skeleton, summary, variants  # noqa: E402
 
 ORIGINAL = os.environ["ORIGINAL_REPO"]
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
@@ -25,6 +29,10 @@ CT_KEYWORDS = os.environ.get("CT_KEYWORDS", "").split()
 TLDS = os.environ.get("TLDS", "com net org io app dev").split()
 MARKERS = [m.strip().lower() for m in os.environ.get("CONTENT_MARKERS", "").split("|") if m.strip()]
 ALLOWLIST = {h.lower() for h in os.environ.get("ALLOWLIST", "").split()}
+# Newly registered domains: how many past days of registrations to check, and the
+# names to look for in them (compared without dots, dashes or underscores)
+NRD_DAYS = int(os.environ.get("NRD_DAYS", "3"))
+NRD_KEYWORDS = [re.sub(r"[^a-z0-9]", "", k.lower()) for k in os.environ.get("NRD_KEYWORDS", "").split()]
 LABEL = "typosquat-site"
 MARKER = "<!-- typosquat-site:{} -->"
 UA = f"Mozilla/5.0 (compatible; typosquat-site-watch; +https://github.com/{ORIGINAL})"
@@ -120,6 +128,41 @@ def github_pages_candidates(site_host, site_path):
     return found
 
 
+def nrd_domains(days):
+    """Domains registered in the last `days` days, from WhoisDS's free daily lists."""
+    domains = set()
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    for back in range(1, days + 1):
+        day = (today - datetime.timedelta(days=back)).isoformat()
+        token = base64.b64encode(f"{day}.zip".encode()).decode()
+        url = f"https://whoisds.com/whois-database/newly-registered-domains/{token}/nrd"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                data = r.read()
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for name in z.namelist():
+                    domains.update(line.strip().lower()
+                                   for line in z.read(name).decode("ascii", "ignore").split())
+        except Exception as e:
+            print(f"::warning::Newly registered domain list for {day} unavailable: {e}")
+    print(f"{len(domains)} newly registered domains checked")
+    return domains
+
+
+def nrd_match(domain):
+    """True if the domain's name contains, or is a near-miss of, one of NRD_KEYWORDS."""
+    label = re.sub(r"[^a-z0-9]", "", domain.split(".")[0])
+    for kw in NRD_KEYWORDS:
+        if kw in label:
+            return True
+        dist = MAX_DIST if len(kw) >= 8 else 1  # short names only allow one typo
+        if abs(len(label) - len(kw)) <= dist and (
+                skeleton(label) == skeleton(kw) or lev(label, kw) <= dist):
+            return True
+    return False
+
+
 # ------------------------------------------------------------ inspection --
 
 def allowed(host, site_host):
@@ -192,16 +235,24 @@ def issue_body(r, reg):
         action = ("If it impersonates the project, report it to the registrar's abuse contact"
                   f"{contact} and the hosting provider, and submit it to "
                   "[Google Safe Browsing](https://safebrowsing.google.com/safebrowsing/report_phish/).")
+    if r["markers"]:
+        intro = f"Found a website with a lookalike name that presents itself as this project: **{r['host']}**"
+    else:
+        intro = (f"Found a newly registered domain with a lookalike name: **{r['host']}**\n\n"
+                 "It doesn't show project content yet. That's normal for a domain that was just registered; "
+                 "impersonation sites are often set up a few days later, so it's worth keeping an eye on.")
+    status = f"HTTP {r['status']}" if r["status"] else "no response yet"
     lines = [
-        f"Found a website with a lookalike name that presents itself as this project: **{r['host']}**",
+        intro,
         "",
-        f"- **URL:** {r['url']} (HTTP {r['status']})",
+        f"- **URL:** {r['url']} ({status})",
+        f"- **Newly registered:** {'yes, in the last ' + str(NRD_DAYS) + ' days' if r.get('new_registration') else 'not in the recent registration lists'}",
         f"- **Type:** {where}",
         f"- **Page title:** {r['title'] or '—'}",
-        f"- **Matched text:** {', '.join(f'`{m}`' for m in r['markers'])}",
+        f"- **Matched text:** {', '.join(f'`{m}`' for m in r['markers']) or 'none yet'}",
         f"- **Links to the official repo:** {'yes' if r['links_official'] else 'no'}",
         f"- **Download links point to:** {', '.join(r['download_hosts']) or 'no download links'}",
-        f"- **IP addresses:** {', '.join(r['ips'])}",
+        f"- **IP addresses:** {', '.join(r['ips']) or 'none (not resolving yet)'}",
     ]
     if reg:
         lines += [
@@ -238,11 +289,28 @@ def main():
         for h in ct_hosts(kw):
             targets.setdefault(h, "/")
     targets.update(github_pages_candidates(site_host, site_path))
+    new_regs = {d for d in nrd_domains(NRD_DAYS) if nrd_match(d)} if NRD_KEYWORDS else set()
+    for h in new_regs:
+        targets.setdefault(h, "/")
     targets = {h: p for h, p in targets.items() if not allowed(h, site_host)}
     print(f"{len(targets)} hostnames to check")
 
     with cf.ThreadPoolExecutor(max_workers=48) as ex:
         results = [r for r in ex.map(lambda hp: inspect(*hp), targets.items()) if r]
+
+    # A lookalike domain registered in the last few days counts even before it shows
+    # any content, so it's caught before it goes live.
+    found_hosts = {r["host"] for r in results}
+    for r in results:
+        r["new_registration"] = r["host"] in new_regs
+    for host in sorted(new_regs - found_hosts):
+        if allowed(host, site_host):
+            continue
+        results.append({
+            "host": host, "url": f"http://{host}/", "status": None, "ips": resolve(host),
+            "title": "", "markers": [], "download_hosts": [], "links_official": False,
+            "new_registration": True,
+        })
 
     tracked = set()
     for issue in paginate(f"/repos/{ORIGINAL}/issues?labels={LABEL}&state=all&per_page=100"):
@@ -257,7 +325,7 @@ def main():
 
     for r in new:
         summary(f"- **{r['host']}** — {r['title'] or 'no title'}; matched "
-                + ", ".join(f"`{m}`" for m in r["markers"]))
+                + (", ".join(f"`{m}`" for m in r["markers"]) or "nothing yet (newly registered)"))
         if DRY_RUN:
             continue
         reg = {} if r["host"].endswith(".github.io") else rdap(r["host"])
