@@ -91,7 +91,7 @@ class Constants:
         self.nvmefix_version:            str = "1.1.3"  #      NVMeFix
         self.applealc_version:           str = "1.9.8"  #      AppleALC
         self.restrictevents_version:     str = "1.1.6"  #      RestrictEvents
-        self.spoofvmm_version:           str = "4.9.7-alpha4"  #      SpoofVMM
+        self.t2tahoefixup_version:       str = "1.0.2"  #      T2TahoeFixup
         self.featureunlock_version:      str = "1.1.8"  #      FeatureUnlock
         self.debugenhancer_version:      str = "1.1.0"  #      DebugEnhancer
         self.cpufriend_version:          str = "1.3.0"  #      CPUFriend
@@ -490,15 +490,9 @@ class Constants:
         return self.payload_kexts_path / Path(f"Acidanthera/RestrictEvents-{self.restrictevents_version}-{self.kext_variant}.zip")
 
     @property
-    def spoofvmm_path(self):
-        path = self.payload_kexts_path / Path(f"T2/SpoofVMM-{self.spoofvmm_version}-{self.kext_variant.capitalize()}.zip")
-        # SpoofVMM 4.9.7-alpha4 was only released as a Release build. Fall back to it
-        # when no Debug build is bundled, instead of failing the build or validation.
-        if not path.exists():
-            release_path = self.payload_kexts_path / Path(f"T2/SpoofVMM-{self.spoofvmm_version}-Release.zip")
-            if release_path.exists():
-                return release_path
-        return path
+    def t2tahoefixup_path(self):
+        # T2TahoeFixup ships both a Debug and a Release build (kext_variant: RELEASE/DEBUG).
+        return self.payload_kexts_path / Path(f"T2/T2TahoeFixup-{self.t2tahoefixup_version}-{self.kext_variant.capitalize()}.zip")
 
 
 
