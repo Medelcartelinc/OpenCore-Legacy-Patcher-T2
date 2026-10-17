@@ -35,7 +35,7 @@ METALLIB_API_LINKS: tuple = (
     # Same catalog as METALLIB_API_LINK, read straight from the repository
     # (github.com/albert-mueller/albert-mueller.github.io): always the latest commit,
     # without waiting for GitHub Pages to rebuild, and still reachable if Pages is down.
-    "https://raw.githubusercontent.com/albert-mueller/albert-mueller.github.io/main/MetallibSupportPkg/manifest.json",
+    "https://raw.githubusercontent.com/albert-mueller/metallibs/main/MetallibSupportPkg/manifest.json",
     METALLIB_API_LINK,
     "https://dortania.github.io/MetallibSupportPkg/manifest.json",
     "https://raw.githubusercontent.com/Medelcartelinc/MetallibSupportPkg/main/manifest.json",
