@@ -156,7 +156,7 @@ def copied_commit(full, shas):
 
 def assess(cand, owner_squat, our_owner):
     score, reasons = 0, []
-    login, full = cand["owner"]["login"], cand["full_name"]
+    login = cand["owner"]["login"]
     if owner_squat:
         score += 2
         reasons.append(f"owner name `{login}` imitates `{our_owner}`")
