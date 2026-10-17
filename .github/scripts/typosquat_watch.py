@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +23,8 @@ CONTACT_SUSPICIOUS = os.environ.get("CONTACT_SUSPICIOUS", "true").lower() == "tr
 # here, but it can't open issues in other people's repositories.
 HAS_PAT = os.environ.get("HAS_PAT", "false").lower() == "true"
 ALLOWLIST = {s.lower() for s in os.environ.get("ALLOWLIST", "").split()}
+# Other names the project goes by (e.g. OCLP-T2); copies named like these count as squats too
+ALIASES = os.environ.get("ALIASES", "").split()
 LABEL = "typosquat"
 OUR_MARKER = "<!-- typosquat:{} -->"
 THEIR_MARKER = f"<!-- typosquat-notice-from:{ORIGINAL} -->"
@@ -89,6 +92,31 @@ def post(path, body):
 HOMOGLYPHS = str.maketrans({"0": "o", "1": "l", "i": "l", "3": "e", "4": "a",
                             "5": "s", "7": "t", "8": "b", "9": "g"})
 
+# Non-Latin letters that look like Latin ones (Cyrillic, Greek, a few IPA letters).
+# NFKC already folds full-width and "mathematical" letters, so those aren't listed.
+CONFUSABLES = str.maketrans({
+    # Cyrillic
+    "а": "a", "е": "e", "ё": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x",
+    "ѕ": "s", "і": "i", "ї": "i", "ј": "j", "һ": "h", "ԁ": "d", "ԛ": "q", "ԝ": "w",
+    "ӏ": "l", "к": "k",
+    "А": "A", "В": "B", "Е": "E", "Ё": "E", "К": "K", "М": "M", "Н": "H", "О": "O",
+    "Р": "P", "С": "C", "Т": "T", "У": "Y", "Х": "X", "Ѕ": "S", "І": "I", "Ј": "J",
+    "Ԛ": "Q", "Ԝ": "W", "Һ": "H", "Ӏ": "l",
+    # Greek
+    "α": "a", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "υ": "u",
+    "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M",
+    "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+    # Latin lookalikes
+    "ı": "i", "ɑ": "a", "ɡ": "g", "ℓ": "l",
+    # Invisible characters
+    "\u200b": None, "\u200c": None, "\u200d": None, "\u2060": None, "\ufeff": None, "\u00ad": None,
+})
+
+
+def fold(text):
+    """Map Unicode lookalikes (e.g. Cyrillic 'О') to plain Latin, lowercased."""
+    return unicodedata.normalize("NFKC", text or "").translate(CONFUSABLES).lower()
+
 
 def lev(a, b):
     a, b = a.lower(), b.lower()
@@ -102,7 +130,7 @@ def lev(a, b):
 
 
 def skeleton(s):
-    s = s.lower().replace("rn", "m").replace("vv", "w")
+    s = fold(s).replace("rn", "m").replace("vv", "w")
     return re.sub(r"[-_.]", "", s).translate(HOMOGLYPHS)
 
 
@@ -110,7 +138,9 @@ def looks_like(candidate, original):
     """True if candidate is a near-miss of original (but not identical)."""
     if candidate.lower() == original.lower():
         return False
-    return skeleton(candidate) == skeleton(original) or lev(candidate, original) <= MAX_DIST
+    if fold(candidate) == fold(original):
+        return True  # same name spelled with lookalike Unicode letters
+    return skeleton(candidate) == skeleton(original) or lev(fold(candidate), fold(original)) <= MAX_DIST
 
 
 def variants(name):
@@ -283,8 +313,10 @@ def main():
     summary(f"## Typosquat scan for `{ORIGINAL}`" + (" (dry run)" if DRY_RUN else ""))
 
     # 1. Collect name candidates
+    names = [name] + ALIASES
+    aliases = {a.lower() for a in ALIASES}
     candidates = {}
-    for v in variants(name):
+    for v in sorted({v for n in names for v in variants(n)}):
         q = urllib.parse.quote(f"{v} in:name")
         _, data, _ = request("GET", f"/search/repositories?q={q}&per_page=100")
         time.sleep(2.2)  # search API allows 30 requests per minute
@@ -293,9 +325,9 @@ def main():
             c_owner, c_name = item["owner"]["login"], item["name"]
             if c_owner.lower() == owner.lower() or full.lower() in ALLOWLIST:
                 continue
-            name_sq = looks_like(c_name, name)
+            name_sq = c_name.lower() in aliases or any(looks_like(c_name, n) for n in names)
             owner_sq = looks_like(c_owner, owner)
-            if name_sq or (owner_sq and c_name.lower() == name.lower()):
+            if name_sq or (owner_sq and c_name.lower() in {n.lower() for n in names}):
                 candidates[full] = owner_sq
     print(f"{len(candidates)} name candidates")
 

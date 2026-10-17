@@ -14,8 +14,8 @@ import urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import (copied_commit, describe_copy, fingerprints, get, paginate, post, request,
-                             shared_history, summary)  # noqa: E402
+from typosquat_watch import (copied_commit, describe_copy, fingerprints, fold, get, paginate, post,
+                             request, shared_history, summary)  # noqa: E402
 from typosquat_sites import DOWNLOAD_EXT, UA, fetch, rdap  # noqa: E402
 
 ORIGINAL = os.environ["ORIGINAL_REPO"]
@@ -31,8 +31,8 @@ def _list(var, sep):
 
 
 def norm(text):
-    """Lowercase, treat - and _ as spaces, collapse whitespace."""
-    return re.sub(r"\s+", " ", re.sub(r"[-_]", " ", (text or "").lower()))
+    """Fold Unicode lookalikes, lowercase, treat - and _ as spaces, collapse whitespace."""
+    return re.sub(r"\s+", " ", re.sub(r"[-_]", " ", fold(text)))
 
 
 MARKERS = sorted({norm(m) for m in _list("CONTENT_MARKERS", "|")})
@@ -116,6 +116,12 @@ def scan_repos(owner, root, shas, tracked):
             sha, own = shared_history(full)
             if not sha:
                 sha, own = copied_commit(full, shas), None
+            if own == 0 and not downloads:
+                # An unchanged copy of this project (a backup or mirror) shows nothing that
+                # isn't ours. It's skipped, not filed, so it's checked again on every run
+                # and gets flagged as soon as its owner changes anything.
+                print(f"  skipped {full}: unchanged copy, no outside downloads")
+                continue
             found.append({
                 "kind": "repo", "key": key, "name": full, "url": cand["html_url"],
                 "description": (cand.get("description") or "").strip(),

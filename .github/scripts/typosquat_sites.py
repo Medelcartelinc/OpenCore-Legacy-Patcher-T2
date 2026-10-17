@@ -19,7 +19,7 @@ import urllib.request
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from typosquat_watch import MAX_DIST, get, lev, paginate, post, skeleton, summary, variants  # noqa: E402
+from typosquat_watch import MAX_DIST, fold, get, lev, paginate, post, skeleton, summary, variants  # noqa: E402
 
 ORIGINAL = os.environ["ORIGINAL_REPO"]
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"
@@ -27,7 +27,7 @@ SITE_URL = os.environ.get("SITE_URL", "").strip()
 KEYWORDS = os.environ.get("KEYWORDS", "").split()
 CT_KEYWORDS = os.environ.get("CT_KEYWORDS", "").split()
 TLDS = os.environ.get("TLDS", "com net org io app dev").split()
-MARKERS = [m.strip().lower() for m in os.environ.get("CONTENT_MARKERS", "").split("|") if m.strip()]
+MARKERS = [fold(m.strip()) for m in os.environ.get("CONTENT_MARKERS", "").split("|") if m.strip()]
 ALLOWLIST = {h.lower() for h in os.environ.get("ALLOWLIST", "").split()}
 # Newly registered domains: how many past days of registrations to check, and the
 # names to look for in them (compared without dots, dashes or underscores)
@@ -77,7 +77,7 @@ def fetch_json(url, timeout=30):
         return json.loads(r.read())
 
 
-# ------------------------------------------------------------- discovery --
+# ------------------------------------------------------------ discovery --
 
 def site_info(owner, name):
     pages = get(f"/repos/{ORIGINAL}/pages") or {}
@@ -86,12 +86,46 @@ def site_info(owner, name):
     return url, parts.hostname.lower(), parts.path or "/"
 
 
+# Latin letters that have a Cyrillic twin, for internationalized (IDN) lookalike domains
+CYRILLIC_TWINS = {"a": "а", "c": "с", "e": "е", "i": "і", "j": "ј", "o": "о", "p": "р",
+                  "s": "ѕ", "x": "х", "y": "у"}
+
+
+def unpuny(host):
+    """Show punycode labels (xn--...) the way browsers display them."""
+    labels = []
+    for label in host.split("."):
+        if label.startswith("xn--"):
+            try:
+                label = label.encode("ascii").decode("idna")
+            except (UnicodeError, ValueError):
+                pass
+        labels.append(label)
+    return ".".join(labels)
+
+
+def homograph_variants(keyword):
+    """The keyword with Cyrillic lookalike letters, encoded as punycode labels."""
+    kw = keyword.lower()
+    spelled = {kw[:i] + CYRILLIC_TWINS[c] + kw[i + 1:] for i, c in enumerate(kw) if c in CYRILLIC_TWINS}
+    spelled.add("".join(CYRILLIC_TWINS.get(c, c) for c in kw))
+    out = set()
+    for v in spelled - {kw}:
+        try:
+            out.add(v.encode("idna").decode("ascii"))
+        except UnicodeError:
+            pass
+    return out
+
+
 def domain_candidates(keywords):
     hosts = set()
     for kw in keywords:
         for v in variants(kw):
             if HOST_LABEL.match(v):
                 hosts.update(f"{v}.{tld}" for tld in TLDS)
+        for v in homograph_variants(kw):
+            hosts.update(f"{v}.{tld}" for tld in TLDS)
     return hosts
 
 
@@ -152,7 +186,7 @@ def nrd_domains(days):
 
 def nrd_match(domain):
     """True if the domain's name contains, or is a near-miss of, one of NRD_KEYWORDS."""
-    label = re.sub(r"[^a-z0-9]", "", domain.split(".")[0])
+    label = re.sub(r"[^a-z0-9]", "", fold(unpuny(domain).split(".")[0]))
     for kw in NRD_KEYWORDS:
         if kw in label:
             return True
@@ -178,7 +212,7 @@ def inspect(host, path):
         status, final, html = fetch(f"http://{host}{path}")
     if not html:
         return None
-    low = html.lower()
+    low = fold(html)
     hits = [m for m in MARKERS if m in low]
     if not hits:
         return None  # resolves, but doesn't present itself as this project
@@ -235,10 +269,12 @@ def issue_body(r, reg):
         action = ("If it impersonates the project, report it to the registrar's abuse contact"
                   f"{contact} and the hosting provider, and submit it to "
                   "[Google Safe Browsing](https://safebrowsing.google.com/safebrowsing/report_phish/).")
+    shown = unpuny(r["host"])
+    name = f"**{r['host']}**" + (f" (shown in browsers as **{shown}**)" if shown != r["host"] else "")
     if r["markers"]:
-        intro = f"Found a website with a lookalike name that presents itself as this project: **{r['host']}**"
+        intro = f"Found a website with a lookalike name that presents itself as this project: {name}"
     else:
-        intro = (f"Found a newly registered domain with a lookalike name: **{r['host']}**\n\n"
+        intro = (f"Found a newly registered domain with a lookalike name: {name}\n\n"
                  "It doesn't show project content yet. That's normal for a domain that was just registered; "
                  "impersonation sites are often set up a few days later, so it's worth keeping an eye on.")
     status = f"HTTP {r['status']}" if r["status"] else "no response yet"
