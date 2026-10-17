@@ -1,4 +1,8 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.190009.9 - 4.0.0 alpha 19.9.9
+This release:
+- replaces Spoof-VMM with T2TahoeFixup, thx @matteoiacca, @gandolf243 and @zkennedy147
+- 
 ## 4.0.0.190009.8 - 4.0.0 alpha 19.9.8
 Non-T2 Macs:
 - fixes the Wi-Fi root patches on macOS 26 Tahoe (#218). Since alpha 19.9.7 OpenCore loads Dortania's Tahoe AirPort kexts (`AirPortBrcmNIC-Tahoe`, `AirPortAtheros40-Tahoe`) on Tahoe, but the root patches still installed YBronst's macOS 15 Sequoia (-24) Wi-Fi frameworks on Tahoe. That paired the Tahoe kexts with frameworks that were never built or tested for them. Tahoe now uses Dortania's -25 root patches, like upstream (thx @Jazzzny and @Dortania):
