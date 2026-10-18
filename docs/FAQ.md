@@ -27,7 +27,6 @@ Due to limitations with Apple's `createinstallmedia` tool used for installer cre
 * **Catalina 10.14** to make installers for macOS Tahoe.
 
 The patcher is designed to target **macOS Big Sur 11.x to macOS Sequoia 26.x**.
-* Other versions may work, albeit in a broken state. No support is provided for any version outside of the above.
 
 ## Application versioning
 
