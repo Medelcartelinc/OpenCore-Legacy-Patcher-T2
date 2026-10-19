@@ -75,7 +75,6 @@ class NvidiaKepler(BaseHardware):
         """
         New compiler format introduced in macOS 15, Sequoia
         """
-        # Not needed on Tahoe: prebuilt 26.0-3802 metallibs are used instead (dortania@c70f40a)
         return os_data.sequoia.value <= self._xnu_major < os_data.tahoe.value
 
 
@@ -110,7 +109,7 @@ class NvidiaKepler(BaseHardware):
                         "NVDAStartup.kext":        "12.0 Beta 6",
                         "GeForceAIRPlugin.bundle": "11.0 Beta 3",
                         "GeForceGLDriver.bundle":  "11.0 Beta 3",
-                        "GeForceMTLDriver.bundle": "11.0 Beta 3" if self._xnu_major <= os_data.monterey else "11.0 Beta 3-22",
+                        "GeForceMTLDriver.bundle": "11.0 Beta 3" if self._xnu_major <= os_data.monterey else f"11.0 Beta 3-22",
                         "GeForceVADriver.bundle":  "12.0 Beta 6",
                     },
                 },
