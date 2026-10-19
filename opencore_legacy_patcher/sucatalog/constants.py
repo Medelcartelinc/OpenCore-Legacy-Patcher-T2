@@ -49,6 +49,7 @@ class CatalogVersion(StrEnum):
     LION:           str = "lion"
     SNOW_LEOPARD:   str = "snowleopard"
     LEOPARD:        str = "leopard"
+    TIGER:          str = ""
 
 
 class CatalogExtension(StrEnum):
