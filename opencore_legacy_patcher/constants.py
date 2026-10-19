@@ -491,8 +491,9 @@ class Constants:
 
     @property
     def t2tahoefixup_path(self):
-        # T2TahoeFixup ships both a Debug and a Release build (kext_variant: RELEASE/DEBUG).
-        return self.payload_kexts_path / Path(f"T2/T2TahoeFixup-{self.t2tahoefixup_version}-{self.kext_variant.capitalize()}.zip")
+        # Only a Release build of T2TahoeFixup is bundled (the Debug build was dropped in #561
+        # because it lagged behind the Release build), so it is used for both kext_variant values.
+        return self.payload_kexts_path / Path(f"T2/T2TahoeFixup-{self.t2tahoefixup_version}-Release.zip")
 
 
 
