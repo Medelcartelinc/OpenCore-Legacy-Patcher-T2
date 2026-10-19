@@ -663,7 +663,9 @@ class HardwarePatchsetDetection:
         oclp_plist = self._read_manifest(utilities.find_any_oclp_manifest())
         if not oclp_plist:
             return False
-        return "Legacy Wireless" in oclp_plist or "Modern Wireless" in oclp_plist
+        # "Modern Wireless Common" is the name used since the switch back to Dortania's modern_wireless.py;
+        # "Modern Wireless" is kept so manifests from earlier fork builds are still recognised.
+        return any(key in oclp_plist for key in ["Legacy Wireless", "Modern Wireless", "Modern Wireless Common"])
 
 
     def _is_cached_kernel_debug_kit_present(self) -> bool:
