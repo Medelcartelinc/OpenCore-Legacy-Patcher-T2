@@ -8,7 +8,8 @@ when their unsupported T2 Mac will boot macOS to the desktop, this script:
   2. condenses them into a status digest (map -> reduce, cached for a few hours),
   3. answers the question from that digest and posts the reply.
 
-Only the Python standard library is used. LLM calls go to GitHub Models.
+Only the Python standard library is used. LLM calls go to the Gemini API
+(free tier, key from Google AI Studio in the GEMINI_API_KEY secret).
 `/t2-status` in a post always triggers an answer.
 """
 import json
@@ -24,14 +25,13 @@ REPO = os.environ["GITHUB_REPOSITORY"]
 OWNER, NAME = REPO.split("/")
 EVENT_NAME = os.environ["GITHUB_EVENT_NAME"]
 EVENT = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-MODEL = os.environ.get("T2_BOT_MODEL", "openai/gpt-4o-mini")
 DIGEST_FILE = Path(".t2-bot-cache/digest.json")
 DIGEST_MAX_AGE = float(os.environ.get("T2_DIGEST_MAX_AGE_HOURS", "6")) * 3600
 
 MARKER = "<!-- t2-status-bot -->"
 COMMAND = "/t2-status"
-CHUNK_CHARS = 14000       # ~4k tokens, fits the free-tier 8k input limit
-MAX_CORPUS_CHARS = 140000  # newest relevant items first, up to this size
+CHUNK_CHARS = 60000       # ~15k tokens per request, few requests for the free tier
+MAX_CORPUS_CHARS = 240000  # newest relevant items first, up to this size
 ITEM_CHARS = 2500
 
 ASK = re.compile(
@@ -129,48 +129,50 @@ def gql(query, **variables):
     return data["data"]
 
 
-MODELS_URL = "https://models.github.ai/inference/chat/completions"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+# first model that exists wins; override with T2_BOT_MODEL (comma-separated list)
+MODELS = [m.strip() for m in (os.environ.get("T2_BOT_MODEL") or
+          "gemini-flash-lite-latest,gemini-2.5-flash-lite,gemini-flash-latest").split(",") if m.strip()]
 
 
 def llm(system, user, max_tokens=700):
-    """Same request shape as ai_check_fix.py (known to work with GitHub Models)."""
-    body = json.dumps({"model": MODEL, "temperature": 0, "max_tokens": max_tokens,
-                       "messages": [{"role": "system", "content": system},
-                                    {"role": "user", "content": user}]}).encode()
-    for attempt in range(5):
-        req = urllib.request.Request(MODELS_URL, data=body, headers={
-            "Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json",
-            "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                raw = resp.read()
-                status, ctype = resp.status, resp.headers.get("Content-Type")
-        except urllib.error.HTTPError as e:
-            detail = e.read()[:300]
-            if e.code == 429:
-                wait = int(e.headers.get("retry-after") or 0)
-                if 0 < wait <= 120 and attempt < 4:
-                    time.sleep(wait + 1)
+    """Chat completion via Gemini's OpenAI-compatible endpoint (free tier, key from Google AI Studio)."""
+    while MODELS:
+        model = MODELS[0]
+        body = json.dumps({"model": model, "temperature": 0, "max_tokens": max_tokens,
+                           "messages": [{"role": "system", "content": system},
+                                        {"role": "user", "content": user}]}).encode()
+        for attempt in range(5):
+            req = urllib.request.Request(GEMINI_URL, data=body, headers={
+                "Authorization": f"Bearer {GEMINI_KEY}", "Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=180) as resp:
+                    raw, status, ctype = resp.read(), resp.status, resp.headers.get("Content-Type")
+            except urllib.error.HTTPError as e:
+                detail = e.read()[:400]
+                if e.code == 404 or (e.code == 400 and b"model" in detail.lower()):
+                    print(f"::warning::Gemini model {model!r} not available ({e.code}), trying the next one")
+                    MODELS.pop(0)
+                    break
+                if e.code in (429, 500, 502, 503) and attempt < 4:
+                    time.sleep(min(int(e.headers.get("Retry-After") or 0) or 20 * (attempt + 1), 90))
                     continue
-                raise RuntimeError(f"GitHub Models rate limit reached (daily cap?): {detail!r}") from None
-            if e.code in (500, 502, 503) and attempt < 4:
+                if e.code in (401, 403):
+                    raise RuntimeError(f"Gemini rejected the API key ({e.code}) - check the GEMINI_API_KEY "
+                                       f"secret: {detail!r}") from None
+                raise RuntimeError(f"Gemini error {e.code}: {detail!r}") from None
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                print(f"::warning::Gemini returned non-JSON (HTTP {status}, {ctype}): {raw[:300]!r}")
                 time.sleep(10 * (attempt + 1))
                 continue
-            raise RuntimeError(f"GitHub Models error {e.code}: {detail!r}") from None
-        if raw[:2] == b"\x1f\x8b":
-            import gzip
-            raw = gzip.decompress(raw)
-        try:
-            data = json.loads(raw)
-        except ValueError:
-            print(f"::warning::GitHub Models returned non-JSON (HTTP {status}, {ctype}): {raw[:300]!r}")
-            if attempt < 4:
-                time.sleep(10 * (attempt + 1))
-                continue
-            raise RuntimeError("GitHub Models kept returning non-JSON responses") from None
-        time.sleep(5)  # stay under the free-tier requests-per-minute limit
-        return ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "").strip()
-    raise RuntimeError("GitHub Models: no usable response")
+            time.sleep(7)  # stay under the free-tier requests-per-minute limit
+            return (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+        else:
+            raise RuntimeError("Gemini: no usable response after retries")
+    raise RuntimeError("Gemini: none of the configured models is available - set T2_BOT_MODEL")
 
 
 def set_output(name, value):
@@ -343,6 +345,9 @@ def make_answer(question):
 
 
 def main():
+    if not GEMINI_KEY:
+        print("::warning::GEMINI_API_KEY secret is not set - the T2 status bot cannot answer.")
+        return
     if EVENT_NAME == "workflow_dispatch":
         num = (EVENT["inputs"].get("issue") or "").strip().lstrip("#")
         if num:  # answer an existing issue for real
