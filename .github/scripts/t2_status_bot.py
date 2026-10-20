@@ -129,15 +129,48 @@ def gql(query, **variables):
     return data["data"]
 
 
+MODELS_URL = "https://models.github.ai/inference/chat/completions"
+
+
 def llm(system, user, max_tokens=700):
-    data, _ = http("POST", "https://models.github.ai/inference/chat/completions", {
-        "model": MODEL,
-        "temperature": 0.2,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-    })
-    time.sleep(5)  # stay under the free-tier requests-per-minute limit
-    return data["choices"][0]["message"]["content"].strip()
+    """Same request shape as ai_check_fix.py (known to work with GitHub Models)."""
+    body = json.dumps({"model": MODEL, "temperature": 0, "max_tokens": max_tokens,
+                       "messages": [{"role": "system", "content": system},
+                                    {"role": "user", "content": user}]}).encode()
+    for attempt in range(5):
+        req = urllib.request.Request(MODELS_URL, data=body, headers={
+            "Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json",
+            "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                raw = resp.read()
+                status, ctype = resp.status, resp.headers.get("Content-Type")
+        except urllib.error.HTTPError as e:
+            detail = e.read()[:300]
+            if e.code == 429:
+                wait = int(e.headers.get("retry-after") or 0)
+                if 0 < wait <= 120 and attempt < 4:
+                    time.sleep(wait + 1)
+                    continue
+                raise RuntimeError(f"GitHub Models rate limit reached (daily cap?): {detail!r}") from None
+            if e.code in (500, 502, 503) and attempt < 4:
+                time.sleep(10 * (attempt + 1))
+                continue
+            raise RuntimeError(f"GitHub Models error {e.code}: {detail!r}") from None
+        if raw[:2] == b"\x1f\x8b":
+            import gzip
+            raw = gzip.decompress(raw)
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            print(f"::warning::GitHub Models returned non-JSON (HTTP {status}, {ctype}): {raw[:300]!r}")
+            if attempt < 4:
+                time.sleep(10 * (attempt + 1))
+                continue
+            raise RuntimeError("GitHub Models kept returning non-JSON responses") from None
+        time.sleep(5)  # stay under the free-tier requests-per-minute limit
+        return ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "").strip()
+    raise RuntimeError("GitHub Models: no usable response")
 
 
 def set_output(name, value):
