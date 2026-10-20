@@ -27,20 +27,16 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install tools
-        run: pip install vulture==2.14 autoflake==2.3.1
+        run: pip install vulture==2.14 pyflakes==4.0.1
 
-      # Safe, mechanical fixes: unused imports + unused local variables.
-      # __init__.py is excluded because its imports are often re-exports.
-      - name: Remove unused imports and variables
-        run: |
-          autoflake --in-place --recursive \
-            --remove-all-unused-imports \
-            --remove-unused-variables \
-            --exclude "__init__.py,.venv,venv,build,dist" \
-            .
+      # Behavior-preserving removals only: unreachable code and unused
+      # module-level imports. Imports inside try/if/def are never touched
+      # (availability checks like `try: import ssl`). See the script header.
+      - name: Remove dead code
+        run: python .github/scripts/remove_dead_code.py --report "$RUNNER_TEMP/removed.md"
 
       # Make sure the cleanup didn't break anything syntactically.
       - name: Sanity check
@@ -80,7 +76,11 @@ jobs:
           {
             echo "Automated dead-code cleanup."
             echo
-            echo "**Fixed automatically** (autoflake): unused imports and unused local variables."
+            echo "**Removed automatically** (behavior-preserving only: unreachable code and unused top-level imports):"
+            echo
+            cat "$RUNNER_TEMP/removed.md"
+            echo
+            echo "Imports that are only needed for their side effect can be protected with \`# noqa\`."
             echo
             echo "**Needs manual review** (vulture, ${{ steps.vulture.outputs.count }} findings — not changed):"
             echo
@@ -97,11 +97,20 @@ jobs:
         with:
           branch: auto-fix/dead-code
           delete-branch: true
-          commit-message: 'Remove dead code (unused imports/variables)'
+          commit-message: 'Remove dead code (unreachable code, unused top-level imports)'
           title: 'Auto-fix: remove dead code'
           body-path: ${{ runner.temp }}/pr-body.md
           labels: auto-fix
           reviewers: gandolf243
+
+      # Nothing left to fix on main: close a stale auto-fix PR, if any.
+      - name: Close outdated auto-fix PR
+        if: steps.diff.outputs.changed == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr close auto-fix/dead-code --delete-branch \
+            --comment "Nothing left to remove automatically on main as of ${GITHUB_SHA::7}. Closing." || true
 
       - name: Report-only findings
         if: steps.diff.outputs.changed == 'false' && steps.vulture.outputs.count != '0'
