@@ -3,6 +3,7 @@
 This release:
 - for all GPUs, Legacy Audio, Modern Audio, USB1.1, now we're migrating for those away from the costum patchset inside the patcher itself only and switching to Dortania's, which are proven to be stable, thx @Dortania and @Jazzzny
 - on T2 Macs, T2TahoeFixup.kext is updated to fix a couple of issues
+- on T2 Macs, adds the boot-args `aks-endpoint=0` (AppleKeyStore skips the SEP handshake, avoids the `sks request timeout` panic), `acm_panic_on_sep_response_timeout=0` and `TSC_sync_margin=0`, and makes sure `debug=0x100 keepsyms=1` are always set
 - removes macOS Big Sur Beta (macOS 10.16) definitions
 - fixes a bug where the GPU may be printed twice inside the Statistics
 - on T2 Macs, removes boot-args that had no effect: `-ibtcompatbeta` (Intel Bluetooth, not shipped), `AMFIPass=0x1` (not read by AMFIPass), `-disable_sidecar_mac` (FeatureUnlock isn't loaded on T2 Macs) and `-disable_media_analysis` (not read by anything). Also fixes Navi T2 Macs getting both `agdpmod=vit9696` and `agdpmod=pikera`, where vit9696 won
