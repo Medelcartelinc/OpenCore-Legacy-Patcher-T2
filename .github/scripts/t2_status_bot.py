@@ -244,22 +244,27 @@ def get_digest():
 
 # --------------------------------------------------------------------------- trigger / reply
 def get_trigger():
-    """Returns (kind, text, author, target) or None."""
+    """Returns (kind, text, context, author, target) or None.
+
+    text is the new post; context is the original question of the thread (title + body) for
+    comments, so a comment in a thread that asks the question still gets the question answered."""
     ev = EVENT
     if EVENT_NAME == "issues":
         i = ev["issue"]
-        return "issue", f"{i['title']}\n{i.get('body') or ''}", i["user"], {"number": i["number"]}
+        return "issue", f"{i['title']}\n{i.get('body') or ''}", "", i["user"], {"number": i["number"]}
     if EVENT_NAME == "issue_comment":
-        if ev["issue"].get("pull_request"):
+        i = ev["issue"]
+        if i.get("pull_request"):
             return None
-        return "issue", ev["comment"].get("body") or "", ev["comment"]["user"], {"number": ev["issue"]["number"]}
+        return "issue", ev["comment"].get("body") or "", f"{i['title']}\n{i.get('body') or ''}", \
+            ev["comment"]["user"], {"number": i["number"]}
     if EVENT_NAME == "discussion":
         d = ev["discussion"]
-        return "discussion", f"{d['title']}\n{d.get('body') or ''}", d["user"], \
+        return "discussion", f"{d['title']}\n{d.get('body') or ''}", "", d["user"], \
             {"number": d["number"], "discussion_id": d["node_id"]}
     if EVENT_NAME == "discussion_comment":
         d, c = ev["discussion"], ev["comment"]
-        return "discussion", c.get("body") or "", c["user"], \
+        return "discussion", c.get("body") or "", f"{d['title']}\n{d.get('body') or ''}", c["user"], \
             {"number": d["number"], "discussion_id": d["node_id"], "comment_id": c["node_id"]}
     return None
 
@@ -320,22 +325,24 @@ def main():
     trigger = get_trigger()
     if not trigger:
         return
-    kind, text, user, target = trigger
+    kind, text, context, user, target = trigger
     if is_bot(user) or MARKER in text:
         return
+    # thread question first, then the new post (e.g. a follow-up or just a bump)
+    question = f"{context}\n\nLatest post:\n{text}".strip() if context else text
 
     if COMMAND not in text.lower():
-        if not (ASK.search(text) and TOPIC.search(text)):
+        if not (ASK.search(question) and TOPIC.search(question)):
             print("prefilter: not a status question")
             return
         if already_answered(kind, target):
             print("already answered in this thread (use /t2-status to force)")
             return
-        if not llm(CLASSIFY_PROMPT, clip(text, 3000), 3).upper().startswith("YES"):
+        if not llm(CLASSIFY_PROMPT, clip(question, 3000), 3).upper().startswith("YES"):
             print("classifier: not a status question")
             return
 
-    post(kind, target, make_answer(text))
+    post(kind, target, make_answer(question))
     print("answer posted")
 
 
