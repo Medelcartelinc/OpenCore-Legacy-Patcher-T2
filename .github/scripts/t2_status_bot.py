@@ -27,6 +27,7 @@ EVENT_NAME = os.environ["GITHUB_EVENT_NAME"]
 EVENT = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
 DIGEST_FILE = Path(".t2-bot-cache/digest.json")
 DIGEST_MAX_AGE = float(os.environ.get("T2_DIGEST_MAX_AGE_HOURS", "6")) * 3600
+DIGEST_VERSION = 2  # bump when the corpus rules change, invalidates cached digests
 
 MARKER = "<!-- t2-status-bot -->"
 COMMAND = "/t2-status"
@@ -198,20 +199,20 @@ DISCUSSIONS_QUERY = """
 query($o:String!,$n:String!,$after:String){repository(owner:$o,name:$n){
   discussions(first:25,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){
     pageInfo{hasNextPage endCursor}
-    nodes{number title body updatedAt category{name}
+    nodes{number title body updatedAt closed category{name}
       comments(first:40){nodes{author{login} body createdAt
         replies(first:20){nodes{author{login} body createdAt}}}}}}}}"""
 
 
 def collect_issues():
-    issues = rest_all(f"/repos/{REPO}/issues?state=all&per_page=100&sort=updated&direction=desc")
+    issues = rest_all(f"/repos/{REPO}/issues?state=open&per_page=100&sort=updated&direction=desc")
     comments = rest_all(f"/repos/{REPO}/issues/comments?per_page=100&sort=updated&direction=desc")
     by_num = {}
     for c in comments:
         if MARKER in (c.get("body") or ""):
             continue  # never feed the bot its own answers
         by_num.setdefault(int(c["issue_url"].rsplit("/", 1)[1]), []).append(c)
-    items = []
+    items = []  # only open issues/PRs: closed ones are fixed, outdated or off-topic
     for i in issues:
         kind = "PR" if i.get("pull_request") else "Issue"
         parts = [f"[{kind} #{i['number']} | {i['state']} | updated {i['updated_at'][:10]}] {i['title']}",
@@ -227,6 +228,8 @@ def collect_discussions():
     while True:
         page = gql(DISCUSSIONS_QUERY, o=OWNER, n=NAME, after=after)["repository"]["discussions"]
         for d in page["nodes"]:
+            if d.get("closed"):
+                continue  # closed discussions are settled/outdated
             posts = []
             for c in d["comments"]["nodes"]:
                 posts.append(c)
@@ -265,7 +268,7 @@ def build_chunks():
 def get_digest():
     if DIGEST_FILE.exists():
         cached = json.loads(DIGEST_FILE.read_text())
-        if time.time() - cached["created"] < DIGEST_MAX_AGE:
+        if cached.get("v") == DIGEST_VERSION and time.time() - cached["created"] < DIGEST_MAX_AGE:
             print("using cached digest")
             return cached["digest"], cached["created"], False
     partials = [llm(MAP_PROMPT, chunk) for chunk in build_chunks()]
@@ -273,11 +276,15 @@ def get_digest():
     digest = llm(REDUCE_PROMPT, "\n\n---\n\n".join(partials), 1200)
     created = time.time()
     DIGEST_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DIGEST_FILE.write_text(json.dumps({"created": created, "digest": digest}))
+    DIGEST_FILE.write_text(json.dumps({"v": DIGEST_VERSION, "created": created, "digest": digest}))
     return digest, created, True
 
 
 # --------------------------------------------------------------------------- trigger / reply
+def is_closed(discussion):
+    return bool(discussion.get("closed")) or discussion.get("state") == "closed"
+
+
 def get_trigger():
     """Returns (kind, text, context, author, target) or None.
 
@@ -286,21 +293,23 @@ def get_trigger():
     ev = EVENT
     if EVENT_NAME == "issues":
         i = ev["issue"]
-        return "issue", f"{i['title']}\n{i.get('body') or ''}", "", i["user"], {"number": i["number"]}
+        return "issue", f"{i['title']}\n{i.get('body') or ''}", "", i["user"], \
+            {"number": i["number"], "closed": i.get("state") == "closed"}
     if EVENT_NAME == "issue_comment":
         i = ev["issue"]
         if i.get("pull_request"):
             return None
         return "issue", ev["comment"].get("body") or "", f"{i['title']}\n{i.get('body') or ''}", \
-            ev["comment"]["user"], {"number": i["number"]}
+            ev["comment"]["user"], {"number": i["number"], "closed": i.get("state") == "closed"}
     if EVENT_NAME == "discussion":
         d = ev["discussion"]
         return "discussion", f"{d['title']}\n{d.get('body') or ''}", "", d["user"], \
-            {"number": d["number"], "discussion_id": d["node_id"]}
+            {"number": d["number"], "discussion_id": d["node_id"], "closed": is_closed(d)}
     if EVENT_NAME == "discussion_comment":
         d, c = ev["discussion"], ev["comment"]
         return "discussion", c.get("body") or "", f"{d['title']}\n{d.get('body') or ''}", c["user"], \
-            {"number": d["number"], "discussion_id": d["node_id"], "comment_id": c["node_id"]}
+            {"number": d["number"], "discussion_id": d["node_id"], "comment_id": c["node_id"],
+             "closed": is_closed(d)}
     return None
 
 
@@ -365,6 +374,9 @@ def main():
         return
     kind, text, context, user, target = trigger
     if is_bot(user) or MARKER in text:
+        return
+    if target.get("closed"):
+        print("thread is closed - not answering")
         return
     # thread question first, then the new post (e.g. a follow-up or just a bump)
     question = f"{context}\n\nLatest post:\n{text}".strip() if context else text
