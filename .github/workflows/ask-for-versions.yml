@@ -114,6 +114,12 @@ jobs:
             // Announcements / notices / PSAs written without the form (e.g. "Everyone who used X, switch to Y")
             const ANNOUNCE_RE = /\b(announcements?|psa|heads[- ]up|notice|important (info|information|update)|hi (everyone|all)|hello (everyone|all)|everyone who|all users|to all|switch (back )?to|update (source|channel)|ankündigung|hinweis|an alle|wichtige info\w*)\b/i;
             if (!usedForm && ANNOUNCE_RE.test(userText) && !PROBLEM_RE.test(userText)) return cleanUp('Skipped: announcement / notice');
+            // Support / compatibility questions ("Is my MacBookPro15,1 supported?", "Does Tahoe work on a Mac mini 2018?")
+            // and other general questions aren't problem reports, so the installed versions don't matter.
+            const SUPPORT_Q_RE = /\b(is (my |the |this |a |an )?[^\n?]{0,60}\bsupported|supported\s*\?|(will|would|does|do|can|could) (oclp|opencore|the patcher|this patcher|it|this|tahoe|sequoia|macos[^\n?]{0,20}) (support|work|run)|(will|would|does|can) (my |a |an |the )?[^\n?]{0,60}\b(work|run|be supported)|support for (my |the |a |an )?(mac|imac|macbook|mac ?mini|mac ?pro)|can i (install|run|use|upgrade|update)|is (it|this|there) (possible|compatible)|compatib\w*|kompatib\w*|unterstützt|wird [^\n?]{0,60} unterstützt|funktioniert [^\n?]{0,60}\?|läuft [^\n?]{0,60}\?|kann ich [^\n?]{0,60}(installieren|nutzen|verwenden))/i;
+            const QUESTION_TITLE_RE = /\?\s*$|^\s*(\[question\]|question:|frage:|is|are|does|do|can|could|will|would|should|how|what|when|which|why|ist|sind|kann|können|wird|werden|wie|was|wann|welche[rsmn]?|warum|gibt es)\b/i;
+            if (!PROBLEM_RE.test(userText) && (SUPPORT_Q_RE.test(userText) || (!usedForm && QUESTION_TITLE_RE.test(title))))
+              return cleanUp('Skipped: support / general question');
 
             // Also count replies from the issue author
             const authorText = comments
