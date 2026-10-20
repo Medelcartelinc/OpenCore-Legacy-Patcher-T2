@@ -17,8 +17,12 @@ on:
     inputs:
       question:
         description: "Test question (answer goes to the job summary, nothing is posted)"
-        required: true
+        required: false
         default: "When will Tahoe boot to the desktop on my Mac mini 2018?"
+      issue:
+        description: "Optional: number of an existing issue to answer (posts a real comment there)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
