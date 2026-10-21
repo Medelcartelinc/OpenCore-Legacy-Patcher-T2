@@ -553,6 +553,17 @@ class BuildMiscellaneous:
                 logging.info("- Enabling T2TahoeFixup.kext")
                 builder.enable_t2tahoefixup()
 
+            # Optional (Settings > General > "Disable internal SSD"): hide the internal
+            # ANS2 NVMe SSD from macOS so the system boots/installs cleanly from an
+            # external USB SSD. Only affects macOS booted through this OpenCore; booting
+            # the internal disk without OpenCore (Option key / Startup Disk) is unaffected.
+            if self.constants.disable_internal_ssd is True:
+                logging.info("- Enabling AppleANS2Disabler.kext (internal SSD hidden from macOS)")
+                builder.enable_kext("AppleANS2Disabler.kext", self.constants.appleans2disabler_version, self.constants.appleans2disabler_path)
+                ans2 = builder.get_kext_by_bundle_path("AppleANS2Disabler.kext")
+                if not ans2 or ans2.get("Enabled") is not True:
+                    raise FileNotFoundError(f"Failed to add AppleANS2Disabler.kext from {self.constants.appleans2disabler_path}")
+
             # Handle explicit performance/timeout panics on specific MacBook lines
             # Der Grund warum MinKernel auf 24.0.0 (Sequoias Version von Darwin) stattdessen von 25.x.x eingestellt ist, ist es die Installationsprogramm läuft auf Darwin 24 noch, auch die von 26 Tahoe.
             if self.model in ["MacBookAir8,1", "MacBookAir8,2", "MacBookAir9,1", "MacBookPro16,3"]:

@@ -92,6 +92,7 @@ class Constants:
         self.applealc_version:           str = "1.9.8"  #      AppleALC
         self.restrictevents_version:     str = "1.1.6"  #      RestrictEvents
         self.t2tahoefixup_version:       str = "1.0.4"  #      T2TahoeFixup
+        self.appleans2disabler_version:  str = "1.0.0"  #      AppleANS2Disabler (T2 internal SSD)
         self.featureunlock_version:      str = "1.1.8"  #      FeatureUnlock
         self.debugenhancer_version:      str = "1.1.0"  #      DebugEnhancer
         self.cpufriend_version:          str = "1.3.0"  #      CPUFriend
@@ -313,6 +314,7 @@ class Constants:
         self.allow_3rd_party_drives: bool = True  #  Allow ThirdPartyDrives quirk
         self.allow_nvme_fixing:      bool = True  #  Allow NVMe Kernel Space Patches
         self.apfs_trim_timeout:      bool = True  #  Set APFS Trim timeout
+        self.disable_internal_ssd:   bool = False #  T2 only: hide the internal SSD (ANS2) from macOS via AppleANS2Disabler, to boot from an external USB SSD
         self.custom_sip_value:        int = None  #  Set custom SIP value
 
         ## Non-Metal OS support
@@ -494,6 +496,12 @@ class Constants:
         # Only a Release build of T2TahoeFixup is bundled (the Debug build was dropped in #561
         # because it lagged behind the Release build), so it is used for both kext_variant values.
         return self.payload_kexts_path / Path(f"T2/T2TahoeFixup-{self.t2tahoefixup_version}-Release.zip")
+
+    @property
+    def appleans2disabler_path(self):
+        # Codeless kext (Info.plist only): claims the T2's internal NVMe controller
+        # (ANS2, PCI 106b:2005) with a dummy IOService so AppleANS2 never attaches.
+        return self.payload_kexts_path / Path(f"T2/AppleANS2Disabler-{self.appleans2disabler_version}.zip")
 
 
 
