@@ -773,11 +773,26 @@ def mount_dmg(
         capture_output=True,
     )
 
-    if result.returncode == 0 and not os.path.ismount(mount_point):
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=1, stdout=result.stdout or stdout,
-            stderr=b"Elevated hdiutil attach did not mount the image",
-        )
+    if result.returncode == 0:
+        is_mounted = False
+        resolved_mount = mount_point.resolve()
+        for _ in range(10):
+            if os.path.ismount(mount_point) or os.path.ismount(resolved_mount):
+                is_mounted = True
+                break
+            try:
+                if any(not item.name.startswith(".") for item in mount_point.iterdir()):
+                    is_mounted = True
+                    break
+            except (OSError, PermissionError):
+                pass
+            time.sleep(0.2)
+
+        if not is_mounted:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout=result.stdout or stdout,
+                stderr=b"Elevated hdiutil attach did not mount the image",
+            )
     return result
 
 

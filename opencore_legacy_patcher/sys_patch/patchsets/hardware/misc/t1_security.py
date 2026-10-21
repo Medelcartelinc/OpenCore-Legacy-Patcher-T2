@@ -93,6 +93,11 @@ class T1SecurityChip(BaseHardware):
                         **({ "LocalAuthenticationCore.framework": "26.0-25G229" } if self._xnu_major >= os_data.tahoe.value else {}),
                         **({ "NearField.framework": "14.7.2-25" if self._xnu_major >= os_data.tahoe.value else "14.7.2" } if self._xnu_major >= os_data.sequoia else {}),
                     },
-                }
+                },
+                **({
+                    PatchType.EXECUTE: {
+                        "/usr/bin/defaults write /Library/Preferences/FeatureFlags/Domain/MessageProtection.plist KyberInTheSEPRegisteredKeys -dict Enabled -bool false": True,
+                    },
+                } if self._xnu_major >= os_data.tahoe.value else {}),
             },
         }
