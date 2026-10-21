@@ -38,7 +38,6 @@ This is because Apple removed on-disk binaries (ref: https://github.com/dortania
 import logging
 import plistlib
 import subprocess
-import sys
 import threading
 
 from pathlib   import Path
@@ -582,7 +581,12 @@ class PatchSysVolume:
                     kdk_caching_needed=needs_daemon
                 )
 
-            self._rebuild_root_volume()
+            if not self._rebuild_root_volume():
+                # Kernel cache rebuild or snapshot creation failed: nothing new was sealed,
+                # but the root volume is still mounted at this point.
+                logging.error("- Root patching aborted, no new snapshot was created. Your current system snapshot is unchanged.")
+                self._unmount_root_vol()
+                return
         except Exception as e:
             logging.error("We have a problem to execute patches and rebuild the Kernel Cache.")
             logging.exception("Stack Trace:")
@@ -751,7 +755,7 @@ class PatchSysVolume:
                             )
                         except Exception as e:
                             logging.error(f"- Failed to execute root process: {e}")
-                            logging.error("Stack Trace:")
+                            logging.exception("Stack Trace:")
                     else:
                         logging.info(f"- Running Process:\n{process}")
                         try:
@@ -815,7 +819,6 @@ class PatchSysVolume:
 
         if not metallib_obj.success:
             logging.error(f"Failed to find MetalLibSupportPkg: {metallib_obj.error_msg}")
-            logging.exception("Stack Trace:")
             raise Exception(f"Failed to find MetalLibSupportPkg: {metallib_obj.error_msg}")
 
         metallib_download_obj = metallib_obj.retrieve_download()
@@ -833,7 +836,6 @@ class PatchSysVolume:
             # gets stuck in an endless loop" reports), so bail out with a clear
             # error instead of looping.
             logging.error("MetalLibSupportPkg was installed but could not be verified on disk afterwards")
-            logging.exception("Stack Trace:")
             raise Exception(
                 "MetalLibSupportPkg installer reported success, but the package still isn't "
                 "detected on disk afterwards. This points to a permissions or installer issue "
@@ -844,12 +846,10 @@ class PatchSysVolume:
         metallib_download_obj.download(spawn_thread=False)
         if not metallib_download_obj.download_complete:
             logging.error(f"Could not download MetalLibSupportPkg: {metallib_download_obj.error_msg}")
-            logging.exception("Stack Trace:")
             raise Exception(f"Could not download MetalLibSupportPkg: {metallib_download_obj.error_msg}")
 
         if not metallib_obj.install_metallib():
             logging.error("Failed to install MetalLibSupportPkg")
-            logging.exception("Stack Trace:")
             raise Exception("Failed to install MetalLibSupportPkg")
 
         # After install, verify it's now present - but only retry once, otherwise a
@@ -875,19 +875,19 @@ class PatchSysVolume:
         """
         logging.debug(f"Resolving dynamic patchset: {variant}")
         # behebt eine Sicherheitslücke, die erlaubt Angreifern, das App zum Absturz bringen beim unerwartetes Fehler oder davon auszunutzen, belibiges Code auszuführen
+        # Errors are raised (not sys.exit()) so they reach _patch_root_vol(), which unmounts the
+        # root volume and reports the failure to the GUI. sys.exit() on the patcher's worker thread
+        # only killed that thread silently and left the root volume mounted.
         try:
             logging.info("Resolving dynamic patchset")
             if variant == DynamicPatchset.MetallibSupportPkg:
                 return self._resolve_metallib_support_pkg()
-            else:
-                logging.error(f"Unknown Dynamic Patchset: {variant}")
-                logging.exception("Stack Trace:")
-                raise Exception(f"Unknown Dynamic Patchset: {variant}")
-        except Exception as e:
+            raise Exception(f"Unknown Dynamic Patchset: {variant}")
+        except Exception:
             logging.error("Couldn't resolve patchset due to unexpected error:")
             logging.exception("Stack Trace:")
             logging.info("Please try again later.")
-            sys.exit(3)
+            raise
 
 
     def _preflight_checks(self, required_patches: dict, source_files_path: Path) -> dict:
@@ -942,7 +942,7 @@ class PatchSysVolume:
                             logging.exception("Stack Trace:")
                             logging.info("Please try again later.")
                             logging.info("Try reporting this issue to the OpenCore Legacy Patcher T2 repository and check for updates.")
-                            sys.exit(3)
+                            raise
 
                         source_file = (
                             required_patches[patch][method_type][install_patch_directory][install_file]
@@ -956,31 +956,51 @@ class PatchSysVolume:
                             source_file = source_files_path + "/" + source_file
 
                         if not Path(source_file).exists():
-                            # If a payload directory (such as a speculative macOS release version like
-                            # '12.5-25' or '12.5-26') does not exist in PatcherSupportPkg's Universal-Binaries,
-                            # attempt fallback to earlier compatible payload versions (e.g. 12.5-24 -> 12.5-23.4 -> 12.5-22 -> 12.5).
-                            current_src_rel = required_patches[patch][method_type][install_patch_directory][install_file]
-                            if not current_src_rel.startswith("/"):
-                                for fallback_ver in ["12.5-24", "12.5-23.4", "12.5-23", "12.5-22", "12.5"]:
-                                    candidate_file = source_files_path + "/" + fallback_ver + install_patch_directory + "/" + install_file
-                                    if Path(candidate_file).exists():
-                                        logging.warning(
-                                            f"- Missing payload {current_src_rel}/{install_file}; "
-                                            f"falling back to existing {fallback_ver}/{install_file}"
-                                        )
-                                        required_patches[patch][method_type][install_patch_directory][install_file] = fallback_ver
-                                        source_file = candidate_file
-                                        break
+                            # _local_metallib_installed() only matches an already-installed
+                            # MetallibSupportPkg folder by macOS build name, never by verifying
+                            # every file inside it is actually present. If an earlier run left
+                            # behind a package that's missing files this patchset needs (e.g.
+                            # upstream shipped an incomplete release for this build and later
+                            # fixed it), every future preflight attempt would keep failing on the
+                            # same stale "already installed" cache forever. Force one fresh
+                            # re-download/install before giving up.
+                            if (
+                                self.metallib_path
+                                and source_file.startswith(str(self.metallib_path))
+                                and not self._metallib_preflight_refresh_attempted
+                            ):
+                                self._metallib_preflight_refresh_attempted = True
+                                logging.warning(f"- {source_file} missing from cached MetallibSupportPkg, forcing a fresh download")
+                                try:
+                                    refreshed_path = self._resolve_metallib_support_pkg(force_refresh=True)
+                                    self._resolve_dynamic_patchset.cache_clear()
+                                    required_patches[patch][method_type][install_patch_directory][install_file] = refreshed_path
+                                    source_file = refreshed_path + install_patch_directory + "/" + install_file
+                                # behebt eine Sicherheitslücke, indem das Fehler ausgedrückt wurde, aber das Prozess nicht richtig beendete und dass das Fehler nicht besonders verständlich war. Angreifern können davon ausnutzen ohne der Ahnung des Nutzers auszuführen, ohne überhaupt das zu loggen, um schädliches Code ungemerkt zu ausführen. Und auch, Angreifern können davon ausnutzen, um ClickFix-Angriffe zu starten.
+                                except Exception as e:
+                                    logging.error(f"- Failed to force-refresh MetallibSupportPkg: {e}")
+                                    logging.exception("Stack Trace:")
+                                    logging.info("Try reporting this issue to the OpenCore Legacy Patcher T2 repository and check for updates.")
+                                    raise
 
-                        if not Path(source_file).exists():
-                            if is_dynamic_patchset:
-                                logging.warning(f"- MetallibSupportPkg is missing {install_patch_directory}/{install_file} for this build, skipping")
-                                del required_patches[patch][method_type][install_patch_directory][install_file]
-                                continue
-                            else:
-                                logging.error(f"Failed to find {source_file}")
-                                logging.exception("Stack Trace:")
-                                raise Exception(f"Failed to find {source_file}")
+                            if not Path(source_file).exists():
+                                if is_dynamic_patchset:
+                                    # Even after a fresh MetallibSupportPkg pull, this specific file is
+                                    # still missing. MetallibSupportPkg packages are generated per exact
+                                    # macOS build by a third-party service and aren't guaranteed to
+                                    # contain every single metallib for every build/Mac combination (see
+                                    # reports of e.g. missing VisionKitInternal.framework/.../default.metallib
+                                    # on multiple different builds, even after updating macOS). Treat a
+                                    # missing file sourced from it as non-fatal: skip installing just this
+                                    # one file instead of aborting root patching entirely, since these are
+                                    # supplemental shader libraries, not files every patch set depends on
+                                    # to function.
+                                    logging.warning(f"- MetallibSupportPkg is missing {install_patch_directory}/{install_file} for this build, skipping")
+                                    del required_patches[patch][method_type][install_patch_directory][install_file]
+                                    continue
+                                else:
+                                    logging.error(f"Failed to find {source_file}")
+                                    raise Exception(f"Failed to find {source_file}")
 
                         logging.debug(f"Verified file exists: {source_file}")
 
@@ -1081,10 +1101,16 @@ class PatchSysVolume:
             logging.info("Patching the root volume")
             self._patch_root_vol()
         except Exception as e:
+            # No automatic start_unpatch() here: a failed patch run never creates a new
+            # snapshot, so there is nothing to undo. Unpatching would revert to Apple's
+            # last sealed snapshot and also discard earlier, working root patches.
             logging.error("Failed to root patch the volume")
             logging.exception("Stack Trace:")
-            logging.info("To ensure that your system continues to boot even after the root volume patches have failed to apply, we'll undo the patches that were applied until now.")
-            self.start_unpatch()
+            logging.error("- No new snapshot was created. Your current system snapshot is unchanged.")
+            try:
+                self._unmount_root_vol()
+            except Exception:
+                logging.exception("- Failed to unmount the root volume")
 
 
     def start_unpatch(self) -> None:
