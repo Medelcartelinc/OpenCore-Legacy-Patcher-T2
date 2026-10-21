@@ -553,7 +553,7 @@ class BuildMiscellaneous:
                 logging.info("- Enabling T2TahoeFixup.kext")
                 builder.enable_t2tahoefixup()
 
-            # Optional (Settings > General > "Disable internal SSD"): hide the internal
+            # Optional (main menu > OpenCore > General tab > "Disable internal SSD"): hide the internal
             # ANS2 NVMe SSD from macOS so the system boots/installs cleanly from an
             # external USB SSD. Only affects macOS booted through this OpenCore; booting
             # the internal disk without OpenCore (Option key / Startup Disk) is unaffected.
