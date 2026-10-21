@@ -435,10 +435,15 @@ class OCSettingsFrame(wx.Frame):
                         "Hide the internal SSD from macOS",
                         "(AppleANS2Disabler) to boot and",
                         "install from an external USB SSD.",
-                        "T2 Macs only.",
+                        "Only applied to T2 Mac builds.",
                     ],
                     "warning": "This hides the internal SSD from macOS whenever it is booted through this OpenCore build, including the macOS Installer and Recovery started from it.\n\nThe internal SSD itself is not erased or modified. To use it again, boot it without OpenCore (hold Option at startup and pick the internal disk), or turn this option off and rebuild OpenCore.\n\nMake sure OpenCore is installed on the external drive, not on the internal SSD's EFI partition.\n\nContinue?",
-                    "condition": target_is_t2_mac,
+                    # Deliberately no "condition": the checkbox used to be greyed out whenever
+                    # the app didn't see a T2 build target (e.g. running on a VM/Hackintosh or a
+                    # non-T2 Mac with "Host Model" selected), so the option couldn't be prepared
+                    # there at all. It is harmless to leave selectable: efi_builder/misc.py only
+                    # injects AppleANS2Disabler inside _t2_handling(), i.e. for T2 targets, and
+                    # logs a note when it is set for a non-T2 target.
                 },
                 "wrap_around 2": {
                     "type": "wrap_around",

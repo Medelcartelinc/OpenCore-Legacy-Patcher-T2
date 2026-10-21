@@ -2,6 +2,7 @@
 ## 4.0.0.1900010 - 4.0.0 alpha 19.10
 This release:
 - on T2 Macs, adds the option "Disable internal SSD" (main menu > OpenCore > General tab). When enabled, AppleANS2Disabler.kext is injected, which hides the internal SSD from macOS so it can be booted and installed from an external USB SSD. The internal SSD is not modified and can still be booted without OpenCore
+- fixes "Disable internal SSD" being greyed out when the patcher didn't detect a T2 build target (e.g. on a VM, a Hackintosh or another Mac with "Host Model" selected). The option can now always be selected and is only applied when building for a T2 Mac
 - for all GPUs, Legacy Audio, Modern Audio, USB1.1, now we're migrating for those away from the costum patchset inside the patcher itself only and switching to Dortania's, which are proven to be stable, thx @Dortania and @Jazzzny
 - on T2 Macs, updates T2TahoeFixup.kext to 1.0.6, correcting the hardware model whitelist (MacBookPro16,2 restored to native Tahoe whitelist so the kext remains dormant; MacBookPro16,1 and MacBookPro16,4 added to dropped models to ensure Stage 2 manifest aliases and fixup are applied)
 - on T2 Macs, adds the boot-args `aks-endpoint=0` (AppleKeyStore skips the SEP handshake, avoids the `sks request timeout` panic), `acm_panic_on_sep_response_timeout=0` and `TSC_sync_margin=0`, and makes sure `debug=0x100 keepsyms=1` are always set

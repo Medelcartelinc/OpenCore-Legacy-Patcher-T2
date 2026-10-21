@@ -529,6 +529,8 @@ class BuildMiscellaneous:
         """T2 Security Chip Handler."""
         if not self._is_t2_mac():
             logging.error(f"{self.model} is not a T2 Mac.")
+            if self.constants.disable_internal_ssd is True:
+                logging.info("- \"Disable internal SSD\" is enabled, but only applies to T2 Macs. Skipping AppleANS2Disabler.kext")
             return
         else:
             logging.info(f"{self.model} is a T2 Mac.")
