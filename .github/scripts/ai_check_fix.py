@@ -202,8 +202,17 @@ def ask(token, user, max_tokens=4000):
             "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
-                data = json.load(resp)
-            break
+                status, ctype, raw = resp.status, resp.headers.get("content-type", ""), resp.read()
+            try:
+                data = json.loads(raw)
+                break
+            except ValueError:
+                if attempt < 4:                              # empty/garbled body: try again
+                    print(f"::warning::GitHub Models sent a non-JSON answer (HTTP {status}, {ctype or 'no content-type'}, "
+                          f"{len(raw)} bytes) - retrying")
+                    time.sleep(10 * (attempt + 1))
+                    continue
+                raise RuntimeError(f"GitHub Models sent no JSON (HTTP {status}, {ctype or 'no content-type'}): {raw[:300]!r}")
         except urllib.error.HTTPError as e:
             detail = e.read()[:300]
             if e.code == 429:
