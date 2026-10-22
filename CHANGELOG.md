@@ -1,9 +1,10 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.1900011 - 4.0.0 alpha 19.11
-This releasE:
+This release:
 - the dark app icon inside the app (main menu logo and About window) is no longer exclusive to macOS 26 Tahoe: it is now used in Dark Mode on every macOS from 10.14 Mojave on. The Dock icon and the app's dialogs keep using the dark icon on Tahoe and newer only.
 - fixes Legacy USB 1.1 root patching on macOS 13 Ventura and newer: the patch set now requires the Kernel Debug Kit, so IOUSBHostFamily and its UHCI/OHCI plugins are kept together in the primary Boot/System Kernel Collections, thx @stephandeutsch (`a53c7e9`)
 - updates PatcherSupportPkg to 2.10 to switch the WiFi patchset to Dortania's
+- updated detect.py and switches to Dortania’s mainstream one with several changes on top of it to mitigate certain issues that Dortania’s own has and to make it work properly with this patcher
 
 ## 4.0.0.1900010 - 4.0.0 alpha 19.10
 This release:
