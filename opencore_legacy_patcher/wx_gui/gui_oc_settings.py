@@ -803,19 +803,20 @@ class OCSettingsFrame(wx.Frame):
                     "type": "checkbox",
                     "value": self.constants.t2_installer_workaround,
                     "variable": "t2_installer_workaround",
-                    "warning": "You are enabling the T2 Installer Workaround. This forces software rendering (-radvesa, -igfxvesa) and disables AMFI (amfi=0x80) to allow the macOS Tahoe installer to boot without freezing on T2 Macs.\n\nOnly enable this if you are creating a USB installer. You must uncheck this and rebuild OpenCore after installing macOS and root patching!",
+                    "warning": "You are enabling the T2 Installer Workaround. This forces software rendering (-igfxvesa, or -wegoff on dual-GPU models), bypasses AMFI (-amfipassbeta) and forces T2TahoeFixup active (-t2tahoeforce) to allow the macOS Tahoe installer to boot without freezing on T2 Macs.\n\nOnly enable this if you are creating a USB installer or running the initial installer pass. You must uncheck this and rebuild OpenCore after installing macOS and root patching!",
                     "description": [
                         "Enables workarounds to fix freezing",
                         "in the macOS Tahoe installer on T2 Macs.",
-                        "Requires Experimental Features.",
                     ],
-                    # Moved here from Settings > Advanced. Gated on Experimental
-                    # Features (was True_Developer_Mode) and on a T2 build target,
-                    # since efi_builder/security.py only applies it in the T2 branch.
-                    # Uses the regular _update_setting() path, so the value now
-                    # actually reaches self.constants (the old global-settings
-                    # override never set it, so the checkbox had no effect on builds).
-                    "condition": bool(self.constants.Experimental_Features and target_is_t2_mac),
+                    # Only gated on a T2 build target, since efi_builder/security.py
+                    # applies it exclusively in the T2 branch. It was briefly also
+                    # gated on Experimental Features (91e14c6), which greyed it out
+                    # for every regular user on a T2 Mac - exactly the people who
+                    # need it to get the Tahoe installer to boot. Matteo's original
+                    # intent (aefc93c) was "available on any T2 Mac".
+                    # Uses the regular _update_setting() path (GUI:t2_installer_workaround),
+                    # so the value reaches self.constants and therefore the build.
+                    "condition": target_is_t2_mac,
                 },
                 "System Integrity Protection": {
                     "type": "title",
