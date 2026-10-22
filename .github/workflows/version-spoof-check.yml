@@ -41,6 +41,7 @@ jobs:
             const MARKER        = '<!-- version-spoof-bot -->';
             const AUTO_CLOSE_BEHIND = 1500;      // failed check + more commits behind than this → close
             const KEEP_OPEN_LABEL   = 'keep-open'; // label that stops the auto-close
+            const NO_AUTO_CLOSE     = ['albert-mueller', 'gandolf243']; // PRs by these users are never auto-closed
             // ------------------------------------------------------------------
 
             const { owner, repo } = context.repo;
@@ -506,7 +507,9 @@ jobs:
                   labels.push(KEEP_OPEN_LABEL);
                 } catch (e) { core.info(`Adding ${KEEP_OPEN_LABEL} label failed: ${e.message}`); }
               }
-              const autoClose = pr.state === 'open' && behindMain !== null
+              const exempt = NO_AUTO_CLOSE.some(u => u.toLowerCase() === pr.user.login.toLowerCase());
+              if (exempt) core.info(`Auto-close skipped: @${pr.user.login} is exempt.`);
+              const autoClose = pr.state === 'open' && !exempt && behindMain !== null
                 && behindMain > AUTO_CLOSE_BEHIND && !labels.includes(KEEP_OPEN_LABEL);
               const closeNote = autoClose ? [
                 '',
