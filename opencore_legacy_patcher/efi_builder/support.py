@@ -77,6 +77,51 @@ class BuildSupport:
         return efi_binary
 
 
+    def enable_t2tahoefixup(self) -> None:
+        """
+        Enables T2TahoeFixup.kext strictly from the bundled constants.t2tahoefixup_path.
+
+        enable_kext() falls back to any T2TahoeFixup*.zip it can find and to stale,
+        previously extracted T2TahoeFixup.kext folders (payloads/Kexts is git-ignored
+        for *.kext, so old extractions survive on from-source setups). That could
+        silently put an old release into the EFI, so this helper never falls back
+        and verifies the copied kext's version.
+
+        T2TahoeFixup replaces SpoofVMM: a leftover SpoofVMM.kext entry is disabled
+        so both kexts never hook the same sysctls at once.
+        """
+        kext_name = "T2TahoeFixup.kext"
+        zip_path = Path(self.constants.t2tahoefixup_path)
+        if not zip_path.exists():
+            raise FileNotFoundError(f"T2TahoeFixup {self.constants.t2tahoefixup_version} payload is missing: {zip_path}")
+
+        # SpoofVMM was replaced by T2TahoeFixup; make sure an old config entry can't load it.
+        legacy = self.get_item_by_kv(self.config["Kernel"]["Add"], "BundlePath", "SpoofVMM.kext")
+        if legacy:
+            legacy["Enabled"] = False
+
+        # Remove stale extractions so only the contents of zip_path can be used.
+        payload_source_dir = Path(self.constants.payload_kexts_path)
+        for stale in payload_source_dir.glob(f"**/{kext_name}"):
+            if stale.is_dir():
+                shutil.rmtree(stale)
+
+        kext = self.get_kext_by_bundle_path(kext_name)
+        kext["Enabled"] = False
+        self.enable_kext(kext_name, self.constants.t2tahoefixup_version, zip_path)
+
+        info_plist = Path(self.constants.kexts_path) / kext_name / "Contents" / "Info.plist"
+        if kext.get("Enabled") is not True or not info_plist.exists():
+            raise FileNotFoundError(f"Failed to add {kext_name} from {zip_path}")
+
+        expected = self.constants.t2tahoefixup_version.split("-")[0]
+        with info_plist.open("rb") as f:
+            found = plistlib.load(f).get("CFBundleShortVersionString", "")
+        if found != expected:
+            raise ValueError(f"{kext_name} version mismatch: expected {expected}, got {found or 'unknown'}")
+        logging.info(f"- Verified {kext_name} {found} ({zip_path.name})")
+
+
     def enable_kext(self, kext_name: str, kext_version: str, kext_path: Path, check: bool = False) -> None:
         """
         Enables a kext in the config.plist, searching payloads/Kexts for the source.

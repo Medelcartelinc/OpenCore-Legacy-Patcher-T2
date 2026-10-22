@@ -64,9 +64,7 @@ class LegacyMetal3802(BaseSharedPatchSet):
             "Metal 3802 Common Extended": {
                 PatchType.MERGE_SYSTEM_VOLUME: {
                     "/System/Library/Frameworks": {
-                        # Note: PatcherSupportPkg only ships 13.2.1-<xnu_major> payloads up to xnu_major 24 (Sequoia),
-                        # cap the lookup there for Sequoia+ hosts (e.g. Tahoe) instead of requesting a non-existent folder.
-                        "Metal.framework": f"13.2.1-{self._xnu_major}" if self._xnu_major < os_data.sequoia.value else "13.2.1-24",
+                        "Metal.framework": f"13.2.1-{self._xnu_major}",
                         **({  "CoreImage.framework": "14.0 Beta 3" if self._xnu_major < os_data.sequoia.value else "14.0 Beta 3-24"} if self._xnu_major >= os_data.sonoma.value else {}),
                     },
                     "/System/Library/PrivateFrameworks": {
@@ -148,7 +146,7 @@ class LegacyMetal3802(BaseSharedPatchSet):
                     "/System/iOSSupport/System/Library/PrivateFrameworks/WeatherUI.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                         "ForegroundEffectShaders.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/iOSSupport/System/Library/PrivateFrameworks/AvatarKit.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
@@ -169,7 +167,7 @@ class LegacyMetal3802(BaseSharedPatchSet):
                     },
                     "/System/iOSSupport/System/Library/PrivateFrameworks/HomeAccessoryControlUI.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/iOSSupport/System/Library/PrivateFrameworks/PassKitUIFoundation.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
@@ -267,14 +265,14 @@ class LegacyMetal3802(BaseSharedPatchSet):
                     "/System/Library/PrivateFrameworks/VideoProcessing.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                         "ProcessAccelerate.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/Portrait.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
                     "/System/Library/PrivateFrameworks/VisualGeneration.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                         "NonMaxLineSuppress.ci.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/AccelerateGPU.framework": {
                         "GPUBLAS.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
@@ -283,7 +281,7 @@ class LegacyMetal3802(BaseSharedPatchSet):
                     },
                     "/System/Library/PrivateFrameworks/ShaderGraph.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/Hydra.framework/Plugins/HydraQLThumbnailExtension.appex/Contents/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
@@ -323,7 +321,7 @@ class LegacyMetal3802(BaseSharedPatchSet):
                         "MTLGPUDebugAccelerationStructureSupport.metallib": DynamicPatchset.MetallibSupportPkg,
                         "MTLDebugShaders.metallib": DynamicPatchset.MetallibSupportPkg,
                         "MTLLegacySVAccelerationStructureSupport.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/AppleDepth.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
@@ -336,7 +334,7 @@ class LegacyMetal3802(BaseSharedPatchSet):
                         "Photogrammetry_Texturing_Kernels.metallib": DynamicPatchset.MetallibSupportPkg,
                         "Photogrammetry_MVS_Kernels.metallib": DynamicPatchset.MetallibSupportPkg,
                         "Photogrammetry_Meshing_Kernels.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/HumanUI.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
@@ -360,7 +358,7 @@ class LegacyMetal3802(BaseSharedPatchSet):
                     },
                     "/System/Library/PrivateFrameworks/FRC.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/H13ISPServices.framework/Versions/A/Resources": {
                         "CalibrateRgbIr.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
@@ -372,108 +370,108 @@ class LegacyMetal3802(BaseSharedPatchSet):
                     },
                     "/System/Library/PrivateFrameworks/H16ISPServices.framework/Versions/A/Resources": {
                         "CalibrateRgbIr.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/CoreOCModules.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                     },
                     "/System/Library/PrivateFrameworks/PhotosensitivityProcessing.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/PrivateFrameworks/MediaCoreUI.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/Metal.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                         "MTLMeshShaderEmulator.metallib": DynamicPatchset.MetallibSupportPkg,
                         "MTLBVHBuilder.metallib": DynamicPatchset.MetallibSupportPkg,
                         "MTLECBE.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/QuartzCore.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/ACD.plugin/Contents/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSFunctions.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSRayIntersector.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSNeuralNetwork.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSNDArray.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSImage.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSMatrix.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/MetalFX.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/ParavirtualizedGraphics.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/ImageIO.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/SpriteKit.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/PencilKit.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/CoreDisplay.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/SwiftUICore.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/SwiftUI.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/Vision.framework/Versions/A/Resources": {
                         "ImageFilters.metallib": DynamicPatchset.MetallibSupportPkg,
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/StickerKit.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/VideoToolbox.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/Frameworks/SceneKit.framework/Versions/A/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Library/VideoProcessors/CCPortrait.bundle/Contents/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                         "CoreImageKernels_only.ci.metallib": DynamicPatchset.MetallibSupportPkg,
                         "CoreImageKernels.ci.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Applications/Music.app/Contents/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Applications/Chess.app/Contents/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Applications/Freeform.app/Contents/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
                         "coreimage.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                     "/System/Applications/Freeform.app/Contents/Extensions/USDRendererExtension.appex/Contents/Resources": {
                         "default.metallib": DynamicPatchset.MetallibSupportPkg,
-                },
+                    },
                 },
                 PatchType.REMOVE_SYSTEM_VOLUME: {
                     "/System/Library/PrivateFrameworks/RenderBox.framework/Versions/A/Resources": [
                         # For some reason Ivy Bridge can't tell the metallib lacks AIR64 support, and errors out
                         "archive.metallib",
-                ],
-            },
+                    ],
+                },
             }
         }
 
@@ -509,17 +507,6 @@ class LegacyMetal3802(BaseSharedPatchSet):
         """
         Dictionary of patches
         """
-        if self._xnu_major >= os_data.tahoe.value:
-            # Metal 3802 patches on macOS 26 Tahoe are experimental.
-            # Safety guard: only allow if Developer Mode is enabled (~/.dortania_developer or OCLP_DEV_MODE=1)
-            # to protect ordinary users while enabling testing for Haswell/Kepler/Ivy Bridge.
-            from pathlib import Path
-            import os
-            is_dev = Path("~/.dortania_developer").expanduser().exists() or os.environ.get("OCLP_DEV_MODE") == "1"
-            if not is_dev:
-                return {}
-
-
         return {
             **self._patches_metal_3802_common(),
             **self._patches_metal_3802_common_extended(),

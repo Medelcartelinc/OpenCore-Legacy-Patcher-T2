@@ -115,6 +115,11 @@ class BuildOpenCore:
         utilities.cls()
         logging.info(f"Building Configuration {'for external' if self.constants.custom_model else 'on model'}: {self.model}")
 
+        # Determine T2 status upfront: it also selects the OpenCore payload
+        # (T2 fork for T2 Macs, OpenCore 1.0.8 for all other Macs) in _generate_base()
+        is_t2 = self.model in model_array.T2Macs or "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
+        self.constants.opencore_build_for_t2 = is_t2
+
         self._generate_base()
         self._set_revision()
 
@@ -127,9 +132,6 @@ class BuildOpenCore:
         if self.model in _T2_UHD630_MODELS:
             logging.info(f"- Disabling VMM CPUID for {self.model} to prevent UHD 630 driver stall")
             self.constants.set_vmm_cpuid = False
-
-        # Determine T2 status upfront
-        is_t2 = self.model in model_array.T2Macs or "T2_CHIP" in self.constants.device_properties.get(self.model, {}).get("Features", [])
 
         if is_t2:
             try:
@@ -146,10 +148,15 @@ class BuildOpenCore:
                     "ProtectSecureBoot": True,
                     "ForceBooterSignature": True,
                 })
-                # On Tahoe+, T2 requires SMBIOS spoofing for SpoofVMM.
+                # On Tahoe+, T2 requires SMBIOS spoofing for T2TahoeFixup.
                 # detected_os is a Darwin major (Tahoe = 25), so compare against
                 # os_data.tahoe - "15" is El Capitan and matched every macOS.
-                smbios_spoof = (self.constants.detected_os >= os_data.os_data.tahoe)
+                # detected_os is the host's running OS, not the build target: an unsupported T2 Mac
+                # building from native Sequoia must still get the spoof (same rule as security.py).
+                smbios_spoof = (
+                    self.constants.detected_os >= os_data.os_data.tahoe
+                    or security.is_unsupported_t2_mac(self.model)
+                )
                 
                 self.config.setdefault("PlatformInfo", {})["Automatic"] = smbios_spoof
                 self.config.setdefault("PlatformInfo", {})["UpdateSMBIOS"] = smbios_spoof
@@ -213,11 +220,23 @@ class BuildOpenCore:
                 raw_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].get("boot-args", "")
                 # Also drop dart=0: it is only meant for pre-T2 targets and must not
                 # survive into a T2 config via the template or a previous build.
-                scrubbed_args = " ".join([arg for arg in raw_args.split() if not arg.startswith("-lilu") and arg != "dart=0"])
+                # RestrictEvents args (-revbeta, revpatch=, revblock=) are dropped too:
+                # RestrictEvents is not injected on T2 Macs, T2TahoeFixup does the VMM spoof.
+                # SpoofVMM args (-spoofvmmbid, -spoofvmmnobypass, ...) are dropped as well:
+                # SpoofVMM was replaced by T2TahoeFixup, which doesn't need any boot-args.
+                scrubbed_args = " ".join([
+                    arg for arg in raw_args.split()
+                    if not arg.startswith("-lilu")
+                    and not arg.startswith("-spoofvmm")
+                    and arg not in ["dart=0", "-revbeta", "-ibtcompatbeta", "AMFIPass=0x1",
+                                    "-disable_sidecar_mac", "-disable_media_analysis"]
+                    and not arg.startswith(("revpatch=", "revblock="))
+                ])
 
-                # Append required T2 args safely without compounding spaces
-                t2_args = "-ibtcompatbeta -revbeta revpatch=sbvmm"
-                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = f"{scrubbed_args} {t2_args}".strip()
+                # -ibtcompatbeta used to be appended here. It belongs to IntelBluetoothFirmware/
+                # IntelBTPatcher, which OCLP doesn't ship (T2 Macs use Broadcom Bluetooth), so
+                # nothing ever read it. It is now scrubbed like the other dead args above.
+                self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = scrubbed_args.strip()
 
                 # RestrictEvents.kext is intentionally NOT injected on T2 Macs; they will use a
                 # separate, dedicated kext (in development). See misc.py _restrict_events_handling.
@@ -332,6 +351,9 @@ class BuildOpenCore:
             except TypeError:
                 shutil.rmtree(staging_folder, ignore_errors=True)
 
+        if not Path(self.constants.opencore_zip_source).exists():
+            raise FileNotFoundError(f"OpenCore payload missing: {self.constants.opencore_zip_source}")
+        logging.info(f"- Using OpenCore payload {self.constants.opencore_zip_name} ({'T2' if self.constants.opencore_build_for_t2 else 'non-T2'} target)")
         shutil.copy(self.constants.opencore_zip_source, self.constants.build_path)
         zipfile.ZipFile(self.constants.opencore_zip_copied).extractall(self.constants.build_path)
 
@@ -425,6 +447,25 @@ class BuildOpenCore:
 
 
 
+    def _cpu_lacks_avx2(self) -> bool:
+        """
+        Returns True if the target CPU has no AVX2 support.
+
+        Building for the host: use the real CPUID leaf 7 flags if available.
+        Building for another model (or flags unavailable): fall back to the CPU
+        generation (AVX2 was introduced with Haswell).
+        """
+        computer = getattr(self.constants, "computer", None)
+        if not self.constants.custom_model and computer is not None and getattr(computer, "cpu", None) is not None:
+            leafs = [f.upper() for f in (getattr(computer.cpu, "leafs", None) or [])]
+            if leafs:
+                return "AVX2" not in leafs
+
+        if self.model not in smbios_data.smbios_dictionary:
+            # Unknown model: don't inject, cryptex=0 on an AVX2 CPU is the bug we're avoiding
+            return False
+        return smbios_data.smbios_dictionary[self.model]["CPU Generation"] <= cpu_data.CPUGen.ivy_bridge.value
+
     def _build_opencore(self) -> None:
         """
         Kick off the build process
@@ -493,11 +534,19 @@ class BuildOpenCore:
                 smbios.BuildSMBIOS(self.model, self.constants, self.config).set_smbios()
 
             # Tahoe Base Boot-args injection
-            if self.constants.build_profile in ["standard", "test_c", "test_c_spoofed", "test_d"] or self.model == "MacBookPro14,3":
-                logging.info("Profile TEST: Injecting Tahoe boot-args (cryptex=0).")
-                current_boot_args = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].get("boot-args", "")
-                if "cryptex=0" not in current_boot_args:
-                    self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = f"{current_boot_args} cryptex=0".strip()
+            # cryptex=0 is only needed on CPUs without AVX2 (Ivy Bridge and older), same
+            # criterion as CryptexFixup in firmware.py. Previously this ran for every
+            # "standard" build (i.e. practically every Mac) plus a hard-coded
+            # MacBookPro14,3 override, so Haswell+ Macs (incl. all T2 Macs) got it too.
+            boot_args_key = self.config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]
+            current_boot_args = boot_args_key.get("boot-args", "")
+            if self.constants.build_profile in ["standard", "test_c", "test_c_spoofed", "test_d"] and self._cpu_lacks_avx2():
+                logging.info("Injecting Tahoe boot-args (cryptex=0) - CPU lacks AVX2.")
+                if "cryptex=0" not in current_boot_args.split():
+                    boot_args_key["boot-args"] = f"{current_boot_args} cryptex=0".strip()
+            elif "cryptex=0" in current_boot_args.split():
+                logging.info("Removing cryptex=0 boot-arg - CPU supports AVX2.")
+                boot_args_key["boot-args"] = " ".join(a for a in current_boot_args.split() if a != "cryptex=0")
 
             # Haswell / Broadwell GPU Boot-args
             if any(self.model.startswith(prefix) for prefix in ["MacBookPro11,", "MacBookPro12,", "iMac14,", "iMac15,", "Macmini7,"]):

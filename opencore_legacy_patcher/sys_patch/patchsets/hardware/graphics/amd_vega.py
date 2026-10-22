@@ -6,7 +6,6 @@ from ..base import BaseHardware, HardwareVariant, HardwareVariantGraphicsSubclas
 
 from ...base import PatchType
 
-from ...shared_patches.metal_31001     import LegacyMetal31001
 from ...shared_patches.monterey_gva    import MontereyGVA
 from ...shared_patches.monterey_opencl import MontereyOpenCL
 from ...shared_patches.tahoe_graphics  import TahoeGraphics
@@ -33,16 +32,13 @@ class AMDVega(BaseHardware):
 
     def present(self) -> bool:
         """
-        Targeting AMD Vega GPUs
-        Note: Previously required CPUs lacking AVX2.0, but the iMac Pro (2017)
-        has a Skylake Xeon WITH AVX2 and still needs Vega patches on Tahoe
-        since Apple dropped Vega support based on GPU architecture, not CPU.
+        Targeting AMD Vega GPUs with CPUs lacking AVX2.0
         """
         return self._is_gpu_architecture_present(
             gpu_architectures=[
                 device_probe.AMD.Archs.Vega
             ]
-        )
+        ) and "AVX2" not in self._computer.cpu.leafs
 
 
     def native_os(self) -> bool:
@@ -83,17 +79,12 @@ class AMDVega(BaseHardware):
                     "/System/Library/Extensions": {
                         "AMDRadeonX5000.kext":            self._resolve_monterey_framebuffers(),
 
-                        "AMDRadeonVADriver2.bundle":      "12.5-26" if self._xnu_major >= os_data.golden_gate.value else "12.5-25" if self._xnu_major >= os_data.tahoe.value else "12.5",
-                        "AMDRadeonX5000GLDriver.bundle":  "12.5-26" if self._xnu_major >= os_data.golden_gate.value else "12.5-25" if self._xnu_major >= os_data.tahoe.value else "12.5",
-                        **({ "AMDRadeonX5000MTLDriver.bundle": (
-                            "12.5-26" if self._xnu_major >= os_data.golden_gate.value
-                            else ("12.5-25" if self._xnu_major >= os_data.tahoe.value
-                            else ("12.5-24" if self._xnu_major >= os_data.sequoia.value
-                            else f"12.5-{self._xnu_major}"))
-                        ) }),
+                        "AMDRadeonVADriver2.bundle":      "12.5-25" if self._xnu_major >= os_data.tahoe else "12.5",
+                        "AMDRadeonX5000GLDriver.bundle":  "12.5-25" if self._xnu_major >= os_data.tahoe else "12.5",
+                        "AMDRadeonX5000MTLDriver.bundle": "12.5-25" if self._xnu_major >= os_data.tahoe else "12.5" if self._xnu_major < os_data.sequoia else "12.5-24",
                         "AMDRadeonX5000Shared.bundle":    "12.5",
 
-                        "AMDShared.bundle":               "12.5-26" if self._xnu_major >= os_data.golden_gate.value else "12.5-25" if self._xnu_major >= os_data.tahoe.value else "12.5",
+                        "AMDShared.bundle":               "12.5-25" if self._xnu_major >= os_data.tahoe else "12.5",
                     },
                 },
             },
@@ -132,8 +123,6 @@ class AMDVega(BaseHardware):
             return {}
 
         return {
-            **LegacyMetal31001(self._xnu_major, self._xnu_minor, self._constants.detected_os_version).patches(),
-
             # AMD GCN and newer GPUs can still use the native GVA stack
             **MontereyGVA(self._xnu_major, self._xnu_minor, self._constants.detected_os_version).revert_patches(),
 

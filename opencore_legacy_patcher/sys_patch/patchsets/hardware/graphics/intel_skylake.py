@@ -6,7 +6,6 @@ from ..base import BaseHardware, HardwareVariant, HardwareVariantGraphicsSubclas
 
 from ...base import PatchType
 
-from ...shared_patches.metal_31001     import LegacyMetal31001
 from ...shared_patches.monterey_opencl import MontereyOpenCL
 
 from .....constants  import Constants
@@ -60,27 +59,13 @@ class IntelSkylake(BaseHardware):
         return HardwareVariantGraphicsSubclass.METAL_31001_GRAPHICS
 
 
-    def _is_skylake_metal_supported_on_current_os(self) -> bool:
-        """
-        Check if Skylake Metal acceleration packages are fully compatible on current OS.
-        On macOS 26 Tahoe and newer, legacy Monterey SKL Metal bundles cause a black screen
-        with cursor due to unresolved metallib symbols and WindowServer compositor failure.
-        Skipping unless experimental developer override is explicitly active.
-        """
-        if self._xnu_major >= os_data.tahoe.value:
-            if not self._dortania_internal_check():
-                return False
-        return True
-
-
     def _model_specific_patches(self) -> dict:
         """
         Model specific patches
         """
-        if not self._is_skylake_metal_supported_on_current_os():
-            # Return empty patchset on Tahoe to preserve unaccelerated display stability
-            # and prevent the black screen / freeze state.
-            return {}
+        metal_driver_source = self._resolve_gcn_skylake_metal_drivers() or (
+            "12.5-25" if self._xnu_major >= os_data.tahoe else "12.5" if self._xnu_major < os_data.sequoia else "12.5-24"
+        )
 
         return {
             "Intel Skylake": {
@@ -89,12 +74,7 @@ class IntelSkylake(BaseHardware):
                         "AppleIntelSKLGraphics.kext":            self._resolve_monterey_framebuffers(),
                         "AppleIntelSKLGraphicsFramebuffer.kext": self._resolve_monterey_framebuffers(),
                         "AppleIntelSKLGraphicsGLDriver.bundle":  "12.5",
-                        "AppleIntelSKLGraphicsMTLDriver.bundle": (
-                            "12.5-26" if self._xnu_major >= os_data.golden_gate.value
-                            else ("12.5-25" if self._xnu_major >= os_data.tahoe.value
-                            else ("12.5-24" if self._xnu_major >= os_data.sequoia.value
-                            else "12.5-22"))
-                        ),
+                        "AppleIntelSKLGraphicsMTLDriver.bundle": metal_driver_source,
                         "AppleIntelSKLGraphicsVADriver.bundle":  "12.5",
                         "AppleIntelSKLGraphicsVAME.bundle":      "12.5",
                         "AppleIntelGraphicsShared.bundle":       "12.5",
@@ -111,11 +91,7 @@ class IntelSkylake(BaseHardware):
         if self.native_os() is True:
             return {}
 
-        if not self._is_skylake_metal_supported_on_current_os():
-            return {}
-
         return {
-            **LegacyMetal31001(self._xnu_major, self._xnu_minor, self._constants.detected_os_version).patches(),
             **MontereyOpenCL(self._xnu_major, self._xnu_minor, self._constants.detected_os_version).patches(),
             **self._model_specific_patches(),
         }

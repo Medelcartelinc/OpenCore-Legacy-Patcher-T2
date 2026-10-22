@@ -1,4 +1,287 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.1900010 - 4.0.0 alpha 19.10
+This release:
+- on T2 Macs, adds the option "Disable internal SSD" (main menu > OpenCore > General tab). When enabled, AppleANS2Disabler.kext is injected, which hides the internal SSD from macOS so it can be booted and installed from an external USB SSD. The internal SSD is not modified and can still be booted without OpenCore
+- fixes "Disable internal SSD" being greyed out when the patcher didn't detect a T2 build target (e.g. on a VM, a Hackintosh or another Mac with "Host Model" selected). The option can now always be selected and is only applied when building for a T2 Mac
+- for all GPUs, Legacy Audio, Modern Audio, USB1.1, now we're migrating for those away from the costum patchset inside the patcher itself only and switching to Dortania's, which are proven to be stable, thx @Dortania and @Jazzzny
+- Wi-Fi (Legacy and Modern Wireless): all Wi-Fi root patches now use Dortania's binaries again on every macOS version. YBronst's Wi-Fi builds were removed from PatcherSupportPkg (`e50444f`), so macOS 13 Ventura to macOS 15 Sequoia no longer use them either (macOS 26 Tahoe already used Dortania's since alpha 19.9.8). The unused `use_ybronst_wifi` setting was removed from constants.py
+- fixes Modern Wireless root patching failing on every Mac that needs it: since alpha 19.10's USB 1.1 change, `ModernWireless.patches()` no longer returned its patch list. modern_wireless.py is now identical to Dortania's again
+- on T2 Macs, updates T2TahoeFixup.kext to 1.0.6, correcting the hardware model whitelist (MacBookPro16,2 restored to native Tahoe whitelist so the kext remains dormant; MacBookPro16,1 and MacBookPro16,4 added to dropped models to ensure Stage 2 manifest aliases and fixup are applied)
+- on T2 Macs, adds the boot-args `aks-endpoint=0` (AppleKeyStore skips the SEP handshake, avoids the `sks request timeout` panic), `acm_panic_on_sep_response_timeout=0` and `TSC_sync_margin=0`, and makes sure `debug=0x100 keepsyms=1` are always set
+- removes macOS Big Sur Beta (macOS 10.16) definitions
+- fixes a bug where the GPU may be printed twice inside the Statistics
+- the installer packages (OpenCore-Patcher-T2.pkg, the Uninstaller and AutoPkg-Assets-T2.pkg) now require macOS 10.13 High Sierra or newer, Installer refuses to install them on older systems
+- on T2 Macs, removes boot-args that had no effect: `-ibtcompatbeta` (Intel Bluetooth, not shipped), `AMFIPass=0x1` (not read by AMFIPass), `-disable_sidecar_mac` (FeatureUnlock isn't loaded on T2 Macs) and `-disable_media_analysis` (not read by anything). Also fixes Navi T2 Macs getting both `agdpmod=vit9696` and `agdpmod=pikera`, where vit9696 won
+- root patching: requires reverting the root patches again before patching with a different patcher build (different patcher version, PatcherSupportPkg version or commit), like upstream. Previously new patches could be merged on top of patches from an older build, leaving files from both on the system volume. On non-Metal Macs this mixed the old Moraea SkyLight stack with the current one, so the menu bar disappeared and apps failed to launch (#539). Completing an unfinished root patch with the same build (e.g. after the network-only first stage) is still possible
+- root patching: the leftover preferences of the old Moraea non-Metal stack are now also removed for the logged-in user when the patcher runs as root (e.g. `sudo ... --patch_sys_vol`)
+- fixes a vulnerability where due to absence of minimum requirements for the installer to run, an attacker could trick the victim into installing OpenCore Legacy Patcher T2 to abuse its Priveleged Helper Tool and execute arbitary code as root on any macOS version, including Lion, Mountain Lion and Mavericks, even when the patcher requires High Sierra. And then to abuse the patcher for malware operations.
+Severity: high
+Impact: since the installer didn't checked on which macOS version is currently running on the system, an attacker could trick a victim into installing OpenCore Legacy Patcher T2 onto incompatible macOS versions to abuse the Priveleged Helper Tool for malware delivery  and execute malware as root instead of installing unsupported macOS versions.
+- fixes a vulnerability where an attacker could replace  applescript.AppleScript('tell app "loginwindow" to \u00abevent aevtrrst\u00bb').run() with a malformed script to trigger an error outside applescript.ScriptError as e in a very sophisticated attack:
+
+       if answer == wx.ID_YES:
+            # Reboots with Count Down prompt (user can still dismiss if needed)
+            self.frame.Hide()
+            wx.Yield()
+            try:
+                applescript.AppleScript('tell app "loginwindow" to \u00abevent aevtrrst\u00bb').run()
+            except applescript.ScriptError as e: 
+                logging.error(f"Error while trying to reboot: {e}")
+                logging.exception("Stack Trace:")
+                logging.info("Go to Apple Logo > Restart and click on Restart to fix this issue.")
+            # <- an attacker could replace applescript.AppleScript('tell app "loginwindow" to \u00abevent aevtrrst\u00bb').run() with a malformed script to trigger an error outside applescript.ScriptError
+
+Severity: low
+Impact: an attacker may be able to replace applescript.AppleScript('tell app "loginwindow" to \u00abevent aevtrrst\u00bb').run() with a malicious script that is intentionally empty or malformed to launch a sophisticated DoS attack to crash the application. This vulnerability has been fixed by ensuring that it displays an error on every exception.
+
+## 4.0.0.190009.9 - 4.0.0 alpha 19.9.9
+This release:
+- replaces Spoof-VMM with T2TahoeFixup, thx @matteoiacca, @gandolf243 and @@zkennedy137
+- fixes a serious bug where boot.efi in both the T2 OpenCorePkg package and the non-T2 one were using the version from 1.0.4 instead of the latest one (2.0.7 for T2 Macs, 1.0.8 for the rest of the Macs). This could result in an unstable macOS 26 Tahoe and macOS 15 Sequoia installations, as OpenCore 1.0.4 was released long before Tahoe ever got announced at WWDC 2025. In fact, it was released around April 2025 or even earlier.
+
+## 4.0.0.190009.8 - 4.0.0 alpha 19.9.8
+Non-T2 Macs:
+- fixes the Wi-Fi root patches on macOS 26 Tahoe (#218). Since alpha 19.9.7 OpenCore loads Dortania's Tahoe AirPort kexts (`AirPortBrcmNIC-Tahoe`, `AirPortAtheros40-Tahoe`) on Tahoe, but the root patches still installed YBronst's macOS 15 Sequoia (-24) Wi-Fi frameworks on Tahoe. That paired the Tahoe kexts with frameworks that were never built or tested for them. Tahoe now uses Dortania's -25 root patches, like upstream (thx @Jazzzny and @Dortania):
+  - Modern Wireless (e.g. BCM4360 in the MacBookPro11,x): `IO80211.framework`, `WiFiPeerToPeer.framework` and `wifip2pd` from `13.7.2-25`. The `13.7.2-25` folder in PatcherSupportPkg held a copy of YBronst's Sequoia build until now; Dortania's Tahoe binaries are restored there (PatcherSupportPkg `7c27d34`, byte-identical to Dortania's PatcherSupportPkg 2.0.3). This part needs a PatcherSupportPkg release that contains this commit
+  - Legacy Wireless: Dortania's `12.7.2-25` frameworks. YBronst's `airportd`, `wps` and `wifip2pd` builds still apply on Tahoe
+- macOS 13 Ventura to macOS 15 Sequoia are not affected: the Wi-Fi root patches there keep using YBronst's builds
+- since the repository for the Metallibs API has been renamed, the links are changed to point to the new repo's link to fix 404 error when trying to get the Metallibs
+- changes the link to the new one for the instructions for T2 Macs to fix the 404 error when trying to open them
+
+T2 Macs:
+- replaces SpoofVMM 4.9.7-alpha4 with T2TahoeFixup 1.0.2 (`payloads/Kexts/T2/T2TahoeFixup-1.0.2-Release.zip` / `-Debug.zip`), thx @Medelcartelinc. Unlike SpoofVMM, both a Release and a Debug build are bundled, so kext debugging now uses the Debug build
+  - T2TahoeFixup needs no boot-args: OCLP no longer adds `-spoofvmmbid`, and leftover `-spoofvmm*` args are removed from the boot-args. The native board-id is kept
+  - an old `SpoofVMM.kext` entry in the config is disabled so both kexts can't load at the same time
+
+## 4.0.0.190009.7 - 4.0.0 alpha 19.9.7
+This release:
+- on T2 Macs, now no longer allows flashing to the ESP if Windows or Linux is installed. On Linux is untested whether flashing OpenCore to the ESP causes issues, but on Windows 11 it results in This device needs to be repaired. Now if Windows is installed, it'll show this warning instead:
+<img width="512" height="379" alt="image" src="https://github.com/user-attachments/assets/39d4946e-47ee-437d-bf66-01d05098bc6b" />
+
+- fixes a bug in the Spoof-VMM.kext where on unsupported T2 Macs when trying to boot the installer causes a kernel panic
+- updates the Intel Skylake and AMD Legacy GCN patches to fix a kernel panic on MacBookPro13,3 by updating PatcherSupportPkg to 2.0.8, thx @Jazzzny and @Dortania
+## 4.0.0.190009.6 - 4.0.0 alpha 19.9.6
+- fixes a vulnerability where an attacker could check if opencore_build_for_t2 is True to execute arbitary code:
+
+      if self.opencore_build_for_t2 is not True:
+                  variant = f"NON-T2-{variant}"
+              return f"OpenCore-{variant}.zip" # <- an attacker could execute arbitary code or launch a DoS attack
+Impact: an attacker could check if the Mac is a T2 Mac or not and if yes, to execute arbitary code instead of injecting OpenCore to disk. Or worse, an attacker could inject OpenCore 2.0.7 that is known to cause issues on non-T2 Macs to intentionally corrupt the system. This vulnerability is fixed by ensuring OpenCore ever gets injected if the opencore_build_for_t2 condition exists and is set to either True or False.
+T2 Macs:
+- updates SpoofVMM from 4.9.1 to 4.9.6-alpha2 (`payloads/Kexts/T2/SpoofVMM-4.9.6-alpha2-Release.zip`), thx @Medelcartelinc:
+  - in-kernel Stage 2 installer bypass: patches `-[... runReturningError:]` of `OSIUpdateFirmwareElement`, `OSIVerifyROMElement`, `OSIInstallPersonalizedManifestsElement`, `OSIMSUInstallElement` and `OSIMSUCleanupElement` to return success, so the installer no longer stops at the BridgeOS firmware step on T2 Macs Apple dropped from macOS 26 Tahoe. It is on by default; `-spoofvmmnobypass`, `-spoofvmmnostage2` and `-spoofvmmnocs` turn it off for testing
+  - the default bridge-model is now `J214kAP` (and `hw.target` reports the same), matching the default board-id `Mac-5F9802EFE386AA28` (both MacBookPro16,2)
+  - no new boot-args are needed: OCLP keeps adding `-spoofvmmbid` on unsupported T2 Macs only
+- this is an alpha build of SpoofVMM and only a Release build exists, so the Release build is also used when kext debugging is enabled
+- removes the RestrictEvents boot-args `-revbeta` and `revpatch=sbvmm` from T2 configs (also when left over from a template or older build). RestrictEvents is not injected on T2 Macs, so they had no effect; SpoofVMM handles the VMM spoof
+- SpoofVMM is now only taken from the bundled release: the build no longer falls back to another SpoofVMM zip or to an old, previously extracted `SpoofVMM.kext` (possible when running from source), checks that the added kext really is 4.9.6, and stops with an error if the payload is missing. The second SpoofVMM injection in the T2 handling (logged as "3.0.0") uses the same path now
+- this is not yet tested on real hardware. Please report whether Stage 2 of the Tahoe installer gets past "Failed to install a software update" (attach `/var/log/install.log`)
+
+Non-T2 Macs:
+- fixes MacBookPro11,1, 11,2 and 11,3 (2013/2014 Haswell) freezing at the Apple logo on macOS 15 Sequoia and macOS 26 Tahoe (#218). Since alpha 18 these models got the `ProvideCurrentCpuInfo` kernel quirk, which on Intel CPUs patches the core count to the thread count (meant for Alder Lake and other asymmetrical CPUs) and gave the kernel a wrong CPU topology. It is now only used on MacBookAir8,1 and 8,2 again. Rebuild and reinstall OpenCore to pick up the fix
+
+## 4.0.0.190009.5 - 4.0.0 alpha 19.9.5
+OpenCore:
+- non-T2 Macs now get OpenCore 1.0.8 (`payloads/OpenCore/OpenCore-NON-T2-{DEBUG,RELEASE}.zip`) instead of the T2 OpenCorePkg fork. T2 Macs keep using the T2 fork (`OpenCore-{DEBUG,RELEASE}.zip`, 2.0.4). The payload is picked per build target, so building on a T2 Mac for a non-T2 Mac (and the other way round) uses the right one; the build log and `#Revision > OpenCore-Version` in config.plist show which version was used. The fork was never designed for non-T2 Macs and would cause issues if used on a non-T2 system, including stalls and kernel panics.
+
+## 4.0.0.190009.4 - 4.0.0 alpha 19.9.4
+This release fixes root patching problems introduced or left over while porting Dortania's macOS 26 Tahoe patching scheme:
+
+T2 Macs:
+- fixes the AMD Vega patchset being offered on natively supported macOS versions: iMac Pro (2017) and MacBookPro15,1/15,3 with Vega graphics got the Monterey `AMDRadeonX5000.kext` installed over the native driver on Ventura, Sonoma and Sequoia. On CPUs with AVX2 the patchset is now only used on macOS 26 Tahoe and newer, and never on a Mac that Apple still supports on the running macOS (e.g. MacPro7,1 with Radeon Pro Vega II on Tahoe). CPUs without AVX2 behave as before (like Dortania)
+- never enables the `IOHIDFamily USB topcase panic` kernel patch on T2 Macs (their keyboard, trackpad, Touch Bar and Touch ID are HID devices behind the T2; the patch skips `IOHIDDevice::didTerminate()` for every HID device). This was not reachable with current hardware detection and is a safeguard only
+
+Other Macs:
+- fixes Haswell, Ivy Bridge and NVIDIA Kepler Macs being only half patched on Tahoe: the GPU kexts were installed, but the Metal 3802 stack (Metal 13.2.1-25, MTLCompiler 13.6-25, GPUCompiler 13.2.1-25) was skipped unless Developer Mode was active. The Developer Mode gate is removed (ported from Dortania d622cd5), thx @Jazzzny and Dortania
+- on Tahoe, Metal 3802 GPUs now get only the five prebuilt `26.0-3802` metallibs (Tungsten, RenderBox, VFX, VectorKit, AlloyCommonLibrary) instead of the Sequoia-era MetallibSupportPkg set, and MetallibSupportPkg is no longer required on Tahoe (ported from Dortania 9809024 and c70f40a), thx @Jazzzny and Dortania
+- stops installing the Sequoia-era 3802 metallib set on Metal 31001 GPUs (Broadwell, Skylake, AMD GCN, Polaris, Vega, Navi) on Tahoe; they keep the RenderBox `26.0-3802` metallib via the Tahoe graphics patches, like Dortania
+- re-enables AMD Legacy GCN graphics acceleration on Tahoe (iMac15,1 - iMac17,1, MacPro6,1 etc.) by removing the Developer Mode gate, like Dortania. The Legacy GCN color fix (`AppleColorSyncLinearGamma`) is now only applied on Tahoe, as on Polaris; it was also applied on Ventura - Sequoia before
+- removes the old Moraea non-Metal leftovers, which the current non-Metal stack no longer uses (ported from Dortania bfe8f7c and a898811), thx @Jazzzny and Dortania:
+  - the "Legacy Keyboard Backlight" patchset (`Moraea_BacklightHack`)
+  - the SkyLightPlugins folder is no longer recreated during root patching, and the Monterey CoreWLAN SkyLight plugin is no longer installed
+  - root patching and reverting now remove the old non-Metal preferences (`Moraea_*`, `Amy.MenuBar2Beta` and related keys)
+  - the "Non-Metal Configuration" settings section and the automatic `Moraea_BlurBeta` default are removed
+
+WiFi:
+- fixes root patching aborting on every Mac that needs WiFi patches (Legacy and Modern Wireless, Monterey and newer): the patcher looked for YBronst's WiFi payloads in `-YB` folders, but PatcherSupportPkg ships them in the regular folders (no release ever contained `-YB` folders), so the preflight check failed with "Failed to find ...-YB..." and no patches at all were installed. The `-YB` suffix is gone; `use_ybronst_wifi` still keeps YBronst's approach of reusing the Sequoia (`-24`) builds on Tahoe, thx @YBronst and @Medelcartelinc
+
+macOS installer creation:
+- when creating a macOS installer, you can now erase only a single partition instead of the whole disk: after picking a disk, choose "Erase Entire Disk" (previous behavior) or "Choose Partition". Only the selected partition is reformatted, all other partitions on the disk stay untouched. APFS partitions are erased as a whole container (every volume inside it is lost, the dialog warns about this). Only partitions that can actually be used are listed: EFI, Recovery, reserved and too small partitions are not shown, and you get a warning if the disk doesn't use a GUID partition map
+- macOS 26 Tahoe installers now need a disk or partition of at least 20 GB (previously 14 GB for all versions, which is too small for Tahoe); older macOS installers still need 14 GB
+- the disk macOS is currently booted from is no longer offered for erasing, even if it is an external drive (e.g. when booting Tahoe from an external SSD)
+- disk and partition identifiers are now validated before they are written into the installer script, which runs as root. Impact: none known, this is a safeguard only. The identifiers come from `diskutil`, but anything that ends up in a script run as root should never be trusted blindly
+
+Security and OpenCore installation:
+- hardens installing the launch services for the auto patcher: the files were prepared in a temporary folder the user can write to and then copied by root into /Library/LaunchDaemons without checking what was copied, so another process of the same user could swap them for its own root LaunchDaemon. They are now created in memory, written safely, and checked after installation (a mismatch removes the file and stops the install).
+  Impact: local privilege escalation. Any program running as the logged-in user, without knowing the admin password, could get its own code installed as a LaunchDaemon and run as root at every boot (persistent root access). By replacing the staged file with a symlink, it could also make root copy a root-only file (e.g. password hashes) to a readable location. Exploiting this needs malicious code already running on the Mac and has to hit the short window while the launch services are being installed; it can't be triggered remotely
+- the RSRMonitor launch daemon is no longer written into the app itself (this broke the app's code signature and failed on root-owned app bundles), and symlinks in /Library/Extensions are no longer included in its root cleanup.
+  Impact: the broken code signature could make macOS refuse to open the app or report it as damaged. The symlink change is a safeguard only: creating entries in /Library/Extensions already needs root, and the cleanup removed the symlink itself, not what it points to
+- before deleting the old EFI/OC and System folders as root when installing OpenCore, the target is now checked to be the selected FAT/EFI partition actually mounted there (custom mount points outside /Volumes still work).
+  Impact: data loss, not an attack. If a wrong partition was passed in, root deleted `EFI/OC`, `System` and `boot.efi` on that drive. If the EFI reported no mount point, the paths were taken relative to the app's working directory, which is `/` when the app is opened from Finder, so root ran `rm -rf` on `/System`. With SIP's filesystem protection disabled (common after root patching), this could reach user data through `/System/Volumes/Data`
+- fixes OpenCore installation crashing at the end in Recovery mode (UnboundLocalError) even though the install had succeeded; a failed unmount is now only logged as a warning. Impact: not a security issue; the crash made a successful install look like it had failed
+
+## 4.0.0.190009.3 - 4.0.0 alpha 19.9.3
+This release:
+- adds an end-of-life warning: if the main project repository (albert-mueller/OpenCore-Legacy-Patcher-T2) is archived or deleted, the main menu shows a warning on launch and a "Download OpenCore Legacy Patcher from Dortania" button that opens Dortania's latest release. The check runs once per launch in the background; a missing internet connection or a GitHub rate limit never triggers it, and a renamed repository still counts as active
+- if the repository was deleted, or its name now belongs to a different repository (detected via GitHub's repository ID), the in-app updater stops using the official channel, so a re-registered account can't ship fake updates (same supply chain issue as the fork channels). An archived repository keeps the updater as is
+- changes the link with instructions for T2 Macs from the previous repository: https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2-Instructions-for-T2-Macs to a now new website: https://albert-mueller.github.io/ . The previous repository will be gone and as such, if you are running older versions of OpenCore Legacy Patcher T2, now it will open a dead link.
+
+## 4.0.0.190009.2 - 4.0.0 alpha 19.9.2
+This release:
+- fixes a kernel panic on macOS 26 Tahoe on Macs with a USB top case (internal keyboard/trackpad driven by AppleUSBTopCase.kext): adds the `IOHIDFamily USB topcase panic` kernel patch (`IOHIDDevice::didTerminate`, MinKernel 25.0.0) and enables it wherever AppleUSBTopCase.kext is injected (ported from Dortania d147e58), thx @Jazzzny and Dortania
+- fixes the NVIDIA Web Driver patchset on Tahoe: CoreDisplay now uses the `10.13.6-25` payload instead of the Sequoia one (ported from Dortania dd681ac), thx @Jazzzny and Dortania
+- fixes the Skylake graphics patches on Tahoe: T1 Macs now get the `KyberInTheSEPRegisteredKeys` MessageProtection feature flag turned off during root patching (ported from Dortania b8ae03e), thx @Jazzzny and Dortania
+- removes the Tahoe safety guard that skipped the Skylake graphics patchset unless DortaniaInternal was active
+- fixes Skylake root patching on Ventura and Sonoma: AppleIntelSKLGraphicsMTLDriver.bundle was looked up in the `12.5-22` payload, which only contains the Broadwell driver; it now uses `12.5` like Dortania
+- re-enables root patching for non-Metal GPUs (NVIDIA Web Driver, NVIDIA Tesla, AMD TeraScale 1/2, Intel Iron Lake/Sandy Bridge) on Tahoe by removing the safety guards added in 6d6eea9
+- replaces the non-Metal shared patchsets (`non_metal.py`, `non_metal_ioaccel.py`, `non_metal_coredisplay.py`, `non_metal_enforcement.py`) with Dortania's current versions, so they use the Tahoe-era PatcherSupportPkg payloads. This affects every macOS version, not just Tahoe:
+  - SkyLight: only the `SkyLight`/`SkyLightOriginal` binaries are replaced with a build matching the macOS version (`26.7-25` on Tahoe) instead of merging the old 10.14.6 `SkyLight.framework`; the QuartzCore merge is gone
+  - adds `iconservicesagent` from 26.0 on Tahoe
+  - the IOSurface version is now chosen per GPU (10.14.6 for NVIDIA Web Driver and TeraScale 2, 10.15.7 for the rest)
+  - removes fork-only additions: `screencapture`, the Screen Sharing bundles, the DropboxHack SkyLight plugin and the GlobalPreferences/WebKit `defaults write` tweaks
+  - Macs with non-Metal GPUs that are already root patched should revert root patches and patch again, so the old SkyLight/QuartzCore files and plugins don't stay on the system
+- hides fork update channels whose GitHub account or repository no longer exists (e.g. "Medelcartelinc (Fork)") from Settings > App > "Update Channel"; if such a channel was selected, the patcher automatically switches back to the official channel. A missing internet connection never counts as offline, and the channel reappears if the repository comes back. This mitigates a vulnerability where if the account ever gets banned or deleted, the channel remains the same and an attacker could launch a supply chain attack by registering the same, old name.
+
+Impact: if Medelcartelinc's account ever gets banned or deleted, an attacker could set a fake GitHub repository to launch supply chain attacks by just sticking to the old channel. This vulnerability is fixed by ensuring that if the account ever gets banned or deleted, users are migrated safely to the main project instead.
+
+- fixes another vulnerability where in the Ask Gemini handling in gui_build.py, an attacker could cause an unintended fallback or launch DoS attack:
+
+                    except Exception as clipboard_error:
+                        logging.error(f"Failed to copy build log to clipboard: {clipboard_error}")
+
+                    if self.constants.detected_os >= os_data.os_data.big_sur:
+                        logging.info("- Launching Gemini AI Assistant (wx.html2 WebView)")
+                        gemini_window = gui_support.GeminiWebView(self, title="Gemini AI Assistant")
+                        gemini_window.Show()
+                    else: # <- an attacker could cause unintended fallback or DoS by setting constants.detected_os to a specially crafted value
+                        logging.info("- Launching Gemini AI Assistant (default web browser, host predates Big Sur)")
+                        logging.info("macOS Catalina, Mojave and High Sierra can't load Gemini in Safari and WebKit because they're too old.")
+                        webbrowser.open("https://gemini.google.com")
+
+Impact: an attacker could set constants.detected_os inside gui_build.py to a specially crafted value to cause unintended fallback or crash the application to launch DoS attacks. This vulnerability is fixed by ensuring Gemini ever opens only if the version in constants.detected_os can be parsed.
+
+## 4.0.0.190009.1 - 4.0.0 alpha 19.9.1
+This release:
+- fixes a bug where smbios_data listed the 16-inch 2019 MacBook Pro supports maximum Sequoia, although Apple natively supports Tahoe on these models
+- fixes a bug where on unsupported T2 Macs Spoof-VMM is enabled but none of the boot arguments are injected due to a bug where the logic checked if the Mac was running Tahoe instead of checking if it is unsupported by Tahoe
+
+## 4.0.0.190009 - 4.0.0 alpha 19.9
+This release:
+- fixes several vulnerabilities in the Privileged Helper Tool and the self signing workflow that allowed **local privilege escalation to root without a password** (see "Security fixes" below)
+- create-signing-certificate.sh now keeps the signing key in its own locked keychain (oclp-signing.keychain-db, codesign-only access, auto-lock after 5 minutes and on sleep) instead of the login keychain, and can export the key off the machine (`--export`) and import it again (`--import`); Build-Project.command locks the keychain after every build
+- adds verify-signature.sh to confirm a self signed (not notarized) build is your own before accepting the Gatekeeper warning; install.sh refuses unsigned or ad-hoc signed helpers and sets root:wheel 4755 explicitly
+- moves the SpoofVMM kext payloads from `payloads/Kexts/Acidanthera` to the new `payloads/Kexts/T2` folder, since SpoofVMM is not an Acidanthera kext
+
+### Security fixes - Privileged Helper Tool
+
+Severity: **High** - local privilege escalation (CVSS 3.1 AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H, 7.8).
+Affected: every release (non-DEBUG) build of `com.albert-mueller.opencore-patcher-t2.privileged-helper` up to and including the prebuilt binary shipped with this version, whether signed with a Developer ID or a self signed certificate. DEBUG builds (`make debug`) were never meant to be secure and are unchanged; they still skip the caller check and rely on the command allowlist.
+
+Impact: the helper is installed setuid root and runs any command its caller passes. Any process running as the logged-in user - malware, a malicious script, a compromised app - that got past the caller check could run arbitrary commands as root without an administrator password: modify or replace system files and the sealed system volume, install persistent LaunchDaemons or kernel extensions, read every user's data and disable security features. No user interaction was needed.
+
+1. **Caller signature was never validated** (CWE-347). The helper compared the certificate lists returned by `SecCodeCopySigningInformation()` for itself and its parent process, but never called `SecStaticCodeCheckValidity()` / `SecCodeCheckValidity()`. Certificates are public and that function does not verify the signature, so a modified copy of OpenCore-Patcher-T2.app, or any binary carrying a copied signature blob, presented the "right" certificates and was accepted.
+   Fixed: the helper validates its own signature, then requires the running parent process to satisfy `identifier "com.dortania.opencore-legacy-patcher-t2" and certificate leaf = H"<SHA-1 of the helper's own leaf certificate>"`, checked dynamically (running process) and strictly on disk (all architectures).
+2. **No identifier pinning** (CWE-863). Any binary signed with the same certificate counted as a valid caller, including other tools in the app bundle (e.g. RSRRepair, bundled interpreters/libraries). Any of them that can be made to launch an arbitrary child process became a path to root.
+   Fixed: the requirement pins the app's identifier (`make CLIENT_ID=...` if the bundle identifier is changed).
+3. **Caller identified by file path, not by the running code** (CWE-367). The parent was looked up with `proc_pidpath()` and its file on disk was inspected, so the code that actually ran was never checked (TOCTOU: the file could differ from what was executing).
+   Fixed: the parent is obtained by PID with `SecCodeCopyGuestWithAttributes()`, validated as running code, and the helper refuses if it was reparented (caller exited) during validation.
+4. **Hardened runtime not enforced** (CWE-693). A caller signed without the hardened runtime was accepted; such a build of the genuine app can be taken over by the same user via `DYLD_INSERT_LIBRARIES` or a debugger and made to call the helper.
+   Fixed: callers without the hardened runtime are refused with the new error 172 (OCLP_PHT_ERROR_CALLER_NOT_HARDENED, handled like the other permanent signing errors). Note: macOS 10.13 does not enforce the hardened runtime, so this part offers no protection there.
+5. **Signing key exposed in the login keychain** (CWE-522). create-signing-certificate.sh imported the private key into the always-unlocked login keychain and granted `/usr/bin/security` and `codesign` access without prompts. With a self signed certificate that key is the helper's only trust root: any process running as the user could sign its own binary (or export the key) and pass the helper's check.
+   Fixed: dedicated keychain with its own password, codesign-only access, auto-lock, locked after every build, optional export off the machine. The script refuses to continue while the certificate is still in the login or System keychain until `--force` replaces it.
+
+- fixes a vulnerability where inside gui_install_oc.py, an attacker could set constants.detected_os to a specially crafted value:
+
+                    try:
+                          error_dialog = wx.Dialog(self, title="Installation Error", size=(460, 200))
+          
+                          main_sizer = wx.BoxSizer(wx.VERTICAL)
+                          button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+          
+                          error_msg = "OpenCore installation failed.\n\nWould you like to report this issue or ask Gemini for help?"
+                          msg_text = wx.StaticText(error_dialog, label=error_msg)
+                          msg_text.SetFont(gui_support.font_factory(12, wx.FONTWEIGHT_NORMAL))
+          
+                          btn_report = wx.Button(error_dialog, id=wx.ID_OK, label="Report Issue")
+                          btn_gemini = wx.Button(error_dialog, id=wx.ID_ANY, label="Ask Gemini")
+                          btn_close  = wx.Button(error_dialog, id=wx.ID_CANCEL, label="Close")
+          
+                          # Define a custom return code identifier for Gemini tracking
+                          GEMINI_CLICKED_ID = 10001
+          
+                          # Bind an event so clicking the button closes the dialog and returns our custom identifier
+                          error_dialog.Bind(wx.EVT_BUTTON, lambda event: error_dialog.EndModal(GEMINI_CLICKED_ID), btn_gemini)
+          
+                          main_sizer.Add(msg_text, 1, wx.ALL | wx.EXPAND, 20)
+                          button_sizer.Add(btn_report, 0, wx.RIGHT, 10)
+                          button_sizer.Add(btn_gemini, 0, wx.RIGHT, 10)
+                          button_sizer.Add(btn_close, 0)
+          
+                          main_sizer.Add(button_sizer, 0, wx.ALIGN_RIGHT | wx.BOTTOM | wx.RIGHT, 20)
+          
+                          error_dialog.SetSizer(main_sizer)
+                          error_dialog.Layout()
+                          error_dialog.Centre()
+          
+                          response = error_dialog.ShowModal()
+          
+                          if response == wx.ID_OK:
+                              webbrowser.open("https://github.com/albert-mueller/OpenCore-Legacy-Patcher-T2/issues")
+          
+                          # Check directly for your custom event return hook code
+                          # Unter macOS Catalina und älter Gemini funktioniert nicht richtig unter Safari/WebKit
+                          elif response == GEMINI_CLICKED_ID:
+                              # Gemini can't see the install log on its own, so copy it to the clipboard
+                              # and tell the user to paste it in, rather than making them go hunt for
+                              # the text box and select/copy it manually.
+                              try:
+                                  clipboard = wx.Clipboard.Get()
+                                  if not clipboard.IsOpened():
+                                      clipboard.Open()
+                                  clipboard.SetData(wx.TextDataObject(self.text_box.GetValue()))
+                                  clipboard.Close()
+                                  wx.MessageDialog(
+                                      self,
+                                      "The installation log has been copied to your clipboard.\n\nPaste it into the Gemini chat so it can help diagnose the error.",
+                                      "Copied to Clipboard",
+                                      wx.OK | wx.ICON_INFORMATION
+                                  ).ShowModal()
+                              except Exception as clipboard_error:
+                                  logging.error(f"Failed to copy installation log to clipboard: {clipboard_error}")
+          
+                              if self.constants.detected_os >= os_data.os_data.big_sur:
+                                  logging.info("- Launching Gemini AI Assistant (wx.html2 WebView)")
+                                  gemini_window = gui_support.GeminiWebView(self, title="Gemini AI Assistant")
+                                  gemini_window.Show()
+                              else: # <- an attacker could set constants.detected_os to a specially crafted value
+                                  logging.info("- Launching Gemini AI Assistant (default web browser, host predates Big Sur)")
+                                  logging.info("macOS Catalina, Mojave and High Sierra can't load Gemini in Safari and WebKit because they're too old.")
+                                  webbrowser.open("https://gemini.google.com")
+          
+                          error_dialog.Destroy()
+Impact: an attacker could set constants.detected_os to a specially crafted value to cause an unintended legacy fallback or worse, crash the application to launch a DoS attack. This vulnerability has been fixed by ensuring that Gemini ever opens up if constants.detected_os can be parsed.
+
+- fixes a vulnerability where for the Priveleged Helper Tool the minimum requirements are OS X Mavericks, while the patcher requires minimum macOS High Sierra. This creates a massive attack surface where an attacker could install the Priveleged Helper Tool without the actual patcher.
+Impact: a malicious application could install this Priveleged Helper Tool on versions of macOS that this patcher doesn't support to execute arbitary code as root. This vulnerability has been fixed by setting the minimum requirements to match the patcher's.
+
+- fixes a vulnerability where an attacker could abuse the prebuilt Priveleged Helper Tool inside the repository for malware operations by removing it from the repo altogether and requiring every developer that wants the helper built in, to build themselves and as such an attacker can't abuse my own signature for malware delivery. It's like to give your keys for your house or your car to a stranger who wants to steal your personal belongings.
+
+Impact: an attacker could abuse the freely available prebuilt Priveleged Helper Tool my signature for malware delivery. 
+
+### Other changes
+
+- updates PatcherSupportPkg to 2.0.7 to add missing patches for NVIDIA Web Driver and Kepler, replace the old Skylake patchset with the new one and remove a payload that only OCLP-Plus ever used
+- fixes a bug where cryptex=0 was injected on AVX2 Macs, including T1 and T2 Macs
+- updates Spoof-VMM to 4.9.1 to mitigate an issue where while trying to install unsupported macOS versions on T2 Macs where it may fail to get paths for the system root hash/rmtree manifest
+- adds the -spoofvmmbid boot-arg on T2 Macs that are unsupported by macOS Tahoe, so SpoofVMM 4.9.1 enables its (now opt-in) board-id swap and MobileSoftwareUpdate finds the manifest during installation
+- fixes the SpoofVMM payload path: constants still pointed at the non-existent SpoofVMM-v1.0.0-RELEASE.zip instead of the bundled SpoofVMM-4.9.1-Release/Debug.zip
+- fixes a bug where 2 times except Exception as ui_error: inside gui_install_oc.py for the Ask Gemini UI error handling
+- fixes a bug where when compiling the Priveleged Helper Tool on hosts running macOS High Sierra, Mojave or Catalina may fail because by default it sets Priveleged Helper Tool to be built using the Universal architecture that on High Sierra simply doesn't exist.
+
+## 4.0.0.190008.4 - 4.0.0 alpha 19.8.4
+This release:
+- fixes a bug where when trying to install updates automatically, the error Could not prepare working directory' (Errno 13) would appear
+
 ## 4.0.0.190008.3 - 4.0.0 alpha 19.8.3
 This release:
 - fixes a bug where on unsupported T2 Macs running Sequoia or Sonoma SMBIOS spoofing doesn't work
@@ -19,6 +302,8 @@ This release:
   - keeps this fork's own fixes for MacBookPro3,1 and MacBook5,1/5,2
 - Penryn (Core 2 Duo) Macs: adds the `-nomt_core` boot-arg so macOS 26 Tahoe boots reliably, ported from dortania/OpenCore-Legacy-Patcher@7007536, thx @Jazzzny and Dortania
 - AppleGraphicsPowerManagement: adds the missing iMac19,1 and iMac19,2 power management profiles (GFX0 + IGPU), ported from dortania/OpenCore-Legacy-Patcher@58f66ad, thx @Jazzzny and Dortania
+- fixes a bug where when clicking Checking for updates returns pre-release versions; instead, now for pre-release versions the user needs manually to opt-in
+- fixes a bug where when switching channels, it checks for any release, including pre-release versions instead of switching to the last stable version
 
 - fixes a vulnerability inside gui_oc_settings.py where an attacker could manipulate the input:
 

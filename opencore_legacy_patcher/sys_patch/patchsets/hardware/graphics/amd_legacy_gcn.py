@@ -6,12 +6,10 @@ from ..base import BaseHardware, HardwareVariant, HardwareVariantGraphicsSubclas
 
 from ...base import PatchType
 
-from ...shared_patches.metal_31001     import LegacyMetal31001
 from ...shared_patches.monterey_gva    import MontereyGVA
 from ...shared_patches.monterey_opencl import MontereyOpenCL
 from ...shared_patches.tahoe_graphics  import TahoeGraphics
 from ...shared_patches.amd_opencl      import AMDOpenCL
-from .amd_legacy_gcn_yellow_fix import patch as yellow_fix_patch
 
 from .....constants  import Constants
 from .....detections import device_probe
@@ -73,30 +71,10 @@ class AMDLegacyGCN(BaseHardware):
         return self._xnu_major >= os_data.ventura.value
 
 
-    def _is_amd_gcn_metal_supported_on_current_os(self) -> bool:
-        """
-        Check if AMD Legacy GCN Metal acceleration packages are fully compatible
-        on the current OS.
-        On macOS 26 Tahoe (golden_gate, Darwin 26) and newer, the legacy Monterey
-        AMD Metal bundles cause a black screen / WindowServer compositor failure
-        identical to the Skylake issue. Patching is skipped unless developer mode
-        is explicitly active.
-        """
-        if self._xnu_major >= os_data.tahoe.value:
-            if not self._dortania_internal_check():
-                return False
-        return True
-
-
     def _model_specific_patches(self) -> dict:
         """
         Model specific patches
         """
-        if not self._is_amd_gcn_metal_supported_on_current_os():
-            # Preserve unaccelerated display stability on Tahoe to prevent
-            # the black screen / freeze state at loginwindow.
-            return {}
-
         # If 3802 GPU present, use stock Monterey bronze bundle even on Sequoia
         bronze_bundle_source = "12.5"
         if self._is_gpu_architecture_present(
@@ -106,8 +84,10 @@ class AMDLegacyGCN(BaseHardware):
                 device_probe.NVIDIA.Archs.Kepler,
             ]
         ) is False:
-            if self._xnu_major >= os_data.sequoia.value:
-                bronze_bundle_source = "12.5-25" if self._xnu_major >= os_data.tahoe.value else "12.5-24"
+            if self._xnu_major >= os_data.sequoia:
+                bronze_bundle_source = "12.5-25" if self._xnu_major >= os_data.tahoe else "12.5-24"
+
+        bronze_bundle_source = self._resolve_gcn_skylake_metal_drivers() or bronze_bundle_source
 
         return {
             "AMD Legacy GCN": {
@@ -127,7 +107,7 @@ class AMDLegacyGCN(BaseHardware):
                         "AMDRadeonVADriver2.bundle":     "12.5",
                         "AMDRadeonX4000GLDriver.bundle": "12.5",
                         "AMDMTLBronzeDriver.bundle":     bronze_bundle_source,
-                        "AMDShared.bundle":              "12.5-GCN-25" if self._xnu_major >= os_data.tahoe.value else "12.5",
+                        "AMDShared.bundle":              "12.5-GCN-25" if self._xnu_major >= os_data.tahoe else "12.5",
                     },
                 },
             },
@@ -141,12 +121,7 @@ class AMDLegacyGCN(BaseHardware):
         if self.native_os() is True:
             return {}
 
-        if not self._is_amd_gcn_metal_supported_on_current_os():
-            return {}
-
-        _base = {
-            **LegacyMetal31001(self._xnu_major, self._xnu_minor, self._constants.detected_os_version).patches(),
-        }
+        _base = {}
 
         # AMD GCN and newer GPUs can still use the native GVA stack
         _base.update({
@@ -158,7 +133,6 @@ class AMDLegacyGCN(BaseHardware):
             **AMDOpenCL(self._xnu_major, self._xnu_minor, self._constants.detected_os_version).patches(),
             **TahoeGraphics(self._xnu_major, self._xnu_minor, self._constants.detected_os_version).patches(),
             **self._model_specific_patches(),
-            **yellow_fix_patch,
         })
 
         return _base

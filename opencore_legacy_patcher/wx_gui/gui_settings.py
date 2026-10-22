@@ -24,6 +24,7 @@ from ..support import (
     analytics_handler,
     subprocess_wrapper,
     kdk_handler,
+    update_channel_availability,
 )
 from ..datasets import (
     smbios_data,
@@ -374,7 +375,9 @@ class SettingsFrame(wx.Frame):
                 },
                 "Update Channel": {
                     "type": "choice",
-                    "choices": [channel["label"] for channel in self.constants.update_channels.values()],
+                    # Fork channels whose GitHub account is gone are left out
+                    # (see support/update_channel_availability.py)
+                    "choices": [channel["label"] for channel in self.constants.available_update_channels.values()],
                     "value": self.constants.update_channel_label,
                     "variable": "UpdateChannel",
                     "width": 200,
@@ -389,8 +392,17 @@ class SettingsFrame(wx.Frame):
                     "variable": "",
                     "function": self.on_check_for_updates,
                     "description": [
-                        "Manually check for updates so you have the",
-                        "latest features and bug fixes."
+                        "Manually check for stable updates so you have",
+                        "the latest features and bug fixes."
+                    ],
+                },
+                "Check for pre-releases": {
+                    "type": "button",
+                    "variable": "",
+                    "function": self.on_check_for_prereleases,
+                    "description": [
+                        "Also look for alpha/beta builds marked as",
+                        "pre-release. These may be unstable.",
                     ],
                 },
                 "Snooze Updates": {
@@ -455,18 +467,6 @@ class SettingsFrame(wx.Frame):
                     "function": self._populate_oc_build_override,
                     "args": wx.Frame,
                     },
-                "Turn Off Auto Updates": {
-                    "type": "checkbox",
-                    "value": not self.constants.auto_update,
-                    "variable": "AllowAutoUpdates",
-                    "description": [
-                        "When enabled, the app will still automatically",
-                        "check for updates.",
-                        "but will not apply them automatically."
-                    ],
-                    "override_function": self.toggle_auto_updates,
-                    "warning": "Turning this off will make your system more vulnerable to security issues. You will need to manually check for updates via the application's menu or GitHub.",
-                },
                 "wrap_around 1": {
                     "type": "wrap_around",
                 },
@@ -499,6 +499,21 @@ class SettingsFrame(wx.Frame):
                         "in the macOS Tahoe installer on T2 Macs."
                     ],
                     "condition": self.constants.True_Developer_Mode
+                },
+                "Application security": {
+                    "type": "title",
+                },
+                 "Turn Off Auto Updates": {
+                    "type": "checkbox",
+                    "value": not self.constants.auto_update,
+                    "variable": "AllowAutoUpdates",
+                    "description": [
+                        "When enabled, the app will still automatically",
+                        "check for updates.",
+                        "but will not apply them automatically."
+                    ],
+                    "override_function": self.toggle_auto_updates,
+                    "warning": "Disabling automatic updates will make your system more vulnerable to security issues that attackers may exploit for malware delivery to steal your personal information or harm your computer. You will need to manually check for updates via the application or GitHub. Procceed at your own risk.",
                 },
             },
         }
@@ -661,9 +676,17 @@ Hardware Information:
         if global_setting is not None:
             self._update_setting(global_setting, value)
 
-    def on_check_for_updates(self, event: wx.Event = None) -> None:
+    def on_check_for_prereleases(self, event: wx.Event = None) -> None:
         """
-        Manual "Check for updates" button.
+        Manual "Check for pre-releases" button: same as "Check for updates",
+        but GitHub releases marked as pre-release are considered too.
+        """
+        self.on_check_for_updates(event, include_prerelease=True)
+
+    def on_check_for_updates(self, event: wx.Event = None, include_prerelease: bool = False) -> None:
+        """
+        Manual "Check for updates" button (stable releases only), also used by
+        "Check for pre-releases" with include_prerelease=True.
 
         Unlike the startup check this ignores constants.has_checked_updates and
         always reports back - a user who clicks the button gets an answer even
@@ -680,13 +703,23 @@ Hardware Information:
         # Previously this looked for 'self.update_button', which never existed -
         # '_generate_elements()' only kept its buttons as locals, so the lookup
         # always returned None and the progress feedback silently did nothing.
-        button = self._buttons.get("Check for updates")
+        button = self._buttons.get("Check for pre-releases" if include_prerelease else "Check for updates")
+        # Both buttons share one worker thread - disable the other one too so
+        # the user can't start a second check while the first is still running.
+        other_button = self._buttons.get("Check for updates" if include_prerelease else "Check for pre-releases")
+        if other_button is not None:
+            other_button.Disable()
         original_label = button.GetLabel() if button is not None else None
         if button is not None:
             button.SetLabel("Checking...")
             button.Disable()
 
         def _restore_button() -> None:
+            if other_button is not None and other_button:
+                try:
+                    other_button.Enable()
+                except RuntimeError:
+                    pass
             # The user can hit Return while the check is still in flight, which
             # destroys the dialog and the button with it. The Python wrapper
             # outlives the C++ object, so verify it is still alive first -
@@ -702,7 +735,7 @@ Hardware Information:
 
         def _run_check() -> None:
             try:
-                main_frame._check_for_updates(manual=True)
+                main_frame._check_for_updates(manual=True, include_prerelease=include_prerelease)
             finally:
                 # This runs on the worker thread - every wx call has to be
                 # marshalled back to the main thread, otherwise this is a
@@ -821,6 +854,26 @@ Hardware Information:
         if new_channel == self.constants.update_channel:
             return
 
+        # The dropdown may have been built before the launch check finished -
+        # check the picked fork now (force: a cached "unknown" from an earlier
+        # offline moment must not let a dead repository through).
+        if not update_channel_availability.is_channel_online(self.constants, new_channel, force=True):
+            dead_index = choice_box.FindString(label)
+            if dead_index != wx.NOT_FOUND:
+                choice_box.Delete(dead_index)
+            selection = choice_box.FindString(self.constants.update_channel_label)
+            if selection != wx.NOT_FOUND:
+                choice_box.SetSelection(selection)
+            wx.MessageDialog(
+                self.frame_modal,
+                (
+                    f"The \"{label}\" channel is no longer available - its GitHub repository could not be found.\n\n"
+                    f"Updates stay on \"{self.constants.update_channel_label}\"."
+                ),
+                "Update Channel Unavailable", wx.OK | wx.ICON_WARNING
+            ).ShowModal()
+            return
+
         previous_channel = self.constants.update_channel
 
         # The channel has to persist on its own, the moment it is picked.
@@ -860,7 +913,8 @@ Hardware Information:
         if self.constants.update_channel_switch_pending:
             message = (
                 f"Updates will now be downloaded from:\n{self.constants.update_repo_link}\n\n"
-                "Use \"Check for updates\" to switch to the newest build of this channel. "
+                "Use \"Check for updates\" to switch to the newest stable build of this channel, "
+                "or \"Check for pre-releases\" to also consider alpha/beta builds. "
                 "You will always be asked before a build from another channel is installed, "
                 "since it may have a lower version number than the one you are running."
             )

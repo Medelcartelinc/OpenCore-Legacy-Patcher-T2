@@ -2,8 +2,6 @@
 modern_wireless.py: Modern Wireless detection
 """
 
-from pathlib import Path
-
 from ..base import BaseHardware, HardwareVariant
 
 from ...base import PatchType
@@ -35,6 +33,7 @@ class ModernWireless(BaseHardware):
             self._computer.wifi.chipset in [
                 device_probe.Broadcom.Chipsets.AirPortBrcm4360,
                 device_probe.Broadcom.Chipsets.AirportBrcmNIC,
+                # We don't officially support this chipset, however we'll throw a bone to hackintosh users
                 device_probe.Broadcom.Chipsets.AirPortBrcmNICThirdParty,
             ]
         )
@@ -53,72 +52,62 @@ class ModernWireless(BaseHardware):
         """
         return HardwareVariant.NETWORKING
 
-    def _base_patch(self) -> dict:
+    def _patches_modern_wireless_common_extended(self) -> dict:
         """
-        Base patches for Modern Wireless
-        """
-        if self._constants.use_ybronst_wifi is True:
-            # YBronst's WiFi set (-YB folders in PatcherSupportPkg), proven working on
-            # Sonoma, Sequoia and Tahoe. Tahoe reuses the 13.7.2-24 build, as before.
-            yb_source = (f"13.7.2-{self._xnu_major}" if self._xnu_major < os_data.tahoe.value else "13.7.2-24") + "-YB"
-            if (Path(self._constants.payload_local_binaries_root_path) / yb_source).exists():
-                source = yb_source
-            else:
-                source = f"13.7.2-{self._xnu_major}"
-        else:
-            # Dortania's set: dedicated 13.7.2-25 payloads on Tahoe (matches upstream).
-            source = f"13.7.2-{self._xnu_major}"
-        return {
-            "Modern Wireless": {
-                PatchType.OVERWRITE_SYSTEM_VOLUME: {
-                    "/usr/libexec": {
-                        "wifip2pd": source,
-                    },
-                },
-                PatchType.MERGE_SYSTEM_VOLUME: {
-                    "/System/Library/PrivateFrameworks": {
-                        "IO80211.framework":        source,
-                        "WiFiPeerToPeer.framework": source,
-                    },
-                }
-            },
-        }
-
-    def _extended_patch(self) -> dict:
-        """
-        Extended patches for Modern Wireless
+        Extended modern wireless patches
         """
         if self._xnu_major > os_data.sonoma:
             return {}
-
-        source = f"13.7.2-{self._xnu_major}" + ("-YB" if self._constants.use_ybronst_wifi is True else "")
 
         return {
             "Modern Wireless Extended": {
                 PatchType.OVERWRITE_SYSTEM_VOLUME: {
                     "/usr/libexec": {
-                        "airportd": source,
+                        "airportd": f"13.7.2-{self._xnu_major}",
                     },
                 },
                 PatchType.MERGE_SYSTEM_VOLUME: {
                     "/System/Library/Frameworks": {
-                        **({ "CoreWLAN.framework": source } if self._xnu_major == os_data.sonoma else {}),
+                        "CoreWLAN.framework": f"13.7.2-{self._xnu_major}",
                     },
                     "/System/Library/PrivateFrameworks": {
-                        "CoreWiFi.framework":       source,
+                        "CoreWiFi.framework":  f"13.7.2-{self._xnu_major}",
                     },
-                }
+                },
+            },
+        }
+
+
+    def _patches_modern_wireless_common(self) -> dict:
+        """
+        Common modern wireless patches
+        """
+        return {
+            "Modern Wireless Common": {
+                PatchType.OVERWRITE_SYSTEM_VOLUME: {
+                    "/usr/libexec": {
+                        "wifip2pd": f"13.7.2-{self._xnu_major}",
+                    },
+                },
+                PatchType.MERGE_SYSTEM_VOLUME: {
+                    "/System/Library/PrivateFrameworks": {
+                        "IO80211.framework":        f"13.7.2-{self._xnu_major}",
+                        "WiFiPeerToPeer.framework": f"13.7.2-{self._xnu_major}",
+                    },
+                },
             },
         }
 
     def patches(self) -> dict:
         """
-        Patches for Modern Wireless
+        Dictionary of patches
         """
         if self.native_os() is True:
             return {}
 
         return {
-            **self._base_patch(),
-            **self._extended_patch(),
+            **self._patches_modern_wireless_common(),
+            **self._patches_modern_wireless_common_extended(),
         }
+
+        return _base

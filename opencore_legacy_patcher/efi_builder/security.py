@@ -48,6 +48,22 @@ _T2_NO_IGPU_MODELS = {
 }
 
 
+def is_unsupported_t2_mac(model: str) -> bool:
+    """
+    True if `model` is a T2 Mac that Apple does not support on macOS Tahoe
+    (e.g. Macmini8,1, MacBookPro16,3, iMacPro1,1). Such models only ever use
+    OCLP to run Tahoe and newer, so they must always be treated as a Tahoe target,
+    regardless of which macOS the build host is currently running.
+
+    Indexes smbios_dictionary directly on purpose: every model in T2Macs must have
+    an entry, and a missing one should fail loudly instead of being silently
+    classified as "natively supported".
+    """
+    if model not in model_array.T2Macs:
+        return False
+    return smbios_data.smbios_dictionary[model]["Max OS Supported"] < os_data.os_data.tahoe
+
+
 class BuildSecurity:
     """
     Build Library for Security Patch Support
@@ -61,7 +77,13 @@ class BuildSecurity:
         self.computer: device_probe.Computer = self.constants.computer
 
         # ── Global Hardware & OS Targets Scopes ───────────────────────
-        self.is_tahoe_target: bool = (self.constants.detected_os >= os_data.os_data.tahoe)
+        # Tahoe target detection.
+        # detected_os is the macOS the build host is running, not the build target, so an
+        # unsupported T2 Mac building from native Sequoia must be caught via the model.
+        self.is_tahoe_target: bool = (
+            self.constants.detected_os >= os_data.os_data.tahoe
+            or is_unsupported_t2_mac(self.model)
+        )
         self.is_ice_lake: bool = (self.model == "MacBookAir9,1")
         self.is_mac_mini: bool = (self.model == "Macmini8,1")
 
@@ -280,7 +302,7 @@ class BuildSecurity:
         needs_amfipass = False
 
         if self._is_t2_mac():
-            if self.is_tahoe_target or smbios_data.smbios_dictionary[self.model]["Max OS Supported"] < os_data.os_data.tahoe:
+            if self.is_tahoe_target:
                 needs_amfipass = True
         else:
             if self.model in model_array.T2Macs:
@@ -307,18 +329,30 @@ class BuildSecurity:
                 # 2. Grafik- & Kernel-Injektionen (Unabhängig von Variablen-Fluktuatuationen absichern)
                 self._apply_t2_graphics_injection()
 
-                # 3. Ergänzende kosmetische Argumente sauber anhängen
-                self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-disable_sidecar_mac -disable_media_analysis")
-
-                # 4. Scope graphics injection flags strictly to active valid targets
-                if self._requires_t2_graphics_injection():
-                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-amfipassbeta igfxonln=1 igfxfw=2 forceRenderStandby=0 agdpmod=vit9696")
+                # 3./4. Removed boot-args (no effect on T2 Macs):
+                #  - -disable_sidecar_mac: FeatureUnlock arg, but FeatureUnlock is only injected
+                #    for models with Max OS Supported < Sonoma, i.e. never on a T2 Mac.
+                #  - -disable_media_analysis: not read by FeatureUnlock or the kernel.
+                #  - igfxonln=1 igfxfw=2 forceRenderStandby=0: misc.py _t2_handling() adds
+                #    them for every T2 Mac anyway.
+                #  - agdpmod=vit9696: misc.py picks agdpmod per GPU (pikera for Navi). Adding
+                #    vit9696 here first made it win over pikera on Navi Macs.
+                #  - -amfipassbeta: added by the AMFIPass block below whenever AMFIPass.kext
+                #    is actually injected (Tahoe target); without the kext it does nothing.
 
                 if self.is_tahoe_target:
-                    logging.info("- Injecting SpoofVMM for macOS Tahoe bypass on T2")
-                    support.BuildSupport(self.model, self.constants, self.config).enable_kext(
-                        "SpoofVMM.kext", self.constants.spoofvmm_version, self.constants.spoofvmm_path
-                    )
+                    logging.info("- Injecting T2TahoeFixup for macOS Tahoe bypass on T2")
+                    support.BuildSupport(self.model, self.constants, self.config).enable_t2tahoefixup()
+
+                    # T2TahoeFixup (replaces SpoofVMM) needs no boot-args: it detects the
+                    # T2 Macs Apple dropped from Tahoe by their bridge board itself, keeps
+                    # the native board-id and only reports the J214kAP bridge-model /
+                    # Mac-5F9802EFE386AA28 (MacBookPro16,2) to the installer processes.
+                    # Its own boot-args are for testing only (-t2tahoefixupoff / -t2off,
+                    # -t2tahoefixupdbg / -t2dbg, -t2tahoefixupbeta / -t2beta,
+                    # -t2tahoeforce, -t2tahoestage2, t2tahoe-bridge=, t2tahoe-board=),
+                    # so OCLP doesn't add any. The old SpoofVMM args (-spoofvmmbid etc.)
+                    # are scrubbed in build.py.
 
                 if self.constants.t2_installer_workaround is True:
                     logging.info("- Enabling T2 Installer Workarounds (VESA Mode & AMFI bypass)")

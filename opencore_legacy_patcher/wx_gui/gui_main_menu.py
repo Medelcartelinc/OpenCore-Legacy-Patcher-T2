@@ -17,7 +17,8 @@ from .. import constants
 
 from ..support import (
     updates,
-    utilities
+    utilities,
+    project_status
 )
 from ..datasets import (
     css_data
@@ -46,6 +47,7 @@ class MainFrame(wx.Frame):
 
         self.model_button: wx.Button = None
         self.build_button: wx.Button = None
+        self.eol_banner_added: bool = False
 
         # FIX: Absicherung gegen Thread-Races & Verwaiste Fenster-Referenzen
         self.exiting_app: bool = False
@@ -254,7 +256,115 @@ class MainFrame(wx.Frame):
         # Final Window Size adjustment
         self.SetSize((-1, copy_label.GetPosition()[1] + 60))
 
+        # MainFrame is recreated while navigating; once the end of life is known,
+        # every new instance shows the banner right away
+        if project_status.is_end_of_life(self.constants):
+            self._add_end_of_life_banner()
+
+    def _end_of_life_message(self) -> str:
+        status = self.constants.project_status
+        if status == project_status.ProjectStatus.ARCHIVED:
+            reason = "The OpenCore Legacy Patcher T2 repository has been archived and is no longer maintained."
+        elif status == project_status.ProjectStatus.REPLACED:
+            reason = (
+                "The original OpenCore Legacy Patcher T2 repository was deleted and its name now belongs "
+                "to a different repository. Do not download anything from it before you can verify it isn't "
+                "malicious. It could contain malware. "
+            )
+        else:
+            reason = "The OpenCore Legacy Patcher T2 repository no longer exists."
+        return (
+            f"{reason}\n\n"
+            "This project has reached its end of life: it will not receive any further "
+            "bug fixes, new features, updates or support for new macOS versions. "
+            "Also, any newly discovered vulnerabilities will remain permanently unpatched. "
+        )
+
+    def _add_end_of_life_banner(self) -> None:
+        """
+        Warning + download button below the model button. Every control below it moves
+        down, since the main menu is laid out with absolute positions.
+        """
+        if self.eol_banner_added or self.model_button is None:
+            return
+        self.eol_banner_added = True
+
+        banner_y = self.model_button.GetPosition()[1] + self.model_button.GetSize()[1] + 8
+
+        warning_label = wx.StaticText(self, label="⚠️ End of life: this project is no longer maintained and may contain unpatched vulnerabilities and known bugs", pos=(-1, banner_y))
+        warning_label.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_BOLD))
+        warning_label.SetForegroundColour(wx.Colour(220, 60, 60))
+        warning_label.SetToolTip(self._end_of_life_message())
+        warning_label.Centre(wx.HORIZONTAL)
+
+        download_button = wx.Button(self, label="Download OpenCore Legacy Patcher from Dortania", pos=(-1, banner_y + 24), size=(360, 30))
+        download_button.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
+        download_button.SetToolTip(project_status.DORTANIA_RELEASES_URL)
+        download_button.Bind(wx.EVT_BUTTON, self.on_download_dortania_oclp)
+        download_button.Centre(wx.HORIZONTAL)
+
+        offset = download_button.GetPosition()[1] + download_button.GetSize()[1] + 8 - banner_y
+        for child in self.GetChildren():
+            if child in (warning_label, download_button):
+                continue
+            x, y = child.GetPosition()
+            if y >= banner_y:
+                child.SetPosition((x, y + offset))
+
+        width, height = self.GetSize()
+        self.SetSize((width, height + offset))
+
+    def _check_project_status(self) -> None:
+        """
+        Background thread: find out whether the main project was archived or deleted
+        """
+        try:
+            project_status.check(self.constants)
+        except Exception:
+            logging.exception("Main project status check failed")
+            return
+
+        if not project_status.is_end_of_life(self.constants):
+            return
+        if getattr(self, 'exiting_app', False) or gui_support.is_app_exiting():
+            return
+        wx.CallAfter(self._on_project_end_of_life)
+
+    def _on_project_end_of_life(self) -> None:
+        # The frame may have been destroyed (navigation, Cmd+Q) while the check ran
+        if not self or getattr(self, 'exiting_app', False) or gui_support.is_app_exiting():
+            return
+
+        self._add_end_of_life_banner()
+
+        if self.constants.project_eol_notice_shown:
+            return
+        self.constants.project_eol_notice_shown = True
+
+        dialog = wx.MessageDialog(
+            self,
+            f"{self._end_of_life_message()}\n\n"
+            "Please switch to OpenCore Legacy Patcher from Dortania, the project this fork is based on.",
+            "End of Life",
+            style=wx.YES_NO | wx.YES_DEFAULT | wx.ICON_WARNING
+        )
+        dialog.SetYesNoLabels("Download from Dortania", "Continue anyway")
+        response = dialog.ShowModal()
+        dialog.Destroy()
+
+        if response == wx.ID_YES:
+            self.on_download_dortania_oclp()
+
+    def on_download_dortania_oclp(self, event: wx.Event = None) -> None:
+        logging.info(f"Opening Dortania's OpenCore Legacy Patcher releases: {project_status.DORTANIA_RELEASES_URL}")
+        webbrowser.open(project_status.DORTANIA_RELEASES_URL)
+
     def _preflight_checks(self, event: wx.Event = None) -> None:
+        # Before anything below can return early: the end-of-life warning must show up
+        # no matter which path the startup takes. Cached per session in constants.
+        if self.constants.project_status_checked is False:
+            threading.Thread(target=self._check_project_status, daemon=True, name="project-status").start()
+
         try:
             if self.constants.computer.build_model is None:
                 logging.info("No build model detected. Defaulting to current host hardware.")
@@ -345,7 +455,7 @@ class MainFrame(wx.Frame):
         # navigates), but constants persists for the whole process lifetime.
         self.constants.update_thread = self.update_thread
 
-    def _check_for_updates(self, manual: bool = False):
+    def _check_for_updates(self, manual: bool = False, include_prerelease: bool = False):
         if manual is False and self.constants.has_checked_updates is True:
             logging.info("We have already checked for updates.")
             return
@@ -353,15 +463,15 @@ class MainFrame(wx.Frame):
 
         checker = updates.CheckBinaryUpdates(self.constants)
         try:
-            update_dict = checker.check_binary_updates(manual=manual)
+            update_dict = checker.check_binary_updates(manual=manual, include_prerelease=include_prerelease)
         except Exception as e:
             logging.error(f"Update check failed: {e}")
             logging.exception("Stack Trace:")
-            self._report_manual_check(manual, None, str(e))
+            self._report_manual_check(manual, None, str(e), include_prerelease)
             return
 
         if not update_dict:
-            self._report_manual_check(manual, None, checker.last_error)
+            self._report_manual_check(manual, None, checker.last_error, include_prerelease)
             return
 
         remote_version_str = update_dict["Version"]
@@ -377,13 +487,13 @@ class MainFrame(wx.Frame):
 
                 if remote_v <= local_v:
                     logging.info(f"{self.constants.patcher_name} is up to date. (Local: {local_v} >= Remote: {remote_v})")
-                    self._report_manual_check(manual, None, None)
+                    self._report_manual_check(manual, None, None, include_prerelease)
                     return
 
             except version.InvalidVersion:
                 logging.info("The version is invalid, you'll not receive any further updates.")
                 if remote_version_str == local_version_str:
-                    self._report_manual_check(manual, None, None)
+                    self._report_manual_check(manual, None, None, include_prerelease)
                     return
 
         if getattr(self, 'exiting_app', False) or gui_support.is_app_exiting():
@@ -399,7 +509,7 @@ class MainFrame(wx.Frame):
             changelog = str(update_dict["Changelog"]).split("## Asset Information")[0]
 
         if not getattr(self, 'exiting_app', False) and not gui_support.is_app_exiting():
-            self._report_manual_check(manual, str(remote_version_str), None)
+            self._report_manual_check(manual, str(remote_version_str), None, include_prerelease)
             # A channel switch can install a build with a lower version number, so it
             # always goes through the confirmation dialog, never the silent auto-update.
             # With "Turn Off Auto Updates" enabled (auto_update False) the automatic
@@ -408,16 +518,16 @@ class MainFrame(wx.Frame):
             ask_first = manual or channel_switch or self.constants.auto_update is False
             wx.CallAfter(self.on_update, update_dict["Link"], remote_version_str, update_dict["Github Link"], changelog, ask_first, channel_switch)
 
-    def _report_manual_check(self, manual: bool, new_version, error) -> None:
+    def _report_manual_check(self, manual: bool, new_version, error, include_prerelease: bool = False) -> None:
         """
         Hand the result of a manual check back to the main thread. No-op for the
         automatic startup check, which stays silent when there is nothing new.
         """
         if manual is False:
             return
-        wx.CallAfter(self._on_manual_check_finished, new_version, error)
+        wx.CallAfter(self._on_manual_check_finished, new_version, error, include_prerelease)
 
-    def _on_manual_check_finished(self, new_version, error) -> None:
+    def _on_manual_check_finished(self, new_version, error, include_prerelease: bool = False) -> None:
         if getattr(self, 'exiting_app', False) or gui_support.is_app_exiting():
             return
 
@@ -442,8 +552,13 @@ class MainFrame(wx.Frame):
             )
             return
 
+        message = f"You are running the latest version ({self.constants.patcher_version_label})."
+        if include_prerelease:
+            message = f"You are running the latest version ({self.constants.patcher_version_label}), pre-releases included."
+        else:
+            message += "\n\nPre-releases were not included. Use \"Check for pre-releases\" in Settings to look for alpha/beta builds."
         wx.MessageBox(
-            f"You are running the latest version ({self.constants.patcher_version_label}).",
+            message,
             "No updates available",
             wx.OK | wx.ICON_INFORMATION, self
         )
@@ -488,7 +603,7 @@ class MainFrame(wx.Frame):
             self.description = wx.StaticText(panel, label=f"The newest build of the {self.constants.update_channel_label} channel is {oclp_version} - You have {self.constants.patcher_version_label}. Builds from different channels are not directly comparable, this may install a lower version number. Would you like to switch?")
         else:
             self.title_text = wx.StaticText(panel, label=f"A new version of {self.constants.patcher_name} is available!")
-            self.description = wx.StaticText(panel, label=f"{self.constants.patcher_name} {oclp_version} is now available - You have {self.constants.patcher_version_label}. Would you like to update?")
+            self.description = wx.StaticText(panel, label=f"{self.constants.patcher_name} {oclp_version} is now available - You have {self.constants.patcher_version_label}. When would you like to update?")
         self.title_text.SetFont(gui_support.font_factory(19, wx.FONTWEIGHT_BOLD))
         self.description.SetFont(gui_support.font_factory(13, wx.FONTWEIGHT_NORMAL))
         # Ohne Wrap() ragt der Text bei langen Versions-/Produktnamen über die feste Dialogbreite hinaus
@@ -524,6 +639,7 @@ class MainFrame(wx.Frame):
 
         buttonsizer = wx.BoxSizer(wx.HORIZONTAL)
         buttonsizer.Add(self.close_button, 0, wx.ALIGN_CENTRE | wx.RIGHT, 5)
+        buttonsizer.AddStretchSpacer(1)  # push "Update Later" to the far left
         buttonsizer.Add(self.view_button, 0, wx.ALIGN_CENTRE | wx.LEFT|wx.RIGHT, 5)
         buttonsizer.Add(self.install_button, 0, wx.ALIGN_CENTRE | wx.LEFT, 5)
 
@@ -531,7 +647,7 @@ class MainFrame(wx.Frame):
         sizer.Add(self.title_text, 0, wx.ALIGN_CENTRE | wx.TOP, 20)
         sizer.Add(self.description, 0, wx.ALIGN_CENTRE | wx.BOTTOM, 20)
         sizer.Add(self.web_view, 1, wx.EXPAND | wx.LEFT|wx.RIGHT, 10)
-        sizer.Add(buttonsizer, 0, wx.ALIGN_RIGHT | wx.ALL, 20)
+        sizer.Add(buttonsizer, 0, wx.EXPAND | wx.ALL, 20)
         panel.SetSizer(sizer)
         frame.Centre()
 
