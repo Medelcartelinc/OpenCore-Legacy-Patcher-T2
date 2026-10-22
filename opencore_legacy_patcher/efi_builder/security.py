@@ -356,12 +356,19 @@ class BuildSecurity:
                     # are scrubbed in build.py.
 
                 if self.constants.t2_installer_workaround is True:
-                    logging.info("- Enabling T2 Installer Workarounds (VESA Mode, AMFI bypass & forced T2TahoeFixup)")
+                    logging.info("- Enabling T2 Installer Workarounds")
                     current_args = self._read_nvram_string(APPLE_NVRAM_UUID, "boot-args").split()
                     cleaned_args = [arg for arg in current_args if arg not in ("igfxgl=1", "igfxmetal=1", "igfxfw=2")]
                     if "NVRAM" in self.config and "Add" in self.config["NVRAM"] and APPLE_NVRAM_UUID in self.config["NVRAM"]["Add"]:
                         self.config["NVRAM"]["Add"][APPLE_NVRAM_UUID]["boot-args"] = " ".join(cleaned_args)
-                    self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-radvesa -igfxvesa -amfipassbeta -t2tahoeforce")
+
+                    # Dual-GPU T2 models (Intel UHD 630 + AMD dGPU) require -wegoff during installer/recovery passes
+                    # to prevent WhateverGreen AGDP/connector policies from blocking display output on gmux.
+                    # Single-iGPU models require -igfxvesa to bypass the unaccelerated console hang at cons[.
+                    if self.model in ("MacBookPro15,1", "MacBookPro15,3", "MacBookPro16,1", "MacBookPro16,4"):
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-wegoff -t2tahoeforce -amfipassbeta")
+                    else:
+                        self._update_nvram_string(APPLE_NVRAM_UUID, "boot-args", "-igfxvesa -t2tahoeforce -amfipassbeta")
 
                 # 5. Hard Structural Boundaries Pass
                 logging.info("- Final T2 verification pass (Enforcing absolute boundaries)")
