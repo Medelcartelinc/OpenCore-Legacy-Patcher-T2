@@ -161,6 +161,8 @@ To run the project from source, see here: [Build and run from source](./SOURCE.m
 * [Albert Müller](https://github.com/albert-mueller/)
     * Adding support for unsupported T2 Macs and the main author of this fork
     * Help troubleshooting, determining fixes, fixing security vulnerabilities and writing patches
+* [YBronst](https://github.com/YBronst/OCLP-Plus)
+    * for fixing modern wireless on macOS 26 Tahoe
 * [pyquick](https://github.com/pyquick) and [hackdoc](https://github.com/hackdoc)
     * [improving support for Metallibs on macOS 26 Tahoe on unsupported non-T2 Macs](https://github.com/hackdoc/OCLP-R)
 * [coolkid418](https://github.com/coolkid418)
