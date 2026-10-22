@@ -5,5 +5,3 @@
 #
 # Read from the base branch (pull requests) or from the commit before a push, and in forks
 # also from the original repository's default branch. Add the entry first, then remove the credit.
-
-stephandeutsch  # USB 1.1 fix replaced by Dortania's USB 1.1 patch set again (Oct 2026)
