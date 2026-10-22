@@ -277,7 +277,8 @@ jobs:
   #   - All other errors still left (NameError, ImportError, ... - and syntax
   #     errors, when ANTHROPIC_API_KEY isn't set) are fixed by
   #     .github/scripts/ai_python_fix.py with a free GitHub Models model
-  #     (GITHUB_TOKEN with `models: read`, no secret). Only small edits in the
+  #     (GITHUB_TOKEN with `models: read`), or Gemini (free GEMINI_API_KEY
+  #     secret) when GitHub Models doesn't answer. Only small edits in the
   #     file that has the error; an edit is kept only if it removes one of that
   #     file's errors and adds none anywhere, otherwise the file is restored.
   # What can't be fixed safely stays in the tracking issue above.
@@ -356,10 +357,12 @@ jobs:
           PY
           python3 .github/scripts/ai_syntax_fix.py "$RUNNER_TEMP/failures.jsonl" "$RUNNER_TEMP/ai.md"
 
-      - name: Fix the remaining errors with GitHub Models
+      - name: Fix the remaining errors with GitHub Models / Gemini
         env:
           GITHUB_TOKEN: ${{ github.token }}
           MODELS_MODEL: ${{ vars.MODELS_MODEL }}
+          # Fallback when GitHub Models doesn't answer (same free key as the T2 status bot)
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           # Trusted copies: the fixer must not run a check it could have edited
           s="$RUNNER_TEMP/scripts"; mkdir -p "$s"
@@ -434,7 +437,7 @@ jobs:
             [ -f "$RUNNER_TEMP/ai.md" ] && cat "$RUNNER_TEMP/ai.md" && echo
             if [ -f "$RUNNER_TEMP/ai_models.md" ]; then
               echo "> [!WARNING]"
-              echo "> Some fixes below were written by an AI model (${MODELS_MODEL:-openai/gpt-4.1}, GitHub Models). They remove the reported errors and add none, but whether they do the *right* thing needs a human - review them like any other change."
+              echo "> Some fixes below were written by an AI model (GitHub Models or Gemini). They remove the reported errors and add none, but whether they do the *right* thing needs a human - review them like any other change."
               echo
               head -c 20000 "$RUNNER_TEMP/ai_models.md" | sed 's/@/@\xe2\x80\x8b/g; s/</\&lt;/g'
               echo

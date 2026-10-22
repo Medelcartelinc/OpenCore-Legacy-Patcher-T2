@@ -104,7 +104,7 @@ def main():
     def done():
         if notes:
             with open(args.notes, "w") as fh:
-                fh.write("### AI fixes (GitHub Models)\n\n" + "\n\n".join(notes) + "\n")
+                fh.write("### AI fixes (GitHub Models / Gemini)\n\n" + "\n\n".join(notes) + "\n")
         return 0
 
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -115,8 +115,8 @@ def main():
     if not errors:
         print("No errors to fix.")
         return done()
-    if not token:
-        print("::warning::GITHUB_TOKEN with `models: read` is missing - skipping the AI fixes.")
+    if not token and not os.environ.get("GEMINI_API_KEY"):
+        print("::warning::Neither GITHUB_TOKEN (`models: read`) nor GEMINI_API_KEY is set - skipping the AI fixes.")
         return done()
 
     acf.MAX_CHANGED_LINES = MAX_CHANGED_LINES
