@@ -8,6 +8,7 @@ This release:
 - fixes Modern Wireless root patching failing on every Mac that needs it: since alpha 19.10's USB 1.1 change, `ModernWireless.patches()` no longer returned its patch list. modern_wireless.py is now identical to Dortania's again
 - on T2 Macs, updates T2TahoeFixup.kext to 1.0.6, correcting the hardware model whitelist (MacBookPro16,2 restored to native Tahoe whitelist so the kext remains dormant; MacBookPro16,1 and MacBookPro16,4 added to dropped models to ensure Stage 2 manifest aliases and fixup are applied)
 - on T2 Macs, adds the boot-args `aks-endpoint=0` (AppleKeyStore skips the SEP handshake, avoids the `sks request timeout` panic), `acm_panic_on_sep_response_timeout=0` and `TSC_sync_margin=0`, and makes sure `debug=0x100 keepsyms=1` are always set
+- on T2 Macs, updates "T2 Installer Workaround" in GUI Settings: adds `-t2tahoeforce` to boot-args so T2TahoeFixup remains active during recovery and USB installer passes, cleans conflicting igfxgl/igfxmetal/igfxfw flags while VESA mode is active, makes the setting persistent, and unlocks it for all T2 Mac models without requiring Developer Mode
 - removes macOS Big Sur Beta (macOS 10.16) definitions
 - fixes a bug where the GPU may be printed twice inside the Statistics
 - the installer packages (OpenCore-Patcher-T2.pkg, the Uninstaller and AutoPkg-Assets-T2.pkg) now require macOS 10.13 High Sierra or newer, Installer refuses to install them on older systems
