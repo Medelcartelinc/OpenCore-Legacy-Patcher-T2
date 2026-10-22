@@ -35,12 +35,19 @@ on:
   schedule:
     - cron: "0 6 * * 1"   # Mondays 06:00 UTC
   workflow_dispatch:
+  # "/ai-fix" in a comment on the tracking issue runs the auto-fix job on demand
+  # (only for the owner, members and collaborators - see the job's `if`).
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
 
+# Each comment gets its own group: every comment on any issue starts this
+# workflow (most are skipped right away), and they must not cancel push runs
+# or a running /ai-fix.
 concurrency:
-  group: python-check-${{ github.event.pull_request.number || github.ref }}
+  group: python-check-${{ github.event_name == 'issue_comment' && format('comment-{0}', github.event.comment.id) || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -172,7 +179,7 @@ jobs:
 
   # Whole-project report for main: errors + warnings, kept in one tracking issue.
   main-report:
-    if: github.event_name != 'pull_request_target'
+    if: github.event_name != 'pull_request_target' && github.event_name != 'issue_comment'
     # One run at a time, so two runs can't both create a tracking issue
     concurrency:
       group: python-check-main-report
@@ -280,6 +287,10 @@ jobs:
   # Opens (or updates) one PR with fixes for whatever can be fixed safely on
   # main. Never runs for PRs, so it only ever touches trusted main code.
   #   - Warnings with a mechanical, behaviour-preserving fix are fixed by ruff:
+  #       F401  unused import                  -> removed (not in __init__.py:
+  #             ruff treats those as possible re-exports and leaves them alone;
+  #             if another module still imported the name from here, the
+  #             re-check below sees the new ImportError and nothing is pushed)
   #       F541  f-string without placeholders  -> plain string
   #       F632  `is` / `is not` with a literal -> `==` / `!=`
   #       W605  invalid escape sequence        -> raw string / escaped backslash
@@ -308,15 +319,26 @@ jobs:
   # other workflows, so the checks don't run on the auto-fix PR itself - the
   # fixes are verified here instead.
   auto-fix:
-    if: github.event_name != 'pull_request_target'
+    # On comments: only "/ai-fix" on the bot's own tracking issue, and only from
+    # people who can push anyway - anyone else's comment is ignored.
+    if: >-
+      github.event_name != 'pull_request_target' && (
+        github.event_name != 'issue_comment' || (
+          !github.event.issue.pull_request &&
+          github.event.issue.state == 'open' &&
+          github.event.issue.user.login == 'github-actions[bot]' &&
+          contains(github.event.issue.body, '<!-- python-check-main-report -->') &&
+          startsWith(github.event.comment.body, '/ai-fix') &&
+          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+      issues: write
       models: read
     env:
       FIX_BRANCH: auto-fix/python-check
-      RUFF_RULES: F541,F632,W605
+      RUFF_RULES: F401,F541,F632,W605
     steps:
       # Credentials are kept so the fix branch can be pushed. Safe here: this job
       # only runs on main/schedule/dispatch, and nothing from the repo is executed
@@ -325,6 +347,13 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: true
+
+      - name: Acknowledge /ai-fix
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: gh api -X POST "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" -f content=rocket > /dev/null || true
 
       - uses: actions/setup-python@v5
         with:
@@ -482,6 +511,15 @@ jobs:
               echo "::warning::Couldn't request a review from @$r on #$pr - they need to be a collaborator on this repository"
             fi
           done
+
+      - name: Tell /ai-fix when there was nothing to fix
+        if: github.event_name == 'issue_comment' && steps.verify.outputs.changed == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh issue comment "$ISSUE" --body "🤖 \`/ai-fix\` ran at ${GITHUB_SHA::7} ([run]($run)) but found nothing it can fix safely, so no PR was opened. / \`/ai-fix\` lief bei ${GITHUB_SHA::7}, fand aber nichts, was sich sicher automatisch beheben lässt - kein PR erstellt."
 
       - name: Close the auto-fix PR when nothing is left to fix
         if: steps.verify.outputs.changed == 'false'
