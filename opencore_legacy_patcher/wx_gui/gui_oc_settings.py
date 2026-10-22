@@ -799,6 +799,24 @@ class OCSettingsFrame(wx.Frame):
                     ],
                     "condition": not target_is_t2_mac,
                 },
+                "T2 Installer Workaround": {
+                    "type": "checkbox",
+                    "value": self.constants.t2_installer_workaround,
+                    "variable": "t2_installer_workaround",
+                    "warning": "You are enabling the T2 Installer Workaround. This forces software rendering (-radvesa, -igfxvesa) and disables AMFI (amfi=0x80) to allow the macOS Tahoe installer to boot without freezing on T2 Macs.\n\nOnly enable this if you are creating a USB installer. You must uncheck this and rebuild OpenCore after installing macOS and root patching!",
+                    "description": [
+                        "Enables workarounds to fix freezing",
+                        "in the macOS Tahoe installer on T2 Macs.",
+                        "Requires Experimental Features.",
+                    ],
+                    # Moved here from Settings > Advanced. Gated on Experimental
+                    # Features (was True_Developer_Mode) and on a T2 build target,
+                    # since efi_builder/security.py only applies it in the T2 branch.
+                    # Uses the regular _update_setting() path, so the value now
+                    # actually reaches self.constants (the old global-settings
+                    # override never set it, so the checkbox had no effect on builds).
+                    "condition": bool(self.constants.Experimental_Features and target_is_t2_mac),
+                },
                 "System Integrity Protection": {
                     "type": "title",
                 },
