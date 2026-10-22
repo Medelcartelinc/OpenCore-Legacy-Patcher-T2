@@ -57,17 +57,33 @@ jobs:
             }
 
             // Relocated notices: files deleted here because they now live elsewhere (see the file).
-            // Read from a trusted ref (PR base / commit before the push), never from the change itself.
+            // Read from trusted refs only (PR base / commit before the push), never from the change itself.
+            // In a fork, the original repository's default branch counts as trusted too: entries there
+            // were already reviewed upstream. Without it, a fork syncing an upstream relocation reads the
+            // list from its own older commit (where the entry doesn't exist yet) and reports the deletion.
             const RELOCATED_FILE = '.github/relocated-notices.txt';
             const globRe = g => new RegExp('^' + g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*+/g, '.*').replace(/\?/g, '.') + '$');
-            async function loadRelocated(ref) {
+            async function trustedSources(ref) {
+              const list = [{ o: owner, r: repo, ref }];
               try {
-                const { data } = await github.rest.repos.getContent({ owner, repo, path: RELOCATED_FILE, ref });
-                return Buffer.from(data.content, 'base64').toString('utf8').split('\n')
-                  .map(l => l.split('#')[0].trim()).filter(l => l.includes('->'))
-                  .map(l => { const [p, d] = l.split('->').map(s => s.trim()); return { re: globRe(p), dest: d }; })
-                  .filter(e => e.dest);
-              } catch (e) { if (e.status !== 404) core.warning(`Could not read ${RELOCATED_FILE}: ${e.message}`); return []; }
+                const { data } = await github.rest.repos.get({ owner, repo });
+                const src = data.fork && (data.source || data.parent);
+                if (src) list.push({ o: src.owner.login, r: src.name, ref: src.default_branch });
+              } catch (e) { core.warning(`Could not read repository info: ${e.message}`); }
+              return list;
+            }
+            async function loadRelocated(ref) {
+              const entries = [];
+              for (const s of await trustedSources(ref)) {
+                try {
+                  const { data } = await github.rest.repos.getContent({ owner: s.o, repo: s.r, path: RELOCATED_FILE, ref: s.ref });
+                  entries.push(...Buffer.from(data.content, 'base64').toString('utf8').split('\n')
+                    .map(l => l.split('#')[0].trim()).filter(l => l.includes('->'))
+                    .map(l => { const [p, d] = l.split('->').map(x => x.trim()); return { re: globRe(p), dest: d }; })
+                    .filter(e => e.dest));
+                } catch (e) { if (e.status !== 404) core.warning(`Could not read ${s.o}/${s.r}:${RELOCATED_FILE}: ${e.message}`); }
+              }
+              return entries;
             }
 
             async function scan(files, relocated = []) {
