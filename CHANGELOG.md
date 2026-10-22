@@ -1,8 +1,12 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
+## 4.0.0.1900011 - 4.0.0 alpha 19.11
+This releasE:
+- the dark app icon inside the app (main menu logo and About window) is no longer exclusive to macOS 26 Tahoe: it is now used in Dark Mode on every macOS from 10.14 Mojave on. The Dock icon and the app's dialogs keep using the dark icon on Tahoe and newer only.
+- fixes Legacy USB 1.1 root patching on macOS 13 Ventura and newer: the patch set now requires the Kernel Debug Kit, so IOUSBHostFamily and its UHCI/OHCI plugins are kept together in the primary Boot/System Kernel Collections, thx @stephandeutsch (`a53c7e9`)
+- updates PatcherSupportPkg to 2.10 to switch the WiFi patchset to Dortania's
+
 ## 4.0.0.1900010 - 4.0.0 alpha 19.10
 This release:
-- the dark app icon inside the app (main menu logo and About window) is no longer exclusive to macOS 26 Tahoe: it is now used in Dark Mode on every macOS from 10.14 Mojave on. The Dock icon and the app's dialogs keep using the dark icon on Tahoe and newer only
-- fixes Legacy USB 1.1 root patching on macOS 13 Ventura and newer: the patch set now requires the Kernel Debug Kit, so IOUSBHostFamily and its UHCI/OHCI plugins are kept together in the primary Boot/System Kernel Collections, thx @stephandeutsch (`a53c7e9`)
 - on T2 Macs, adds the option "Disable internal SSD" (main menu > OpenCore > General tab). When enabled, AppleANS2Disabler.kext is injected, which hides the internal SSD from macOS so it can be booted and installed from an external USB SSD. The internal SSD is not modified and can still be booted without OpenCore
 - fixes "Disable internal SSD" being greyed out when the patcher didn't detect a T2 build target (e.g. on a VM, a Hackintosh or another Mac with "Host Model" selected). The option can now always be selected and is only applied when building for a T2 Mac
 - for all GPUs, Legacy Audio, Modern Audio, USB1.1, now we're migrating for those away from the costum patchset inside the patcher itself only and switching to Dortania's, which are proven to be stable, thx @Dortania and @Jazzzny
