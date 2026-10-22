@@ -101,6 +101,7 @@ class HardwarePatchsetValidation(StrEnum):
     PATCHING_NOT_POSSIBLE         = "Validation: Patching not possible"
     UNPATCHING_NOT_POSSIBLE       = "Validation: Unpatching not possible"
     REPATCHING_NOT_SUPPORTED      = "Validation: Revert first to update or reinstall OCLP patches"
+    ROOT_VOLUME_DIRTY             = "Validation: The system volume was modified outside of the patcher. Revert the root patches, restart your Mac and patch again."
 
 
 # Root volume manifest written by 'sys_patch.py' after every successful root patch.
@@ -374,6 +375,40 @@ class HardwarePatchsetDetection:
         existing_patches = set(oclp_plist) - WIRELESS_PATCHSET_KEYS - MANIFEST_METADATA_KEYS
         if existing_patches:
             logging.error(f"Patch(es) already installed: {', '.join(sorted(existing_patches))}, unpatching is required")
+            return True
+
+        return False
+
+
+    def _validation_check_root_volume_dirty(self) -> bool:
+        """
+        Determine if the booted system volume was modified by something other than us
+
+        Fork addition (#493): a broken seal without a manifest of ours means the
+        volume is in an unknown state, and patching on top of it would seal that
+        state into the new snapshot. Revert first.
+
+        Only the booted volume is asked ('diskutil info /'), and only 'Broken'
+        counts: 'Sealed: No' (authenticated-root disabled, nothing changed yet) is
+        fine. With our own manifest present the seal is always broken, and
+        '_validation_check_repatching_not_possible()' decides instead - otherwise
+        the network-only first stage would block the second one (#285).
+        """
+        # macOS 11.0 introduced sealed system volumes
+        if self._xnu_major < os_data.big_sur.value:
+            return False
+
+        if read_root_volume_manifest():
+            return False
+
+        try:
+            info = plistlib.loads(subprocess.run(["/usr/sbin/diskutil", "info", "-plist", "/"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout)
+        except Exception as e:
+            logging.error(f"Failed to read the seal of the system volume: {e}")
+            return False
+
+        if "Broken" in str(info.get("Sealed", "")):
+            logging.error("The system volume's seal is broken without OpenCore Legacy Patcher patches recorded, unpatching is required")
             return True
 
         return False
@@ -765,6 +800,7 @@ class HardwarePatchsetDetection:
             HardwarePatchsetValidation.SECURE_BOOT_MODEL_ENABLED:   self._validation_check_secure_boot_model_enabled(),
             HardwarePatchsetValidation.AMFI_ENABLED:                self._validation_check_amfi_enabled(highest_amfi_level),
             HardwarePatchsetValidation.REPATCHING_NOT_SUPPORTED:    self._validation_check_repatching_not_possible(),
+            HardwarePatchsetValidation.ROOT_VOLUME_DIRTY:           self._validation_check_root_volume_dirty() if self._validation is False else False,
             HardwarePatchsetValidation.WHATEVERGREEN_MISSING:       self._validation_check_whatevergreen_missing() if has_nvidia_web_drivers is True else False,
             HardwarePatchsetValidation.FORCE_OPENGL_MISSING:        self._validation_check_force_opengl_missing()  if has_nvidia_web_drivers is True else False,
             HardwarePatchsetValidation.FORCE_COMPAT_MISSING:        self._validation_check_force_compat_missing()  if has_nvidia_web_drivers is True else False,
