@@ -2,7 +2,6 @@
 legacy_wireless.py: Legacy Wireless detection
 """
 
-from pathlib import Path
 import packaging.version
 
 from ..base import BaseHardware, HardwareVariant
