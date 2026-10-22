@@ -173,6 +173,10 @@ jobs:
   # Whole-project report for main: errors + warnings, kept in one tracking issue.
   main-report:
     if: github.event_name != 'pull_request_target'
+    # One run at a time, so two runs can't both create a tracking issue
+    concurrency:
+      group: python-check-main-report
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -214,16 +218,25 @@ jobs:
             const row = p => `| [\`${esc(p.file)}:${p.line}\`](${blob}/${encodeURI(p.file)}#L${p.line}) | ${esc(p.message)} |`;
             const kind = msg => msg.replace(/^Warning: /, '').replace(/'[^']*'/g, '…').replace(/line \d+/g, 'line …');
 
-            // Only our own issue - anybody can paste the marker into an issue
-            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', creator: 'github-actions[bot]', per_page: 100 });
-            const existing = issues.find(i => !i.pull_request && i.body && i.body.includes(MARKER));
+            // Only our own issues - anybody can paste the marker into an issue.
+            // Filtered here instead of with the API's `creator` filter, which
+            // sometimes returned nothing and led to duplicate reports (#587/#589).
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
+            const ours = issues
+              .filter(i => !i.pull_request && i.user && i.user.login === 'github-actions[bot]' && i.body && i.body.includes(MARKER))
+              .sort((a, b) => b.number - a.number);
+            const existing = ours[0];
+            const close = async (n, text, reason) => {
+              await github.rest.issues.createComment({ owner, repo, issue_number: n, body: text });
+              await github.rest.issues.update({ owner, repo, issue_number: n, state: 'closed', state_reason: reason });
+            };
+            // Older duplicates: keep only the newest report open
+            for (const dup of ours.slice(1))
+              await close(dup.number, `Duplicate of #${existing.number}, which has the current report. / Duplikat von #${existing.number}.`, 'not_planned');
 
             if (!errors.length && !warnings.length) {
-              if (existing) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number,
-                  body: `✅ main is clean as of ${short} - no errors or warnings left. Closing. / main ist bei ${short} sauber - keine Fehler oder Warnungen mehr. Wird geschlossen.` });
-                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
-              }
+              if (existing)
+                await close(existing.number, `✅ main is clean as of ${short} - no errors or warnings left. Closing. / main ist bei ${short} sauber - keine Fehler oder Warnungen mehr. Wird geschlossen.`, 'completed');
               return;
             }
 
