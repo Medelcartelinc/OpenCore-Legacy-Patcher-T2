@@ -38,6 +38,8 @@ WATCH_DAYS = int(os.environ.get("WATCH_DAYS", "60"))
 FORGET_DAYS = int(os.environ.get("FORGET_DAYS", "365"))
 OFFICIAL_SOURCES = os.environ.get("OFFICIAL_SOURCES", "").strip()
 PROJECT = os.environ.get("PROJECT_NAME", "OpenCore Legacy Patcher")
+# GitHub users mentioned once, in a comment when the warning issue is first created
+MENTIONS = [m if m.startswith("@") else "@" + m for m in os.environ.get("MENTIONS", "").split()]
 
 LABEL = "upstream-typosquat"
 MARKER = "<!-- upstream-typosquat-tracker -->"
@@ -277,6 +279,11 @@ def main():
         if status >= 300:
             raise SystemExit(f"Could not open the warning issue (HTTP {status})")
         pin(data)
+        if MENTIONS:
+            post(f"/repos/{ISSUE_REPO}/issues/{data['number']}/comments",
+                 {"body": "cc " + " ".join(MENTIONS) + 
+                  " for awareness: this issue lists lookalike sites and repositories imitating "
+                  f"{PROJECT}. It's updated automatically; no action needed."})
         return
 
     if body != tracker["body"]:

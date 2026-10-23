@@ -40,6 +40,8 @@ jobs:
           ISSUE_REPO: ${{ github.repository }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           PROJECT_NAME: "OpenCore Legacy Patcher"
+          # Mentioned once, in a comment when the warning issue is first created
+          MENTIONS: "Jazzzny albert-mueller gandolf243"
           # --- GitHub repositories ---
           # Repo names whose lookalikes (and non-fork copies) are checked
           REPO_NAMES: "OpenCore-Legacy-Patcher"
@@ -60,7 +62,8 @@ jobs:
           # A site is only listed if its page mentions one of these (case-insensitive, | separated)
           CONTENT_MARKERS: "opencore legacy patcher|opencore-legacy-patcher|opencorelegacypatcher"
           # Hosts (and their subdomains) that are never listed
-          ALLOWLIST: "github.com githubusercontent.com dortania.github.io albert-mueller.github.io"
+          # oclp.net: possibly a Chinese community site, not verified as a fake
+          ALLOWLIST: "github.com githubusercontent.com dortania.github.io albert-mueller.github.io oclp.net"
           # Entries not seen for this many days are removed from the list
           FORGET_DAYS: "365"
           OFFICIAL_SOURCES: |
