@@ -11,6 +11,7 @@ Closing the warning issue pauses the workflow; reopening it resumes it.
 import base64
 import concurrent.futures as cf
 import datetime
+import html
 import json
 import os
 import re
@@ -152,7 +153,7 @@ def scan_sites(watch):
     found = {}
     for r in results:
         found[r["host"]] = {
-            "title": cell(r["title"]),
+            "title": cell(html.unescape(r["title"])),
             "downloads": cell(", ".join(r["download_hosts"]) or "no download links", 60),
         }
         watch.pop(r["host"], None)  # it has content now, so it's listed normally
