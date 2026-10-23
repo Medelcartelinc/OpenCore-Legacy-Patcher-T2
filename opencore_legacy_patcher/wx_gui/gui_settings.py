@@ -29,7 +29,6 @@ from ..support import (
 from ..datasets import (
     smbios_data,
     os_data,
-    model_array,
 )
 
 

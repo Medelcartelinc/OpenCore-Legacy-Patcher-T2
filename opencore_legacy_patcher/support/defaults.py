@@ -98,15 +98,6 @@ class GenerateDefaults:
         self._load_gui_defaults()
         self._enforce_secure_boot_consistency()
 
-        # "T2 Installer Workaround" (OC Settings > Security) is an Experimental
-        # Feature. _load_gui_defaults() restores GUI:t2_installer_workaround
-        # unconditionally, so without this a value saved while Experimental
-        # Features was on would keep injecting VESA/AMFI boot-args into every
-        # build after it's turned off - while the greyed-out checkbox shows
-        # it as unchecked.
-        if not self.constants.Experimental_Features:
-            self.constants.t2_installer_workaround = False
-
 
     def _general_probe(self) -> None:
         """
