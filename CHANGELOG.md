@@ -1,7 +1,7 @@
 # OpenCore Legacy Patcher T2 changelog / OpenCore Legacy Patcher T2-Änderungsprotokoll
 ## 4.0.0.1900011 - 4.0.0 alpha 19.11
 This release:
-- on T2 Macs, updates T2TahoeFixup.kext to 1.0.7 with in-memory Stage 2 element bypasses (_cs_validate_page) and VFS manifest aliasing to resolve MobileSoftwareUpdate error -81
+- on T2 Macs, updates T2TahoeFixup.kext to 1.0.8, disabling _cs_validate_page by default (gated behind -t2cspage) to resolve the Stage 1 Recovery UI pinwheel/freeze, while preserving VFS manifest aliasing and NVRAM device tree injection to resolve MobileSoftwareUpdate error -81
 - the dark app icon inside the app (main menu logo and About window) is no longer exclusive to macOS 26 Tahoe: it is now used in Dark Mode on every macOS from 10.14 Mojave on. The Dock icon and the app's dialogs keep using the dark icon on Tahoe and newer only.
 - fixes Legacy USB 1.1 root patching on macOS 13 Ventura and newer: the patch set now requires the Kernel Debug Kit, so IOUSBHostFamily and its UHCI/OHCI plugins are kept together in the primary Boot/System Kernel Collections, thx @stephandeutsch (`a53c7e9`)
 - updates PatcherSupportPkg to 2.10 to switch the WiFi patchset to Dortania's
