@@ -50,7 +50,10 @@ BIN_EXT = re.compile(r"\.(dmg|pkg|zip|app|exe|iso|7z|rar|tgz|tar\.gz)$", re.I)
 FILE_HOSTS = ("mediafire.com", "mega.nz", "mega.io", "drive.google.com", "dropbox.com", "bit.ly",
               "tinyurl.com", "t.ly", "cutt.ly", "gofile.io", "pixeldrain.com", "workupload.com",
               "sourceforge.net", "anonfiles.com", "files.fm", "1drv.ms", "is.gd", "rebrand.ly")
-README_OK_HOSTS = ("github.com", "githubusercontent.com", "github.io", "apple.com")
+# Download links in a README that lead here are fine (Apple and the official project)
+README_OK_HOSTS = ("apple.com", "dortania.github.io")
+GITHUB_HOSTS = ("github.com", "www.github.com", "raw.githubusercontent.com")
+MD_LINK = re.compile(r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\((https?://[^)\s]+)\)")
 
 
 def host_in(host, domains):
@@ -67,20 +70,34 @@ def cell(text, limit=80):
 # ------------------------------------------------------------- GitHub repos --
 
 def readme_download_links(full):
-    """Download links in the README that point outside GitHub."""
+    """Where the README's download links and buttons point, apart from the repo itself,
+    the upstream project and Apple. A link counts if it points at an installer or a file
+    host, or is labelled as a download ("Download macOS"), wherever it leads, GitHub included."""
     data = get(f"/repos/{full}/readme") or {}
     try:
         text = base64.b64decode(data.get("content", "")).decode("utf-8", "replace")
     except Exception:
         return []
-    found = set()
+    urls = set(ts.download_links(text, f"https://github.com/{full}/blob/HEAD/"))
+    for label, url in MD_LINK.findall(text):
+        if ts.DOWNLOAD_WORDS.search(ts.fold(label)) or BIN_EXT.search(urllib.parse.urlsplit(url).path):
+            urls.add(url)
     for url in re.findall(r"""(?:\]\(|href\s*=\s*["'])(https?://[^)\s"'<>]+)""", text, re.I):
+        parts = urllib.parse.urlsplit(url)
+        if BIN_EXT.search(parts.path) or host_in((parts.hostname or "").lower(), FILE_HOSTS):
+            urls.add(url)
+    own = {full.lower(), UPSTREAM.lower()}
+    found = set()
+    for url in urls:
         parts = urllib.parse.urlsplit(url)
         host = (parts.hostname or "").lower()
         if not host or host_in(host, README_OK_HOSTS):
             continue
-        if BIN_EXT.search(parts.path) or host_in(host, FILE_HOSTS):
-            found.add(host)
+        if host in GITHUB_HOSTS:
+            repo = "/".join(parts.path.strip("/").split("/")[:2]).lower()
+            if repo in own:
+                continue  # the repo's own files (its releases are checked separately) or upstream
+        found.add(ts.describe_host(url))
     return sorted(found)
 
 
@@ -201,7 +218,7 @@ def render(state):
         "**Official sources**",
         OFFICIAL_SOURCES or f"- https://github.com/{UPSTREAM}",
         "",
-        "This list is updated automatically once a day. **Subscribe** to this issue to be notified when "
+        "This list is updated automatically twice a day. **Subscribe** to this issue to be notified when "
         "new entries are found. If an entry is wrong, or you've found one that's missing, leave a comment.",
         "",
         f"### Websites ({len(sites)})",
@@ -237,7 +254,12 @@ def render(state):
 
 
 def find_tracker():
-    for issue in paginate(f"/repos/{ISSUE_REPO}/issues?labels={LABEL}&state=all&per_page=100"):
+    path = f"/repos/{ISSUE_REPO}/issues?labels={LABEL}&state=all&per_page=100"
+    status, _, _ = request("GET", path)
+    if status >= 300:
+        # Don't mistake an API hiccup for "no warning issue yet" and open a duplicate
+        raise SystemExit(f"Could not look up the warning issue (HTTP {status}); try again later.")
+    for issue in paginate(path):
         if MARKER in (issue.get("body") or "") and "pull_request" not in issue:
             return issue
     return None

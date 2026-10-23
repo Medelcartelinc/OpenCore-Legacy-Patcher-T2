@@ -5,6 +5,7 @@ and open a tracking issue in this repository for each one."""
 import base64
 import concurrent.futures as cf
 import datetime
+import html
 import io
 import json
 import os
@@ -38,6 +39,21 @@ MARKER = "<!-- typosquat-site:{} -->"
 UA = f"Mozilla/5.0 (compatible; typosquat-site-watch; +https://github.com/{ORIGINAL})"
 HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 DOWNLOAD_EXT = re.compile(r"\.(dmg|pkg|zip|app|exe|iso)(\?|#|$)", re.I)
+# A link or button also counts as a download when its label says so, even if the URL has
+# no file extension (e.g. a "Download macOS" button pointing to a GitHub releases page,
+# a file host or the site's own /download page)
+DOWNLOAD_WORDS = re.compile(
+    r"download|herunterladen|t[ée]l[ée]charger|descargar|scaricare|baixar|pobierz|indir|"
+    r"скачать|завантажити|下载|下載|ダウンロード|다운로드", re.I)
+DOWNLOAD_PATH = re.compile(r"/(?:releases|downloads?)(?:/|$)", re.I)
+DOWNLOAD_ATTR = re.compile(r"(?:^|\s)download(?:\s*=|\s|/|$)", re.I)
+CLICKABLE = re.compile(r"<(a|button)\b([^>]*)>(.*?)</\1\s*>", re.I | re.S)
+URL_ATTR = re.compile(r"""\b(?:href|data-href|data-url|data-link|data-download|formaction)\s*=\s*(["'])(.*?)\1""",
+                      re.I | re.S)
+JS_URL = re.compile(r"""(?:location(?:\.href)?\s*=|location\.(?:assign|replace)\s*\(|window\.open\s*\()\s*["'`]([^"'`]+)["'`]""",
+                    re.I)
+LABEL_ATTR = re.compile(r"""\b(?:title|aria-label|alt|class|id|value)\s*=\s*(["'])(.*?)\1""", re.I | re.S)
+TAG = re.compile(r"<[^>]+>")
 
 socket.setdefaulttimeout(10)
 
@@ -199,6 +215,50 @@ def nrd_match(domain):
 
 # ------------------------------------------------------------ inspection --
 
+def link_target(url, base):
+    """Absolute URL of a link, or None for in-page, mail and script-only links."""
+    url = html.unescape(url).strip()
+    if not url or url.lower().startswith(("#", "mailto:", "tel:", "javascript:", "data:")):
+        return None
+    return urllib.parse.urljoin(base, url)
+
+
+def describe_host(url):
+    """Where a link leads: its host, plus the account for GitHub links."""
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "?").lower()
+    if host in ("github.com", "www.github.com"):
+        owner = parts.path.strip("/").split("/")[0]
+        return f"github.com/{owner}" if owner else "github.com"
+    return host
+
+
+def download_links(page, base):
+    """URLs of the links and buttons on a page that offer a download.
+
+    A link counts if it points at an installer file, carries the `download`
+    attribute, leads to a releases/download page, or is labelled as a download
+    ("Download macOS", an icon with alt="Download", class="btn-download", ...),
+    wherever it points to, GitHub included."""
+    found = set()
+    for _tag, attrs, inner in CLICKABLE.findall(page):
+        urls = [u for _q, u in URL_ATTR.findall(attrs)] + JS_URL.findall(html.unescape(attrs))
+        urls = [u for u in (link_target(u, base) for u in urls) if u]
+        if not urls:
+            continue
+        label = " ".join([TAG.sub(" ", inner)] + [v for _q, v in LABEL_ATTR.findall(attrs + " " + inner)])
+        labelled = bool(DOWNLOAD_WORDS.search(fold(html.unescape(label))) or DOWNLOAD_ATTR.search(attrs))
+        for u in urls:
+            if labelled or DOWNLOAD_EXT.search(u) or DOWNLOAD_PATH.search(urllib.parse.urlsplit(u).path):
+                found.add(u)
+    # Anything else on the page that points straight at an installer file
+    for _q, u in URL_ATTR.findall(page):
+        u = link_target(u, base)
+        if u and DOWNLOAD_EXT.search(u):
+            found.add(u)
+    return found
+
+
 def allowed(host, site_host):
     return host == site_host or any(host == a or host.endswith("." + a) for a in ALLOWLIST)
 
@@ -207,19 +267,17 @@ def inspect(host, path):
     ips = resolve(host)
     if not ips:
         return None
-    status, final, html = fetch(f"https://{host}{path}")
-    if not html:
-        status, final, html = fetch(f"http://{host}{path}")
-    if not html:
+    status, final, page = fetch(f"https://{host}{path}")
+    if not page:
+        status, final, page = fetch(f"http://{host}{path}")
+    if not page:
         return None
-    low = fold(html)
+    low = fold(page)
     hits = [m for m in MARKERS if m in low]
     if not hits:
         return None  # resolves, but doesn't present itself as this project
-    title = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
-    links = re.findall(r"""href\s*=\s*["']([^"']+)""", html, re.I)
-    dl_hosts = sorted({urllib.parse.urlsplit(urllib.parse.urljoin(final, link)).hostname or "?"
-                       for link in links if DOWNLOAD_EXT.search(link)})
+    title = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+    dl_hosts = sorted({describe_host(u) for u in download_links(page, final)})
     return {
         "host": host, "url": final, "status": status, "ips": ips,
         "title": re.sub(r"\s+", " ", title.group(1)).strip()[:150] if title else "",

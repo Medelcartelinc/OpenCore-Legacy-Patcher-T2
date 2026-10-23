@@ -6,7 +6,19 @@ name: Upstream typosquat watch
 
 on:
   schedule:
-    - cron: "29 7 * * *"   # daily, 07:29 UTC
+    # Twice a day: GitHub delays scheduled runs by hours under load and sometimes
+    # drops them, so a single daily slot can leave the list stale for two days.
+    - cron: "29 7 * * *"    # 07:29 UTC
+    - cron: "29 19 * * *"   # 19:29 UTC
+  # Refresh right away when the scan settings or scripts change, instead of
+  # waiting for the next scheduled slot
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/upstream-typosquat-watch.yml
+      - .github/scripts/upstream_typosquat_watch.py
+      - .github/scripts/typosquat_sites.py
+      - .github/scripts/typosquat_watch.py
   workflow_dispatch:
     inputs:
       dry_run:
