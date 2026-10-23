@@ -15,9 +15,9 @@ class Constants:
     def __init__(self) -> None:
         # Patcher Versioning
         # Wenn eine Version mit s endet, es heißt, dass sie noch nicht fertig ist.
-        self.patcher_version:                 str = "4.0.0.1900010"
+        self.patcher_version:                 str = "4.0.0.1900011"
         self.patcher_version_label=self.patcher_version
-        self.patcher_support_pkg_version:     str = "2.0.9"  # PatcherSupportPkg
+        self.patcher_support_pkg_version:     str = "2.10"  # PatcherSupportPkg
         self.copyright_date:                  str = "Copyright © 2020-2026 Dortania and OpenCore Legacy Patcher contributors · T2 fork © 2026 Albert Müller"
 
         # Application identity
@@ -924,9 +924,20 @@ class Constants:
 
     @property
     def app_icon_path(self):
-        # macOS 26 Tahoe and newer in Dark Mode get the dark variant of the app icon.
+        # Icon shown OUTSIDE the app windows: Dock icon while running, admin prompts,
+        # update/auto-patcher dialogs, DMG mounts. Only macOS 26 Tahoe and newer in
+        # Dark Mode get the dark variant here, as before.
+        return self._resolve_app_icon(self.use_dark_app_icon)
+
+    @property
+    def in_app_icon_path(self):
+        # Logo drawn INSIDE the app windows (main menu). Gets the dark variant on
+        # every macOS with a Dark Mode, i.e. macOS 10.14 Mojave and newer.
+        return self._resolve_app_icon(self.use_dark_in_app_icon)
+
+    def _resolve_app_icon(self, dark: bool) -> Path:
         # Falls back to the regular icon if the dark file is missing (e.g. an older build).
-        if self.use_dark_app_icon:
+        if dark:
             dark_icon = self.icns_resource_path / Path("OC-Patcher-Dark.icns")
             if dark_icon.exists():
                 return dark_icon
@@ -936,8 +947,21 @@ class Constants:
     def use_dark_app_icon(self) -> bool:
         """
         True when running on macOS 26 Tahoe or newer with Dark Mode active.
+        Used for the Dock icon and the app's system dialogs.
         """
         if self.detected_os >= os_data.os_data.tahoe:
+            return self.system_is_dark_mode()
+        else:
+            return False
+
+    @property
+    def use_dark_in_app_icon(self) -> bool:
+        """
+        True when running on macOS 10.14 Mojave or newer with Dark Mode active.
+        Used only for the logos drawn inside the app (main menu, About).
+        Dark Mode (and NSAppearanceNameDarkAqua) doesn't exist before Mojave.
+        """
+        if self.detected_os >= os_data.os_data.mojave:
             return self.system_is_dark_mode()
         else:
             return False
@@ -970,7 +994,8 @@ class Constants:
 
     @property
     def app_icon_path_png(self):
-        if self.use_dark_app_icon:
+        # Only used inside the app (About window), so Mojave+ like in_app_icon_path
+        if self.use_dark_in_app_icon:
             dark_icon = self.icns_resource_path / Path("OC-Patcher-Dark.png")
             # In the built app the PNG lives in OpenCore-Patcher-T2.assets, not on disk
             from .support import image_handler
