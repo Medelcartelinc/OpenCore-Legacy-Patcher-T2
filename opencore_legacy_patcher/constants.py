@@ -878,9 +878,31 @@ class Constants:
         return self.amc_kext_folder / Path("Contents")
 
     # Tools
+    def _opencore_utility_path(self, utility: str, for_t2: bool = None) -> Path:
+        """
+        Path to an OpenCore utility (macserial, ocvalidate) matching the OpenCore payload:
+        payloads/OpenCore/<utility> for T2 Macs (our OpenCorePkg fork),
+        payloads/OpenCore/<utility>-non-t2 for every other Mac (OpenCore 1.0.8)
+
+        for_t2 defaults to opencore_build_for_t2, which efi_builder/build.py sets for the target model
+        """
+        if for_t2 is None:
+            for_t2 = self.opencore_build_for_t2
+        if for_t2 is True:
+            return self.payload_path / Path(f"OpenCore/{utility}")
+        if for_t2 is False:
+            return self.payload_path / Path(f"OpenCore/{utility}-non-t2")
+        raise ValueError(f"for_t2 must be True or False, got {for_t2!r}")
+
+    def macserial_path_for(self, for_t2: bool) -> Path:
+        return self._opencore_utility_path("macserial", for_t2)
+
+    def ocvalidate_path_for(self, for_t2: bool) -> Path:
+        return self._opencore_utility_path("ocvalidate", for_t2)
+
     @property
     def macserial_path(self):
-        return self.payload_path / Path("OpenCore/macserial")
+        return self._opencore_utility_path("macserial")
 
     @property
     def vault_path(self):
@@ -888,7 +910,7 @@ class Constants:
 
     @property
     def ocvalidate_path(self):
-        return self.payload_path / Path("OpenCore/ocvalidate")
+        return self._opencore_utility_path("ocvalidate")
 
     @property
     def oclp_helper_path(self):

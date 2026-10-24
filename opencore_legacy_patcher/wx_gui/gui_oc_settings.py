@@ -1062,7 +1062,10 @@ class OCSettingsFrame(wx.Frame):
         if dlg.ShowModal() != wx.ID_YES:
             return
 
-        macserial_output = subprocess.run([self.constants.macserial_path, "--generate", "--model", self.constants.custom_model or self.constants.computer.real_model, "--num", "1"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        target_model = self.constants.custom_model or self.constants.computer.real_model
+        # No EFI build has run yet, so opencore_build_for_t2 may not match this model - pick macserial explicitly
+        macserial_path = self.constants.macserial_path_for(target_model in model_array.T2Macs)
+        macserial_output = subprocess.run([macserial_path, "--generate", "--model", target_model, "--num", "1"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         macserial_output = macserial_output.stdout.decode().strip().split(" | ")
         if len(macserial_output) == 2:
             self.custom_serial_number_textbox.SetValue(macserial_output[0])
