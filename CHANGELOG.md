@@ -5,6 +5,7 @@ I have a critical warning to you: as of the time of writing, attackers have set 
 This version:
 - updates apfs_aligned.efi to the latest version to add FileVault 2 support for macOS 26 Tahoe
 - adds ocvalidate and macserial that match OpenCore 1.0.8 for non-T2 Macs
+- updates ExFatDxeLegacy.efi to the latest version
 
 ## 4.0.0.1900011 - 4.0.0 alpha 19.11
 This release:
