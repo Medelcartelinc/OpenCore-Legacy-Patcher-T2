@@ -370,7 +370,13 @@ class BuildSMBIOS:
 
             # Board Serial Number
             self.config["PlatformInfo"]["SMBIOS"]["BoardSerialNumber"] = mlb
-            self.config["PlatformInfo"]["PlatformNVRAM"]["BoardSerialNumber"] = mlb
+            if self.constants.opencore_build_for_t2 is True:
+                # T2 Macs (own OpenCorePkg fork): unchanged behaviour
+                self.config["PlatformInfo"]["PlatformNVRAM"]["BoardSerialNumber"] = mlb
+            else:
+                # Non-T2 Macs (OpenCore 1.0.8): PlatformNVRAM has no "BoardSerialNumber" key,
+                # the board serial is written to NVRAM via "MLB" instead
+                self.config["PlatformInfo"]["PlatformNVRAM"]["MLB"] = mlb
             self.config["NVRAM"]["Add"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"]["OCLP-Spoofed-MLB"] = mlb
 
 
@@ -425,7 +431,12 @@ class BuildSMBIOS:
         self.config["PlatformInfo"]["UpdateNVRAM"] = True
         self.config["PlatformInfo"]["UpdateSMBIOS"] = True
         self.config["UEFI"]["ProtocolOverrides"]["DataHub"] = True
-        self.config["PlatformInfo"]["Generic"]["ROM"] = binascii.unhexlify("112233000000")
+        if self.constants.opencore_build_for_t2 is True:
+            # T2 Macs: unchanged behaviour
+            self.config["PlatformInfo"]["Generic"]["ROM"] = binascii.unhexlify("112233000000")
+        else:
+            # Non-T2 Macs: same as Dortania (Apple OUI 00:16:CB)
+            self.config["PlatformInfo"]["Generic"]["ROM"] = binascii.unhexlify("0016CB445566")
         self.config["PlatformInfo"]["Generic"]["SystemProductName"] = self.spoofed_model
         self.config["PlatformInfo"]["Generic"]["SystemSerialNumber"] = sn
         self.config["PlatformInfo"]["Generic"]["MLB"] = mlb
