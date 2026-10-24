@@ -9,6 +9,7 @@ from packaging import version
 
 from .datasets import os_data
 from .detections import device_probe
+from .support import gatekeeper
 
 
 class Constants:
@@ -889,10 +890,15 @@ class Constants:
         if for_t2 is None:
             for_t2 = self.opencore_build_for_t2
         if for_t2 is True:
-            return self.payload_path / Path(f"OpenCore/{utility}")
-        if for_t2 is False:
-            return self.payload_path / Path(f"OpenCore/{utility}-non-t2")
-        raise ValueError(f"for_t2 must be True or False, got {for_t2!r}")
+            utility_path = self.payload_path / Path(f"OpenCore/{utility}")
+        elif for_t2 is False:
+            utility_path = self.payload_path / Path(f"OpenCore/{utility}-non-t2")
+        else:
+            raise ValueError(f"for_t2 must be True or False, got {for_t2!r}")
+
+        # A quarantined download makes Gatekeeper refuse to launch these unsigned
+        # binaries, which used to abort the whole OpenCore build/installation
+        return gatekeeper.prepare_executable(utility_path)
 
     def macserial_path_for(self, for_t2: bool) -> Path:
         return self._opencore_utility_path("macserial", for_t2)
