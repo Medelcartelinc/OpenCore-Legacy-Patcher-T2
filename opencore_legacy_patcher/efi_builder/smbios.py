@@ -410,8 +410,26 @@ class BuildSMBIOS:
         """
 
         if self.constants.custom_serial_number == "" or self.constants.custom_board_serial_number == "":
-            macserial_result = subprocess.run([self.constants.macserial_path, "--generate", "--model", self.spoofed_model, "--num", "1"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            macserial_output = macserial_result.stdout.decode().strip().split(" | ")
+            macserial_path = self.constants.macserial_path
+            try:
+                macserial_result = subprocess.run(
+                    [macserial_path, "--generate", "--model", self.spoofed_model, "--num", "1"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(
+                    f"macserial ({macserial_path.name}) did not respond within 60 seconds. "
+                    "macOS may be blocking it (Gatekeeper/quarantine) - try running "
+                    f"'xattr -dr com.apple.quarantine' on the patcher, then build again."
+                )
+            macserial_output = macserial_result.stdout.decode(errors="replace").strip().split(" | ")
+            if macserial_result.returncode < 0:
+                # Killed by a signal: Gatekeeper/code signing refused to run the binary
+                raise RuntimeError(
+                    f"macOS refused to run macserial ({macserial_path.name}, signal {-macserial_result.returncode}). "
+                    "This usually means the downloaded patcher is still under Gatekeeper quarantine - try running "
+                    "'xattr -dr com.apple.quarantine' on the patcher, then build again."
+                )
             if macserial_result.returncode != 0 or len(macserial_output) < 2:
                 raise RuntimeError(
                     f"macserial could not generate a serial number/MLB pair for SMBIOS model '{self.spoofed_model}' "

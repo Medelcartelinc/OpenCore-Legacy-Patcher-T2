@@ -6,6 +6,7 @@ This version:
 - moves T2 Installer Workaround from Security to General and no longer requires Experimental Features to be enabled
 - updates apfs_aligned.efi to the latest version to add FileVault 2 support for macOS 26 Tahoe
 - adds ocvalidate and macserial that match OpenCore 1.0.8 for non-T2 Macs
+- fixes a bug where Gatekeeper could put macserial-non-t2 (and the other bundled OpenCore utilities) under quarantine, which made macOS refuse to run it and halted the entire OpenCore build/installation. The quarantine flag is now cleared before these tools are run
 - fixes a bizzare bug where users may have to unspoof their SMBIOS during installation by using Target Disk mode, just to be able to continue installation - the bug was that non-T2 SMBIOS spoofing was handled the same way as for T2 Macs
 - updates ExFatDxeLegacy.efi to the latest version
 
