@@ -72,15 +72,12 @@ class OCSettingsFrame(wx.Frame):
 
         tabs = list(self.settings.keys())
         for tab in tabs:
-            if tab == "Security":
-                # The Security tab's SIP checkbox matrix (_populate_sip_settings)
-                # is sized dynamically and can exceed the fixed dialog height,
-                # clipping the bottom rows off screen. Make this page scrollable
-                # so the extra content stays reachable instead of being cut off.
-                panel = wx.ScrolledWindow(notebook)
-                panel.SetScrollRate(0, 20)
-            else:
-                panel = wx.Panel(notebook)
+            # Every page is scrollable: General (e.g. "Disable internal SSD") and the
+            # Security tab's SIP checkbox matrix (_populate_sip_settings) both outgrow
+            # the fixed dialog height, and anything below the bottom edge was simply
+            # cut off. Vertical scrolling only; columns are laid out to fit the width.
+            panel = wx.ScrolledWindow(notebook, style=wx.VSCROLL)
+            panel.SetScrollRate(0, 20)
             notebook.AddPage(panel, tab)
 
         sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
@@ -137,7 +134,7 @@ class OCSettingsFrame(wx.Frame):
         # wx.Notebook only lays out its currently active page, so a hidden
         # page's scrolled window can end up with stale scrollbar metrics
         # from before it had its final size. Re-adjust on every tab switch
-        # to keep the Security tab's scrollbar correct.
+        # to keep each page's scrollbar correct.
         notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_oc_settings_tab_changed)
         self._oc_settings_notebook = notebook
 
@@ -207,7 +204,7 @@ class OCSettingsFrame(wx.Frame):
 
                 if setting_info["type"] == "wrap_around":
                     height = highest_height_reached
-                    # On a scrollable page (currently only Security), a vertical
+                    # On a scrollable page (now every page), a vertical
                     # scrollbar eats into the panel's own width from the right
                     # edge. The right column is otherwise positioned as if the
                     # full frame width were available, which ran right-column
@@ -319,11 +316,15 @@ class OCSettingsFrame(wx.Frame):
                 lowest_height_reached = height
 
             if isinstance(panel, wx.ScrolledWindow):
-                # Finalise the scrollable Security tab now that its full content
-                # height (including populate-function widgets) is known, so the
-                # SIP checkbox matrix and everything above it stay reachable
-                # instead of being clipped by the fixed dialog height.
-                panel.SetVirtualSize((int(horizontal_center * 2), lowest_height_reached + 50))
+                # Finalise the page's scroll area now that its full content height is
+                # known. The running 'height' is only an estimate of how tall wrapped
+                # descriptions render, so also measure the real bottom edge of every
+                # child; otherwise the last lines of a page could still end up clipped.
+                for child in panel.GetChildren():
+                    child_bottom = child.GetPosition()[1] + child.GetSize()[1]
+                    if child_bottom > lowest_height_reached:
+                        lowest_height_reached = child_bottom
+                panel.SetVirtualSize((int(horizontal_center * 2), lowest_height_reached + 30))
                 panel.AdjustScrollbars()
 
 
@@ -1172,8 +1173,8 @@ class OCSettingsFrame(wx.Frame):
         """
         wx.Notebook only lays out its currently active page, so a scrolled
         page's virtual size/scrollbars can be stale until it's actually
-        shown. Re-adjust the Security tab's scrollbars each time it's
-        selected to avoid this.
+        shown. Re-adjust the page's scrollbars each time it's selected to
+        avoid this.
         """
         page = self._oc_settings_notebook.GetPage(event.GetSelection())
         if isinstance(page, wx.ScrolledWindow):
